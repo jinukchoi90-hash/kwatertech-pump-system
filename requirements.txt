@@ -1,0 +1,6 @@
+streamlit
+openpyxl
+matplotlib
+numpy
+pillow
+qrcode
