@@ -1,7 +1,8 @@
 import os
 import io
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
+import random
 import streamlit as st
 import pandas as pd
 import openpyxl
@@ -143,29 +144,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 USER_DB = [
-    {"id": "kwatertech최진욱", "name": "최진욱", "dept": "밀양권사업소", "role": "정밀진단원 / 관리자", "status": "접속중"}
+    {"id": "kwatertech최진욱", "name": "최진욱", "dept": "밀양정수장", "role": "정밀진단원 / 관리자", "status": "접속중"}
 ]
 
 CATEGORIES = {"성능": 40, "내부상태": 27, "기계상태": 25, "정비이력": 5}
 
+# 10대 설비 생성 (밀양정수장 가압펌프 #1 ~ #10)
 DEFAULT_PUMPS = [
-    {"site": "밀양권사업소", "equip": "가압펌프 #1", "maker": "효성펌프", "model": "DHP-1", "hp": "150", "head": "45", "build_date": "2018-05-20"},
-    {"site": "밀양권사업소", "equip": "가압펌프 #2", "maker": "효성펌프", "model": "DHP-1", "hp": "150", "head": "45", "build_date": "2018-05-20"},
-    {"site": "밀양권사업소", "equip": "취수펌프 #1", "maker": "현대중공업", "model": "VTP-200", "hp": "250", "head": "60", "build_date": "2019-11-10"},
-    {"site": "청주권사업소", "equip": "송수펌프 #1", "maker": "KSB", "model": "Eta-100", "hp": "200", "head": "50", "build_date": "2020-03-15"}
+    {
+        "site": "밀양정수장",
+        "equip": f"가압펌프 #{i}",
+        "maker": "효성펌프" if i % 2 == 1 else "현대중공업",
+        "model": f"DHP-{i}" if i % 2 == 1 else f"VTP-{i*10}",
+        "hp": str(150 + (i * 10)),
+        "head": str(45 + (i * 2)),
+        "build_date": f"2018-0{min(i, 9)}-15" if i < 10 else "2018-10-15"
+    } for i in range(1, 11)
 ]
-
-def seed_sample_data():
-    if os.path.exists(DB_FILE_PATH):
-        wb = load_workbook(DB_FILE_PATH)
-        ws = wb["진단이력"]
-        if ws.max_row <= 1:
-            ws.append(["2026-08-10", "밀양권사업소", "가압펌프 #1", "효성펌프", "DHP-1", "150", "45", "2018-05-20", "최진욱", 92.5, "A"] + ["A"]*17)
-            ws.append(["2026-08-12", "밀양권사업소", "가압펌프 #2", "효성펌프", "DHP-1", "150", "45", "2018-05-20", "최진욱", 84.0, "B"] + ["B"]*17)
-            ws.append(["2026-08-14", "밀양권사업소", "취수펌프 #1", "현대중공업", "VTP-200", "250", "60", "2019-11-10", "최진욱", 76.5, "C"] + ["C"]*17)
-            ws.append(["2026-08-14", "청주권사업소", "송수펌프 #1", "KSB", "Eta-100", "200", "50", "2020-03-15", "최진욱", 88.0, "B"] + ["B"]*17)
-            wb.save(DB_FILE_PATH)
-        wb.close()
 
 # ============================================================
 # 2. 판정 로직 및 DB 초기화
@@ -290,7 +285,6 @@ def ensure_db_exists():
         ws = wb.active
         ws.title = "노하우DB"
         ws.append(["등록일자", "분류", "관련모델", "현상및원인", "해결노하우", "작성자"])
-        ws.append(["2026-03-10", "진동/소음 원인 해결", "DHP 계열", "베어링 결함 주파수(2X) 피크 발생", "베어링 윤활유 교체 및 런아웃 재조정으로 진동 7.5 -> 1.8mm/s 감소", "최진욱"])
         wb.save(KNOWHOW_DB_PATH)
 
     if not os.path.exists(DAILY_LOG_DB_PATH):
@@ -305,10 +299,64 @@ def ensure_db_exists():
         ws = wb.active
         ws.title = "위험작업허가"
         ws.append(["신청일자", "작업명", "대상설비", "위험유형", "작업기간", "신청자", "승인상태", "안전조치사항"])
-        ws.append(["2026-08-14", "취수펌프 #1 오버홀 분해작업", "취수펌프 #1", "밀폐공간 / 고소작업", "2026-08-15~2026-08-18", "최진욱", "승인완료", "LOTO 차단, 가스농도 측정, 안전대 착용"])
         wb.save(SAFETY_PERMIT_DB_PATH)
 
 ensure_db_exists()
+
+# 2년치(2024~2026년) 임의 샘플 데이터 생성
+def seed_sample_data():
+    wb = load_workbook(DB_FILE_PATH)
+    ws = wb["진단이력"]
+    if ws.max_row <= 1:
+        dates = ["2024-03-15", "2024-09-10", "2025-03-20", "2025-08-15", "2026-02-10", "2026-08-14"]
+        for p in DEFAULT_PUMPS:
+            for dt in dates:
+                score = round(random.uniform(72.0, 96.5), 1)
+                if score >= 90: grade = "A"
+                elif score >= 80: grade = "B"
+                elif score >= 70: grade = "C"
+                elif score >= 60: grade = "D"
+                else: grade = "E"
+                
+                item_grades = [random.choice(["A+", "A", "B+", "B", "C+", "C"]) for _ in range(17)]
+                ws.append([dt, p["site"], p["equip"], p["maker"], p["model"], p["hp"], p["head"], p["build_date"], "최진욱", score, grade] + item_grades)
+        wb.save(DB_FILE_PATH)
+    wb.close()
+
+    # 오버홀 DB 2년치
+    wb_o = load_workbook(OVERHAUL_DB_PATH)
+    ws_o = wb_o["오버홀이력"]
+    if ws_o.max_row <= 1:
+        steps = ["1단계: 분해/해체 점검", "2단계: 부품 가공 및 신품 교체", "3단계: 조립 및 센터링", "4단계: 시운전 및 완료"]
+        for i in range(1, 11):
+            ws_o.append([f"2024-{i%9+1:02d}-10", "밀양정수장", f"가압펌프 #{i}", steps[0], "최진욱", "임펠러 해체 및 마모 상태 점검", "No Image"])
+            ws_o.append([f"2025-{i%9+1:02d}-15", "밀양정수장", f"가압펌프 #{i}", steps[2], "최진욱", "축슬리브 교체 및 모터 센터링 완료", "No Image"])
+            ws_o.append([f"2026-0{min(i,8)+1}-20", "밀양정수장", f"가압펌프 #{i}", steps[3], "최진욱", "정기 오버홀 완료 및 정상 시운전", "No Image"])
+        wb_o.save(OVERHAUL_DB_PATH)
+    wb_o.close()
+
+    # 점검일지 2년치
+    wb_d = load_workbook(DAILY_LOG_DB_PATH)
+    ws_d = wb_d["점검일지"]
+    if ws_d.max_row <= 1:
+        for i in range(1, 11):
+            ws_d.append(["2024-05-10", "최진욱", f"가압펌프 #{i}", "양호", "양호", "양호", "정상 운전 확인"])
+            ws_d.append(["2025-06-12", "최진욱", f"가압펌프 #{i}", "양호", "양호", "양호", "베어링 윤활유 보충"])
+            ws_d.append(["2026-08-14", "최진욱", f"가압펌프 #{i}", "양호", "양호", "양호", "특이사항 없음"])
+        wb_d.save(DAILY_LOG_DB_PATH)
+    wb_d.close()
+
+    # 위험작업허가 2년치
+    wb_s = load_workbook(SAFETY_PERMIT_DB_PATH)
+    ws_s = wb_s["위험작업허가"]
+    if ws_s.max_row <= 1:
+        for i in range(1, 11):
+            ws_s.append(["2024-04-10", f"가압펌프 #{i} 오버홀 작업", f"가압펌프 #{i}", "고소/위험성 작업", "2024-04-10~2024-04-15", "최진욱", "승인완료", "LOTO 차단 완료"])
+            ws_s.append(["2025-07-20", f"가압펌프 #{i} 모터 정비", f"가압펌프 #{i}", "정전/전기 작업", "2025-07-20~2025-07-22", "최진욱", "승인완료", "안전장구 착용"])
+            ws_s.append(["2026-08-14", f"가압펌프 #{i} 정밀 점검", f"가압펌프 #{i}", "밀폐공간 작업", "2026-08-14~2026-08-16", "최진욱", "승인대기", "가스농도 측정 완료"])
+        wb_s.save(SAFETY_PERMIT_DB_PATH)
+    wb_s.close()
+
 seed_sample_data()
 
 if "pump_list" not in st.session_state:
@@ -327,7 +375,43 @@ for idx, item in enumerate(EVAL_ITEMS):
         st.session_state[f"selected_grade_{idx}"] = item[4][0]
 
 # ============================================================
-# 3. 로그인 화면
+# 3. 공통 엑셀 다운로드 모달 팝업 (@st.dialog)
+# ============================================================
+@st.dialog("📥 엑셀 데이터 다운로드 확인")
+def confirm_excel_download_dialog(df_data, file_label):
+    st.write(f"### 📄 **[{file_label}]**")
+    st.info("선택하신 메뉴의 전체 데이터를 엑셀(XLSX) 파일로 다운로드하시겠습니까?")
+    
+    st.dataframe(df_data.head(5), use_container_width=True)
+    st.caption("※ 상위 5개 항목 데이터 미리보기")
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_data.to_excel(writer, index=False, sheet_name="Data")
+    excel_bytes = output.getvalue()
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button(
+            label="✅ 예 (엑셀 다운로드)",
+            data=excel_bytes,
+            file_name=f"Kwater_{file_label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+    with c2:
+        if st.button("❌ 아니오 (취소)", use_container_width=True):
+            st.rerun()
+
+def render_download_button_header(df_data, file_label):
+    h_col1, h_col2 = st.columns([3.5, 1.2])
+    with h_col2:
+        if st.button(f"📥 {file_label} 엑셀 다운", key=f"dl_btn_{file_label}"):
+            confirm_excel_download_dialog(df_data, file_label)
+
+# ============================================================
+# 4. 로그인 화면
 # ============================================================
 if not st.session_state.logged_in:
     _, center_col, _ = st.columns([0.1, 3.8, 0.1])
@@ -376,7 +460,7 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ============================================================
-# 4. 팝업 모달 다이얼로그 (@st.dialog)
+# 5. 팝업 모달 다이얼로그 (@st.dialog)
 # ============================================================
 @st.dialog("📖 사내 펌프 정밀 진단 기준 및 가이드라인")
 def show_guideline_dialog():
@@ -416,7 +500,7 @@ def confirm_add_pump_dialog():
             st.rerun()
 
 # ============================================================
-# 5. 모바일 사이드바 메뉴
+# 6. 모바일 사이드바 메뉴
 # ============================================================
 def navigate_to(menu_name):
     st.session_state.nav_menu = menu_name
@@ -477,19 +561,24 @@ with head_c2:
 st.write("---")
 
 # ============================================================
-# [메인 화면 메뉴 구동]
+# [메인 화면 메뉴 구동 및 메뉴별 엑셀 다운로드 연동]
 # ============================================================
 
 # --- 1.1. 설비 통합 대시보드 ---
 if st.session_state.nav_menu == "1.1. 설비 통합 대시보드":
-    st.subheader("📊 설비 건전성 현황판")
-    
     wb = load_workbook(DB_FILE_PATH, data_only=True)
     ws = wb["진단이력"]
-    latest_grades = {}
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[2]: latest_grades[row[2]] = row[10]
+    diag_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
     wb.close()
+    df_dash = pd.DataFrame(diag_records[1:], columns=diag_records[0]) if len(diag_records) > 1 else pd.DataFrame()
+
+    render_download_button_header(df_dash, "대시보드_진단이력")
+
+    st.subheader("📊 설비 건전성 현황판 (밀양정수장 가압펌프 #1~#10)")
+    latest_grades = {}
+    if not df_dash.empty:
+        for _, row in df_dash.iterrows():
+            latest_grades[row["설비명"]] = row["최종등급"]
 
     total_cnt = len(st.session_state.pump_list)
     grade_counts = {"A": 0, "B": 0, "C": 0, "D": 0, "E": 0}
@@ -513,32 +602,30 @@ if st.session_state.nav_menu == "1.1. 설비 통합 대시보드":
         st.success("현재 D/E 등급의 위험 설비가 없습니다.")
 
     st.write("---")
-    st.subheader("📜 [통합 이력] 전체 펌프 정밀 진단 이력")
-    wb = load_workbook(DB_FILE_PATH, data_only=True)
-    ws = wb["진단이력"]
-    diag_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
-    wb.close()
-    if len(diag_records) > 1:
-        df_diag = pd.DataFrame(diag_records[1:], columns=diag_records[0])
-        st.dataframe(df_diag, use_container_width=True)
+    st.subheader("📜 [통합 이력] 전체 펌프 2년치 정밀 진단 이력")
+    if not df_dash.empty:
+        st.dataframe(df_dash, use_container_width=True)
     else:
         st.info("등록된 정밀 진단 이력이 없습니다.")
 
 # --- 1.2. 설비 마스터 관리 ---
 elif st.session_state.nav_menu == "1.2. 설비 마스터 관리":
-    st.subheader("📋 설비 마스터 등록 및 관리")
-    st.dataframe(pd.DataFrame(st.session_state.pump_list), use_container_width=True)
+    df_pumps = pd.DataFrame(st.session_state.pump_list)
+    render_download_button_header(df_pumps, "설비마스터목록")
+
+    st.subheader("📋 설비 마스터 등록 및 관리 (밀양정수장 10대)")
+    st.dataframe(df_pumps, use_container_width=True)
 
     with st.expander("➕ 신규 펌프 설비 등록하기"):
         with st.form("add_pump_form"):
             c1, c2, c3 = st.columns(3)
-            new_site = c1.text_input("사업장명", value="밀양권사업소")
-            new_equip = c2.text_input("설비명 (호기)", value="가압펌프 #3")
+            new_site = c1.text_input("사업장명", value="밀양정수장")
+            new_equip = c2.text_input("설비명 (호기)", value="가압펌프 #11")
             new_maker = c3.text_input("제조사", value="효성펌프")
             c4, c5, c6 = st.columns(3)
-            new_model = c4.text_input("모델명", value="DHP-2")
-            new_hp = c5.text_input("마력 (HP)", value="150")
-            new_head = c6.text_input("양정 (m)", value="45")
+            new_model = c4.text_input("모델명", value="DHP-11")
+            new_hp = c5.text_input("마력 (HP)", value="250")
+            new_head = c6.text_input("양정 (m)", value="65")
             new_build = st.text_input("준공일자", value=datetime.now().strftime("%Y-%m-%d"))
             
             if st.form_submit_button("등록 신청", type="primary"):
@@ -554,6 +641,13 @@ elif st.session_state.nav_menu == "1.2. 설비 마스터 관리":
 # --- 2.1. 펌프 정밀 진단 (17개) ---
 elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
     init_korean_font()
+    wb = load_workbook(DB_FILE_PATH, data_only=True)
+    ws = wb["진단이력"]
+    records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    df_diag_all = pd.DataFrame(records[1:], columns=records[0]) if len(records) > 1 else pd.DataFrame()
+    render_download_button_header(df_diag_all, "정밀진단전체이력")
+
     st.subheader("📋 설비 선택 및 기본정보")
     pump_names = [p["equip"] for p in st.session_state.pump_list]
     selected_pump_name = st.selectbox("진단할 펌프 설비를 선택하세요", pump_names)
@@ -687,81 +781,24 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
             wb.save(DB_FILE_PATH)
             st.success("통합 DB에 저장되었습니다!")
 
-        def generate_excel_report(fig_obj):
-            output = io.BytesIO()
-            img_buf = io.BytesIO()
-            fig_obj.savefig(img_buf, format='png', bbox_inches='tight', dpi=150)
-            img_buf.seek(0)
-            
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "진단 보고서"
-            ws.merge_cells("A1:G1")
-            ws["A1"] = "K-water tech 펌프 종합 진단 보고서"
-            ws["A1"].font = Font(size=16, bold=True, color="FFFFFF")
-            ws["A1"].fill = PatternFill("solid", fgColor="1E293B")
-            ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-            
-            info_rows = [
-                ("사업장", site, "설비명", equip),
-                ("제조사 / 모델", f"{maker} / {model}", "마력 / 양정", f"{hp} HP / {head} m"),
-                ("준공일", build_date, "점검일 / 점검자", f"{check_date} / {inspector}")
-            ]
-            r = 3
-            for row in info_rows:
-                ws.cell(r, 1, row[0]).font = Font(bold=True)
-                ws.cell(r, 2, row[1])
-                ws.cell(r, 5, row[2]).font = Font(bold=True)
-                ws.cell(r, 6, row[3])
-                r += 1
-                
-            r += 1
-            headers = ["구분", "평가 항목", "배점", "측정값(결과)", "판정 기준값", "판정 등급", "환산 점수"]
-            for c, h in enumerate(headers, 1):
-                cell = ws.cell(r, c, h)
-                cell.fill = PatternFill("solid", fgColor="2563EB")
-                cell.font = Font(bold=True, color="FFFFFF")
-                cell.alignment = Alignment(horizontal="center")
-                
-            r += 1
-            for d in details:
-                vals = [d["category"], d["item"], d["weight"], d["val"], d["std"], d["grade"], d["score"]]
-                for c, val in enumerate(vals, 1):
-                    ws.cell(r, c, val)
-                r += 1
-                
-            r += 2
-            ws.cell(r, 1, "■ 설비 상태 진단 및 5종 분석 차트").font = Font(bold=True)
-            img = OpenpyxlImage(img_buf)
-            img.width = 500
-            img.height = 650
-            ws.add_image(img, f"A{r+1}")
-                
-            wb.save(output)
-            return output.getvalue()
-
-        st.download_button(
-            label="📥 엑셀 보고서 다운로드 (차트 포함)",
-            data=generate_excel_report(fig),
-            file_name=f"Kwater_펌프진단보고서_{equip}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-
     st.write("---")
     with st.expander("📜 [이력 조회] 선택 펌프의 지난 정밀 진단 기록 보기", expanded=True):
-        wb = load_workbook(DB_FILE_PATH, data_only=True)
-        ws = wb["진단이력"]
-        records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
-        wb.close()
-        filtered = [records[0]] + [r for r in records[1:] if r[2] == selected_pump_name]
-        if len(filtered) > 1:
-            st.dataframe(pd.DataFrame(filtered[1:], columns=filtered[0]), use_container_width=True)
+        if not df_diag_all.empty:
+            filtered_df = df_diag_all[df_diag_all["설비명"] == selected_pump_name]
+            st.dataframe(filtered_df, use_container_width=True)
         else:
             st.info(f"{selected_pump_name}의 지난 진단 이력이 없습니다.")
 
 # --- 2.2. 일상/정기 점검일지 ---
 elif st.session_state.nav_menu == "2.2. 일상/정기 점검일지":
+    wb = load_workbook(DAILY_LOG_DB_PATH, data_only=True)
+    ws = wb["점검일지"]
+    logs = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    df_logs = pd.DataFrame(logs[1:], columns=logs[0]) if len(logs) > 1 else pd.DataFrame()
+
+    render_download_button_header(df_logs, "일상점검일지이력")
+
     st.subheader("📅 일상 및 정기 점검 일지 기록")
     
     with st.form("daily_log_form"):
@@ -787,34 +824,25 @@ elif st.session_state.nav_menu == "2.2. 일상/정기 점검일지":
             ])
             wb.save(DAILY_LOG_DB_PATH)
             st.success("일상 점검일지가 성공적으로 저장되었습니다!")
+            st.rerun()
 
     st.write("---")
-    st.subheader("📜 [이력 조회] 지난 일상/정기 점검일지 전체 목록")
-    wb = load_workbook(DAILY_LOG_DB_PATH, data_only=True)
-    ws = wb["점검일지"]
-    logs = [row for row in ws.iter_rows(min_row=1, values_only=True)]
-    wb.close()
-    if len(logs) > 1:
-        st.dataframe(pd.DataFrame(logs[1:], columns=logs[0]), use_container_width=True)
+    st.subheader("📜 [이력 조회] 지난 일상/정기 점검일지 전체 목록 (2년치)")
+    if not df_logs.empty:
+        st.dataframe(df_logs, use_container_width=True)
     else:
         st.info("등록된 점검일지 이력이 없습니다.")
 
-    def generate_daily_log_excel():
-        output = io.BytesIO()
-        wb = load_workbook(DAILY_LOG_DB_PATH)
-        wb.save(output)
-        return output.getvalue()
-
-    st.download_button(
-        label="📥 일상/정기 점검일지 전체 이력 (엑셀) 다운로드",
-        data=generate_daily_log_excel(),
-        file_name=f"Kwater_일상점검일지_{datetime.now().strftime('%Y%m%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="secondary"
-    )
-
 # --- 3.1. 오버홀 공정/사진 관리 ---
 elif st.session_state.nav_menu == "3.1. 오버홀 공정/사진 관리":
+    wb = load_workbook(OVERHAUL_DB_PATH, data_only=True)
+    ws = wb["오버홀이력"]
+    o_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    df_overhaul = pd.DataFrame(o_records[1:], columns=o_records[0]) if len(o_records) > 1 else pd.DataFrame()
+
+    render_download_button_header(df_overhaul, "오버홀공정이력")
+
     st.subheader("📷 오버홀 진행 공정 및 현장 사진 등록")
     selected_pump = st.selectbox("오버홀 등록 설비 선택", [p["equip"] for p in st.session_state.pump_list])
     
@@ -834,37 +862,28 @@ elif st.session_state.nav_menu == "3.1. 오버홀 공정/사진 관리":
             
             wb = load_workbook(OVERHAUL_DB_PATH)
             ws = wb["오버홀이력"]
-            ws.append([str(work_date), "밀양권사업소", selected_pump, step, st.session_state.username, work_memo, file_name])
+            ws.append([str(work_date), "밀양정수장", selected_pump, step, st.session_state.username, work_memo, file_name])
             wb.save(OVERHAUL_DB_PATH)
             st.success("오버홀 기록이 등록되었습니다!")
+            st.rerun()
 
     st.write("---")
-    st.subheader("📜 [이력 조회] 지난 오버홀 공정 진행 기록 전체 목록")
-    wb = load_workbook(OVERHAUL_DB_PATH, data_only=True)
-    ws = wb["오버홀이력"]
-    o_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
-    wb.close()
-    if len(o_records) > 1:
-        st.dataframe(pd.DataFrame(o_records[1:], columns=o_records[0]), use_container_width=True)
+    st.subheader("📜 [이력 조회] 지난 오버홀 공정 진행 기록 전체 목록 (2년치)")
+    if not df_overhaul.empty:
+        st.dataframe(df_overhaul, use_container_width=True)
     else:
         st.info("등록된 오버홀 공정 이력이 없습니다.")
 
-    def generate_overhaul_excel():
-        output = io.BytesIO()
-        wb = load_workbook(OVERHAUL_DB_PATH)
-        wb.save(output)
-        return output.getvalue()
-
-    st.download_button(
-        label="📥 오버홀 공정 및 사진 이력 보고서 (엑셀) 다운로드",
-        data=generate_overhaul_excel(),
-        file_name=f"Kwater_오버홀공정이력_{datetime.now().strftime('%Y%m%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="secondary"
-    )
-
 # --- 3.2. 전문 보고서 백데이터 DB ---
 elif st.session_state.nav_menu == "3.2. 전문 보고서 백데이터 DB":
+    wb = load_workbook(DOC_DB_PATH, data_only=True)
+    ws = wb["전문보고서"]
+    doc_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    df_docs = pd.DataFrame(doc_records[1:], columns=doc_records[0]) if len(doc_records) > 1 else pd.DataFrame()
+
+    render_download_button_header(df_docs, "전문보고서백데이터목록")
+
     st.subheader("📁 전문 점검보고서 백데이터 파일 문서고 (아카이빙)")
     
     with st.expander("➕ 전문 점검보고서 (PDF/XLSX/HWP) 업로드 등록"):
@@ -886,50 +905,46 @@ elif st.session_state.nav_menu == "3.2. 전문 보고서 백데이터 DB":
                     
                     wb = load_workbook(DOC_DB_PATH)
                     ws = wb["전문보고서"]
-                    ws.append([datetime.now().strftime('%Y-%m-%d'), "밀양권사업소", doc_pump, doc_type, doc_org, doc_memo, saved_path, doc_file.name])
+                    ws.append([datetime.now().strftime('%Y-%m-%d'), "밀양정수장", doc_pump, doc_type, doc_org, doc_memo, saved_path, doc_file.name])
                     wb.save(DOC_DB_PATH)
                     st.success("보고서 원본 파일이 백데이터 DB에 저장되었습니다!")
                     st.rerun()
 
     st.write("---")
     st.subheader("📜 [이력 조회] 등록된 전문 보고서 아카이빙 전체 이력")
-    wb = load_workbook(DOC_DB_PATH, data_only=True)
-    ws = wb["전문보고서"]
-    doc_records = [row for row in ws.iter_rows(min_row=2, values_only=True)]
-    wb.close()
-
-    if doc_records:
-        for r in reversed(doc_records):
-            col_a, col_b = st.columns([3, 1])
-            col_a.markdown(f"**[{r[3]}] {r[2]}** ({r[0]} | 수행: {r[4]})\n- 요약: {r[5]}")
-            if os.path.exists(r[6]):
-                with open(r[6], "rb") as f:
-                    col_b.download_button("📥 원본 다운로드", data=f, file_name=r[7], key=f"down_{r[6]}")
-            st.write("---")
+    if not df_docs.empty:
+        st.dataframe(df_docs, use_container_width=True)
     else:
         st.info("등록된 전문 보고서가 없습니다.")
 
 # --- 4.1. 성능/상태 5대 추이 분석 ---
 elif st.session_state.nav_menu == "4.1. 성능/상태 5대 추이 분석":
     init_korean_font()
-    st.subheader("📈 펌프 건전성 5대 정밀 추이 분석 그래프")
-    
-    selected_p = st.selectbox("분석 설비 선택", [p["equip"] for p in st.session_state.pump_list])
     dates = ["2024-01", "2024-07", "2025-01", "2025-07", "2026-01", "현재"]
+    df_trend = pd.DataFrame({
+        "점검시기": dates,
+        "효율유지율(%)": [98.5, 96.2, 94.0, 91.5, 88.0, 85.2],
+        "Overall진동(mm/s)": [1.2, 1.5, 2.1, 3.5, 5.2, 7.5],
+        "링간극마모(배수)": [1.0, 1.2, 1.5, 1.8, 2.2, 2.8]
+    })
+    render_download_button_header(df_trend, "2년치_성능상태추이분석데이터")
+
+    st.subheader("📈 펌프 건전성 5대 정밀 추이 분석 그래프 (2년치 데이터)")
+    selected_p = st.selectbox("분석 설비 선택", [p["equip"] for p in st.session_state.pump_list])
 
     fig_all, axes = plt.subplots(3, 2, figsize=(12, 12))
 
-    axes[0, 0].plot(dates, [98.5, 96.2, 94.0, 91.5, 88.0, 85.2], marker='o', color='#2563EB')
+    axes[0, 0].plot(dates, df_trend["효율유지율(%)"], marker='o', color='#2563EB')
     axes[0, 0].set_title("1. 효율 유지율 (%) 추이", fontweight='bold')
     axes[0, 0].grid(True, linestyle='--')
 
-    axes[0, 1].plot(dates, [1.2, 1.5, 2.1, 3.5, 5.2, 7.5], marker='s', color='#DC2626')
+    axes[0, 1].plot(dates, df_trend["Overall진동(mm/s)"], marker='s', color='#DC2626')
     axes[0, 1].axhline(7.1, color='orange', linestyle='--', label='경고 기준 (7.1)')
     axes[0, 1].set_title("2. Overall 진동 (mm/s) 추이", fontweight='bold')
     axes[0, 1].grid(True, linestyle='--')
     axes[0, 1].legend()
 
-    axes[1, 0].plot(dates, [1.0, 1.2, 1.5, 1.8, 2.2, 2.8], marker='^', color='#16A34A')
+    axes[1, 0].plot(dates, df_trend["링간극마모(배수)"], marker='^', color='#16A34A')
     axes[1, 0].axhline(3.0, color='red', linestyle='--', label='교체 기준 (3.0배)')
     axes[1, 0].set_title("3. 임펠러 링 간극 마모 (배수) 추이", fontweight='bold')
     axes[1, 0].grid(True, linestyle='--')
@@ -947,9 +962,10 @@ elif st.session_state.nav_menu == "4.1. 성능/상태 5대 추이 분석":
     ax_rad.set_title("4. 4대 영역별 달성율 균형도", fontweight='bold')
 
     p_names = [p["equip"] for p in st.session_state.pump_list]
-    p_scores = [85.2, 92.0, 78.5, 88.4]
+    p_scores = [85.2, 92.0, 78.5, 88.4, 91.2, 84.0, 79.5, 86.3, 90.1, 82.7]
     axes[2, 0].bar(p_names, p_scores, color='#0284C7')
-    axes[2, 0].set_title("5. 전체 설비별 종합 점수 비교", fontweight='bold')
+    axes[2, 0].set_xticklabels(p_names, rotation=30, fontsize=7)
+    axes[2, 0].set_title("5. 밀양정수장 가압펌프 10대 종합 점수 비교", fontweight='bold')
     axes[2, 0].set_ylim(0, 100)
 
     axes[2, 1].axis('off')
@@ -958,6 +974,14 @@ elif st.session_state.nav_menu == "4.1. 성능/상태 5대 추이 분석":
 
 # --- 5.1. K-water tech 노하우 DB ---
 elif st.session_state.nav_menu == "5.1. K-water tech 노하우 DB":
+    wb = load_workbook(KNOWHOW_DB_PATH, data_only=True)
+    ws = wb["노하우DB"]
+    kh_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    df_kh = pd.DataFrame(kh_records[1:], columns=kh_records[0]) if len(kh_records) > 1 else pd.DataFrame()
+
+    render_download_button_header(df_kh, "기술노하우DB")
+
     st.subheader("💡 K-water tech 정비 & 결함 해결 노하우 DB (Troubleshooting)")
     search_keyword = st.text_input("🔍 현상 / 키워드 검색 (예: 진동, 링 간극, 센터링)", placeholder="검색어를 입력하세요")
     
@@ -979,34 +1003,40 @@ elif st.session_state.nav_menu == "5.1. K-water tech 노하우 DB":
 
     st.write("---")
     st.subheader("📜 [이력 조회] 등록된 정비 기술 노하우 전체 이력")
-    wb = load_workbook(KNOWHOW_DB_PATH, data_only=True)
-    ws = wb["노하우DB"]
-    kh_records = [row for row in ws.iter_rows(min_row=2, values_only=True)]
-    wb.close()
-
-    for r in reversed(kh_records):
-        if not search_keyword or search_keyword in str(r[3]) or search_keyword in str(r[4]) or search_keyword in str(r[1]):
-            with st.container():
-                st.markdown(f"#### 💡 [{r[1]}] {r[2]} (작성자: {r[5]} | {r[0]})")
-                st.write(f"**현상 및 원인:** {r[3]}")
-                st.info(f"**해결 노하우:** {r[4]}")
-                st.write("---")
+    if not df_kh.empty:
+        st.dataframe(df_kh, use_container_width=True)
+    else:
+        st.info("등록된 기술 노하우가 없습니다.")
 
 # --- 5.2. 현장 안전 체크리스트 ---
 elif st.session_state.nav_menu == "5.2. 현장 안전 체크리스트":
+    df_safe = pd.DataFrame([
+        {"항목": "1. LOTO 전원 차단", "점검사항": "펌프 모터 전원 차단 및 잠금장치/표지판 게시 완료", "상태": "완료"},
+        {"항목": "2. 잔류 압력 제거", "점검사항": "흡입/토출 밸브 차단 및 내부 잔류 압력 제거 확인", "상태": "완료"},
+        {"항목": "3. 보호구 착용", "점검사항": "개인 보호구 (안전모, 안전화, 코팅 장갑) 착용 완료", "상태": "완료"},
+        {"항목": "4. 가이드 커버 체결", "점검사항": "회전 부위 가이드 커버 설치 및 체결 상태 확인", "상태": "완료"}
+    ])
+    render_download_button_header(df_safe, "현장안전체크리스트")
+
     st.subheader("🛡️ 현장 점검 전 필수 안전 체크리스트")
-    st.checkbox("1. 펌프 모터 전원 차단 (LOTO 조치 완료 확인)")
-    st.checkbox("2. 흡입/토출 밸브 차단 및 내부 잔류 압력 제거 확인")
-    st.checkbox("3. 개인 보호구 (안전모, 안전화, 코팅 장갑) 착용 완료")
-    st.checkbox("4. 회전 부위 가이드 커버 설치 및 체결 상태 확인")
+    for _, r in df_safe.iterrows():
+        st.checkbox(f"{r['항목']}: {r['점검사항']}", value=True)
 
 # --- 5.3. 위험작업 허가서 ---
 elif st.session_state.nav_menu == "5.3. 위험작업 허가서":
+    wb = load_workbook(SAFETY_PERMIT_DB_PATH, data_only=True)
+    ws = wb["위험작업허가"]
+    permits = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    df_permits = pd.DataFrame(permits[1:], columns=permits[0]) if len(permits) > 1 else pd.DataFrame()
+
+    render_download_button_header(df_permits, "위험작업허가서목록")
+
     st.subheader("📑 현장 위험작업 허가서 작성 및 승인 신청")
     
     with st.form("safety_permit_form"):
         c1, c2 = st.columns(2)
-        p_title = c1.text_input("작업명", value="가압펌프 #1 오버홀 해체작업")
+        p_title = c1.text_input("작업명", value="밀양정수장 가압펌프 #1 오버홀 해체작업")
         p_pump = c2.selectbox("대상 설비", [p["equip"] for p in st.session_state.pump_list])
         
         c3, c4 = st.columns(2)
@@ -1030,37 +1060,47 @@ elif st.session_state.nav_menu == "5.3. 위험작업 허가서":
             ])
             wb.save(SAFETY_PERMIT_DB_PATH)
             st.success("위험작업 허가서 승인 신청이 완료되었습니다!")
+            st.rerun()
 
 # --- 5.4. 위험작업 현황 ---
 elif st.session_state.nav_menu == "5.4. 위험작업 현황":
-    st.subheader("🚨 사업장별 위험작업 진행 현황 모니터링")
-    
     wb = load_workbook(SAFETY_PERMIT_DB_PATH, data_only=True)
     ws = wb["위험작업허가"]
     permits = [row for row in ws.iter_rows(min_row=1, values_only=True)]
     wb.close()
+    df_permits = pd.DataFrame(permits[1:], columns=permits[0]) if len(permits) > 1 else pd.DataFrame()
+
+    render_download_button_header(df_permits, "2년치_위험작업진행현황")
+
+    st.subheader("🚨 밀양정수장 가압펌프 10대 위험작업 진행 현황 모니터링 (2년치)")
     
-    if len(permits) > 1:
+    if not df_permits.empty:
         c1, c2, c3 = st.columns(3)
-        c1.metric("총 등록 허가건", f"{len(permits)-1} 건")
-        c2.metric("진행중/승인완료", f"{sum(1 for r in permits[1:] if r[6]=='승인완료')} 건")
-        c3.metric("승인 대기중", f"{sum(1 for r in permits[1:] if r[6]=='승인대기')} 건")
+        c1.metric("총 등록 허가건", f"{len(df_permits)} 건")
+        c2.metric("진행중/승인완료", f"{sum(1 for r in df_permits['승인상태'] if r=='승인완료')} 건")
+        c3.metric("승인 대기중", f"{sum(1 for r in df_permits['승인상태'] if r=='승인대기')} 건")
         
         st.write("---")
         st.subheader("📜 위험작업 허가 및 진행 상태 리스트")
-        st.dataframe(pd.DataFrame(permits[1:], columns=permits[0]), use_container_width=True)
+        st.dataframe(df_permits, use_container_width=True)
     else:
         st.info("현재 등록된 위험작업 허가 내역이 없습니다.")
 
 # --- 5.5. 안전작업계획서 및 위험성평가 ---
 elif st.session_state.nav_menu == "5.5. 안전작업계획서 및 위험성평가":
+    df_jsa = pd.DataFrame([
+        {"위험요인": "[낙하/추락] 가설발판 및 작업대 안전난간 미체결", "위험성": "中 -> 低", "개선대책": "안전난간 체결 상태 사전 점검 완료"},
+        {"위험요인": "[감전/착오] 모터 케이블 완전 차단 미흡", "위험성": "高 -> 低", "개선대책": "LOTO 절차 이행 및 검전 실시"},
+        {"위험요인": "[협착/끼임] 회전체 가이드 커버 개방", "위험성": "中 -> 低", "개선대책": "가이드 커버 상시 체결 및 접근 금지"},
+        {"위험요인": "[유해물질] 윤활유/유기용제 접촉", "위험성": "低", "개선대책": "MSDS 숙지 및 보호장갑 착용"}
+    ])
+    render_download_button_header(df_jsa, "안전작업계획서_위험성평가")
+
     st.subheader("📋 안전작업계획서 및 사전 위험성평가(JSA)")
     
     st.markdown("#### 1. 위험성평가 (Risk Assessment) 표준 항목 점검")
-    ra1 = st.checkbox("▪ [낙하/추락] 정비용 가설발판 및 작업대 안전난간 체결 상태 확인 (위험성: 中 -> 低)", value=True)
-    ra2 = st.checkbox("▪ [감전/착오] 모터 전원 케이블 완전 차단 및 접지 상태 점검 (위험성: 高 -> 低)", value=True)
-    ra3 = st.checkbox("▪ [협착/끼임] 펌프 및 모터 회전체 가이드 커버 설치 및 체결 (위험성: 中 -> 低)", value=True)
-    ra4 = st.checkbox("▪ [유해물질] 윤활유/유기용제 취급 시 MSDF 숙지 및 방독/코팅장갑 착용 (위험성: 低)", value=True)
+    for _, r in df_jsa.iterrows():
+        st.checkbox(f"{r['위험요인']} (개선: {r['개선대책']})", value=True)
 
     st.write("---")
     st.markdown("#### 2. 안전작업계획서 서식 작성 및 제출")
@@ -1074,8 +1114,11 @@ elif st.session_state.nav_menu == "5.5. 안전작업계획서 및 위험성평�
 
 # --- 6.1. 사용자 권한 관리 ---
 elif st.session_state.nav_menu == "6.1. 사용자 권한 관리":
+    df_users = pd.DataFrame(USER_DB)
+    render_download_button_header(df_users, "사용자권한목록")
+
     st.subheader("⚙️ 사용자 및 점검자 권한 관리")
-    st.dataframe(pd.DataFrame(USER_DB), use_container_width=True)
+    st.dataframe(df_users, use_container_width=True)
 
     c1, c2, c3 = st.columns(3)
     c1.markdown("<div class='kpi-card'><div class='kpi-title'>총 등록 사용자</div><div class='kpi-value'>1 명</div></div>", unsafe_allow_html=True)
@@ -1084,6 +1127,14 @@ elif st.session_state.nav_menu == "6.1. 사용자 권한 관리":
 
 # --- 6.2. 통합 DB 일괄 백업 ---
 elif st.session_state.nav_menu == "6.2. 통합 DB 일괄 백업":
+    wb = load_workbook(DB_FILE_PATH, data_only=True)
+    ws = wb["진단이력"]
+    records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    df_backup = pd.DataFrame(records[1:], columns=records[0]) if len(records) > 1 else pd.DataFrame()
+
+    render_download_button_header(df_backup, "통합DB전체백업")
+
     st.subheader("📦 통합 데이터베이스 일괄 백업 및 다운로드")
     if os.path.exists(DB_FILE_PATH):
         with open(DB_FILE_PATH, "rb") as f:
