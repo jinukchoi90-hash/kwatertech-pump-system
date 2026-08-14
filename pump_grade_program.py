@@ -22,7 +22,10 @@ def init_korean_font():
         try:
             urllib.request.urlretrieve(font_url, font_filename)
         except Exception:
-            pass
+            try:
+                urllib.request.urlretrieve(font_url, font_filename)
+            except Exception:
+                pass
             
     if os.path.exists(font_filename):
         fm.fontManager.addfont(font_filename)
@@ -43,7 +46,7 @@ DAILY_LOG_DB_PATH = "Pump_DailyLog_DB.xlsx"
 LOGO_FILE_PATH = "Logo.png"
 
 # ============================================================
-# 1. 페이지 기본 설정 및 모바일 반응형 CSS
+# 1. 페이지 기본 설정 및 모바일 커스텀 CSS/JS
 # ============================================================
 page_icon_setting = LOGO_FILE_PATH if os.path.exists(LOGO_FILE_PATH) else "🌊"
 
@@ -54,7 +57,7 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-# 모바일 반응형 CSS
+# 모바일 메뉴 가독성 극대화 & 스타일링 & 모바일 자동 닫기 CSS
 st.markdown("""
     <style>
     .block-container {
@@ -78,11 +81,38 @@ st.markdown("""
             font-size: 0.8rem !important;
         }
     }
+    
+    /* 사이드바 메뉴 스타일 개선 */
+    div[data-testid="stSidebarNav"] {
+        display: none;
+    }
+    
+    /* 메뉴 버튼 폰트 및 디자인 강화 */
     .stButton>button {
         width: 100%;
-        border-radius: 6px;
+        border-radius: 8px;
         font-weight: bold;
+        transition: all 0.2s ease-in-out;
     }
+    
+    /* 사이드바 전용 버튼 커스텀 (크고 직관적으로 변경) */
+    div[data-testid="stSidebar"] .stButton>button {
+        font-size: 1.05rem !important;
+        padding: 12px 14px !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        margin-bottom: 6px !important;
+        background-color: #f8fafc;
+        border: 1px solid #cbd5e1;
+        color: #1e293b;
+    }
+    
+    div[data-testid="stSidebar"] .stButton>button:hover {
+        background-color: #0098DA !important;
+        color: white !important;
+        border-color: #0098DA !important;
+    }
+
     div[data-baseweb="input"] {
         border-radius: 6px;
     }
@@ -126,6 +156,19 @@ DEFAULT_PUMPS = [
     {"site": "밀양권사업소", "equip": "취수펌프 #1", "maker": "현대중공업", "model": "VTP-200", "hp": "250", "head": "60", "build_date": "2019-11-10"},
     {"site": "청주권사업소", "equip": "송수펌프 #1", "maker": "KSB", "model": "Eta-100", "hp": "200", "head": "50", "build_date": "2020-03-15"}
 ]
+
+# 샘플 더미 데이터 자동 생성 함수 (로그인 후 첫 화면 데이터 0 나오는 현상 방지)
+def seed_sample_data():
+    if os.path.exists(DB_FILE_PATH):
+        wb = load_workbook(DB_FILE_PATH)
+        ws = wb["진단이력"]
+        if ws.max_row <= 1:
+            ws.append(["2026-08-10", "밀양권사업소", "가압펌프 #1", "효성펌프", "DHP-1", "150", "45", "2018-05-20", "최진욱", 92.5, "A"] + ["A"]*17)
+            ws.append(["2026-08-12", "밀양권사업소", "가압펌프 #2", "효성펌프", "DHP-1", "150", "45", "2018-05-20", "최진욱", 84.0, "B"] + ["B"]*17)
+            ws.append(["2026-08-14", "밀양권사업소", "취수펌프 #1", "현대중공업", "VTP-200", "250", "60", "2019-11-10", "최진욱", 76.5, "C"] + ["C"]*17)
+            ws.append(["2026-08-14", "청주권사업소", "송수펌프 #1", "KSB", "Eta-100", "200", "50", "2020-03-15", "최진욱", 88.0, "B"] + ["B"]*17)
+            wb.save(DB_FILE_PATH)
+        wb.close()
 
 # ============================================================
 # 2. 판정 로직 및 DB 초기화
@@ -261,6 +304,7 @@ def ensure_db_exists():
         wb.save(DAILY_LOG_DB_PATH)
 
 ensure_db_exists()
+seed_sample_data()
 
 # 세션 상태 초기화
 if "pump_list" not in st.session_state:
@@ -317,6 +361,7 @@ if not st.session_state.logged_in:
                         user_obj = next(u for u in USER_DB if u["id"] == user_id)
                         st.session_state.logged_in = True
                         st.session_state.username = user_obj["name"]
+                        st.session_state.nav_menu = "1.1. 설비 통합 대시보드"
                         st.success(f"{user_obj['name']} 님 로그인 성공!")
                         st.rerun()
                     else:
@@ -349,7 +394,7 @@ def show_guideline_dialog():
     if st.button("확인 및 닫기", type="primary", use_container_width=True):
         st.rerun()
 
-# 1번 요구사항: 신규설비 등록 확인 팝업창 다이얼로그
+# 신규설비 등록 확인 팝업창 다이얼로그
 @st.dialog("❓ 신규 설비 등록 확인")
 def confirm_add_pump_dialog():
     pump_data = st.session_state.temp_new_pump
@@ -368,23 +413,23 @@ def confirm_add_pump_dialog():
             st.rerun()
 
 # ============================================================
-# 5. 모바일 메뉴 이동 최적화 핸들러 (2번 문제 완전 해결)
+# 5. 모바일 사이드바 메뉴 완전 개편 (요구사항 1, 2)
 # ============================================================
-# URL Query parameter 기반 네비게이션 연동
-query_params = st.query_params
-if "menu" in query_params:
-    st.session_state.nav_menu = query_params["menu"]
-
-# 메뉴 선택 시 선택한 메뉴 저장 및 Rerun
-def change_page(target_menu):
-    st.session_state.nav_menu = target_menu
-    st.query_params["menu"] = target_menu
+def navigate_to(menu_name):
+    st.session_state.nav_menu = menu_name
+    st.components.v1.html("""
+        <script>
+            var sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+            var closeBtn = window.parent.document.querySelector('[data-testid="stSidebar"] button');
+            if (sidebar && closeBtn) {
+                closeBtn.click();
+            }
+        </script>
+    """, height=0, width=0)
+    st.rerun()
 
 with st.sidebar:
     if os.path.exists(LOGO_FILE_PATH):
-        if st.button("🌊 K-water Tech (홈으로)", key="home_logo_click"):
-            change_page("1.1. 설비 통합 대시보드")
-            st.rerun()
         st.image(LOGO_FILE_PATH, use_container_width=True)
     
     st.caption(f"👤 **{st.session_state.username}** 님 접속 중")
@@ -393,33 +438,27 @@ with st.sidebar:
         st.rerun()
     st.write("---")
 
-    st.markdown("### 📂 시스템 메뉴")
+    st.markdown("### ⚙️ 시스템 메뉴")
 
-    # 라디오 버튼 형태 메뉴 (모바일 터치 이동에 가장 최적화)
-    menu_options = [
-        "1.1. 설비 통합 대시보드",
-        "1.2. 설비 마스터 관리",
-        "2.1. 펌프 정밀 진단 (17개)",
-        "2.2. 일상/정기 점검일지",
-        "3.1. 오버홀 공정/사진 관리",
-        "3.2. 전문 보고서 백데이터 DB",
-        "4.1. 성능/상태 5대 추이 분석",
-        "5.1. K-water tech 노하우 DB",
-        "5.2. 현장 안전 체크리스트",
-        "6.1. 사용자 권한 관리",
-        "6.2. 통합 DB 일괄 백업"
+    menu_items = [
+        ("1.1. 설비 통합 대시보드", "🌊 1.1. 설비 통합 대시보드"),
+        ("1.2. 설비 마스터 관리", "⚙️ 1.2. 설비 마스터 관리"),
+        ("2.1. 펌프 정밀 진단 (17개)", "🛢️ 2.1. 펌프 정밀 진단 (17개)"),
+        ("2.2. 일상/정기 점검일지", "📝 2.2. 일상/정기 점검일지"),
+        ("3.1. 오버홀 공정/사진 관리", "🛠️ 3.1. 오버홀 공정/사진 관리"),
+        ("3.2. 전문 보고서 백데이터 DB", "📁 3.2. 전문 보고서 백데이터 DB"),
+        ("4.1. 성능/상태 5대 추이 분석", "📈 4.1. 성능/상태 5대 추이 분석"),
+        ("5.1. K-water tech 노하우 DB", "💡 5.1. K-water tech 노하우 DB"),
+        ("5.2. 현장 안전 체크리스트", "🛡️ 5.2. 현장 안전 체크리스트"),
+        ("6.1. 사용자 권한 관리", "👤 6.1. 사용자 권한 관리"),
+        ("6.2. 통합 DB 일괄 백업", "📦 6.2. 통합 DB 일괄 백업")
     ]
 
-    selected_sidebar = st.radio(
-        "이동할 메뉴를 선택하세요",
-        options=menu_options,
-        index=menu_options.index(st.session_state.nav_menu) if st.session_state.nav_menu in menu_options else 0,
-        key="main_radio_menu"
-    )
-
-    if selected_sidebar != st.session_state.nav_menu:
-        change_page(selected_sidebar)
-        st.rerun()
+    for menu_key, menu_label in menu_items:
+        is_selected = (st.session_state.nav_menu == menu_key)
+        btn_type = "primary" if is_selected else "secondary"
+        if st.button(menu_label, key=f"btn_{menu_key}", type=btn_type, use_container_width=True):
+            navigate_to(menu_key)
 
 head_c1, head_c2 = st.columns([3.5, 1.2])
 with head_c1:
@@ -467,7 +506,18 @@ if st.session_state.nav_menu == "1.1. 설비 통합 대시보드":
     else:
         st.success("현재 D/E 등급의 위험 설비가 없습니다.")
 
-# --- 1.2. 설비 마스터 관리 (1번 요구사항 반영) ---
+    st.write("---")
+    st.subheader("📜 [통합 이력] 전체 펌프 정밀 진단 이력")
+    wb = load_workbook(DB_FILE_PATH, data_only=True)
+    ws = wb["진단이력"]
+    diag_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    if len(diag_records) > 1:
+        st.dataframe(diag_records[1:], headers=diag_records[0], use_container_width=True)
+    else:
+        st.info("등록된 정밀 진단 이력이 없습니다.")
+
+# --- 1.2. 설비 마스터 관리 ---
 elif st.session_state.nav_menu == "1.2. 설비 마스터 관리":
     st.subheader("📋 설비 마스터 등록 및 관리")
     st.dataframe(st.session_state.pump_list, use_container_width=True)
@@ -691,6 +741,18 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
             use_container_width=True
         )
 
+    st.write("---")
+    with st.expander("📜 [이력 조회] 선택 펌프의 지난 정밀 진단 기록 보기", expanded=True):
+        wb = load_workbook(DB_FILE_PATH, data_only=True)
+        ws = wb["진단이력"]
+        records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+        wb.close()
+        filtered = [records[0]] + [r for r in records[1:] if r[2] == selected_pump_name]
+        if len(filtered) > 1:
+            st.dataframe(filtered[1:], headers=filtered[0], use_container_width=True)
+        else:
+            st.info(f"{selected_pump_name}의 지난 진단 이력이 없습니다.")
+
 # --- 2.2. 일상/정기 점검일지 ---
 elif st.session_state.nav_menu == "2.2. 일상/정기 점검일지":
     st.subheader("📅 일상 및 정기 점검 일지 기록")
@@ -720,8 +782,16 @@ elif st.session_state.nav_menu == "2.2. 일상/정기 점검일지":
             st.success("일상 점검일지가 성공적으로 저장되었습니다!")
 
     st.write("---")
-    st.subheader("📜 등록된 일상 점검일지 이력 및 엑셀 다운로드")
-    
+    st.subheader("📜 [이력 조회] 지난 일상/정기 점검일지 전체 목록")
+    wb = load_workbook(DAILY_LOG_DB_PATH, data_only=True)
+    ws = wb["점검일지"]
+    logs = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    if len(logs) > 1:
+        st.dataframe(logs[1:], headers=logs[0], use_container_width=True)
+    else:
+        st.info("등록된 점검일지 이력이 없습니다.")
+
     def generate_daily_log_excel():
         output = io.BytesIO()
         wb = load_workbook(DAILY_LOG_DB_PATH)
@@ -762,8 +832,16 @@ elif st.session_state.nav_menu == "3.1. 오버홀 공정/사진 관리":
             st.success("오버홀 기록이 등록되었습니다!")
 
     st.write("---")
-    st.subheader("📜 오버홀 공정 이력 보고서 엑셀 다운로드")
-    
+    st.subheader("📜 [이력 조회] 지난 오버홀 공정 진행 기록 전체 목록")
+    wb = load_workbook(OVERHAUL_DB_PATH, data_only=True)
+    ws = wb["오버홀이력"]
+    o_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    if len(o_records) > 1:
+        st.dataframe(o_records[1:], headers=o_records[0], use_container_width=True)
+    else:
+        st.info("등록된 오버홀 공정 이력이 없습니다.")
+
     def generate_overhaul_excel():
         output = io.BytesIO()
         wb = load_workbook(OVERHAUL_DB_PATH)
@@ -807,7 +885,7 @@ elif st.session_state.nav_menu == "3.2. 전문 보고서 백데이터 DB":
                     st.rerun()
 
     st.write("---")
-    st.subheader("📜 등록된 전문 보고서 목록 및 재다운로드")
+    st.subheader("📜 [이력 조회] 등록된 전문 보고서 아카이빙 전체 이력")
     wb = load_workbook(DOC_DB_PATH, data_only=True)
     ws = wb["전문보고서"]
     doc_records = [row for row in ws.iter_rows(min_row=2, values_only=True)]
@@ -893,6 +971,7 @@ elif st.session_state.nav_menu == "5.1. K-water tech 노하우 DB":
                 st.rerun()
 
     st.write("---")
+    st.subheader("📜 [이력 조회] 등록된 정비 기술 노하우 전체 이력")
     wb = load_workbook(KNOWHOW_DB_PATH, data_only=True)
     ws = wb["노하우DB"]
     kh_records = [row for row in ws.iter_rows(min_row=2, values_only=True)]
