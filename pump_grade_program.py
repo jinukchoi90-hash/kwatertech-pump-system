@@ -43,7 +43,7 @@ DAILY_LOG_DB_PATH = "Pump_DailyLog_DB.xlsx"
 LOGO_FILE_PATH = "Logo.png"
 
 # ============================================================
-# 1. 페이지 기본 설정 및 모바일 자동 닫힘 CSS/JS 최적화
+# 1. 페이지 기본 설정 및 모바일 반응형 CSS
 # ============================================================
 page_icon_setting = LOGO_FILE_PATH if os.path.exists(LOGO_FILE_PATH) else "🌊"
 
@@ -271,8 +271,8 @@ if "username" not in st.session_state:
     st.session_state.username = ""
 if "nav_menu" not in st.session_state:
     st.session_state.nav_menu = "1.1. 설비 통합 대시보드"
-if "close_sidebar" not in st.session_state:
-    st.session_state.close_sidebar = False
+if "temp_new_pump" not in st.session_state:
+    st.session_state.temp_new_pump = None
 
 for idx, item in enumerate(EVAL_ITEMS):
     if f"selected_grade_{idx}" not in st.session_state:
@@ -327,7 +327,7 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ============================================================
-# 4. 중앙 레이어 팝업 가이드라인 (@st.dialog)
+# 4. 팝업 모달 다이얼로그 (@st.dialog)
 # ============================================================
 @st.dialog("📖 사내 펌프 정밀 진단 기준 및 가이드라인")
 def show_guideline_dialog():
@@ -349,30 +349,41 @@ def show_guideline_dialog():
     if st.button("확인 및 닫기", type="primary", use_container_width=True):
         st.rerun()
 
-# ============================================================
-# 5. 모바일 사이드바 자동 닫힘(숨김) 처리 함수
-# ============================================================
-def select_menu(menu_name):
-    st.session_state.nav_menu = menu_name
-    st.session_state.close_sidebar = True
+# 1번 요구사항: 신규설비 등록 확인 팝업창 다이얼로그
+@st.dialog("❓ 신규 설비 등록 확인")
+def confirm_add_pump_dialog():
+    pump_data = st.session_state.temp_new_pump
+    if pump_data:
+        st.write(f"아래 정보로 신규 설비를 등록하시겠습니까?")
+        st.info(f"**사업장:** {pump_data['site']}\n\n**설비명:** {pump_data['equip']}\n\n**제조사/모델:** {pump_data['maker']} / {pump_data['model']}")
+        
+        c_yes, c_no = st.columns(2)
+        if c_yes.button("예 (등록)", type="primary", use_container_width=True):
+            st.session_state.pump_list.append(pump_data)
+            st.session_state.temp_new_pump = None
+            st.success("🎉 신규 설비가 성공적으로 등록되었습니다!")
+            st.rerun()
+        if c_no.button("아니오 (취소)", type="secondary", use_container_width=True):
+            st.session_state.temp_new_pump = None
+            st.rerun()
 
-# 메뉴 클릭 후 모바일에서 사이드바가 자동으로 숨겨지도록 자바스크립트 구동
-if st.session_state.close_sidebar:
-    st.markdown("""
-        <script>
-            var sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
-            var closeBtn = window.parent.document.querySelector('[data-testid="stSidebar"] button');
-            if (sidebar && closeBtn) {
-                closeBtn.click();
-            }
-        </script>
-    """, unsafe_allow_html=True)
-    st.session_state.close_sidebar = False
+# ============================================================
+# 5. 모바일 메뉴 이동 최적화 핸들러 (2번 문제 완전 해결)
+# ============================================================
+# URL Query parameter 기반 네비게이션 연동
+query_params = st.query_params
+if "menu" in query_params:
+    st.session_state.nav_menu = query_params["menu"]
+
+# 메뉴 선택 시 선택한 메뉴 저장 및 Rerun
+def change_page(target_menu):
+    st.session_state.nav_menu = target_menu
+    st.query_params["menu"] = target_menu
 
 with st.sidebar:
     if os.path.exists(LOGO_FILE_PATH):
-        if st.button("🌊 K-water Tech (홈으로)", key="home_logo_click", help="클릭 시 설비통합 대시보드로 이동합니다"):
-            select_menu("1.1. 설비 통합 대시보드")
+        if st.button("🌊 K-water Tech (홈으로)", key="home_logo_click"):
+            change_page("1.1. 설비 통합 대시보드")
             st.rerun()
         st.image(LOGO_FILE_PATH, use_container_width=True)
     
@@ -384,50 +395,31 @@ with st.sidebar:
 
     st.markdown("### 📂 시스템 메뉴")
 
-    with st.expander("1. 🏠 기준정보 (Master)", expanded=True):
-        if st.button("▪ 1.1. 설비 통합 대시보드", key="m1_1"): 
-            select_menu("1.1. 설비 통합 대시보드")
-            st.rerun()
-        if st.button("▪ 1.2. 설비 마스터 관리", key="m1_2"): 
-            select_menu("1.2. 설비 마스터 관리")
-            st.rerun()
+    # 라디오 버튼 형태 메뉴 (모바일 터치 이동에 가장 최적화)
+    menu_options = [
+        "1.1. 설비 통합 대시보드",
+        "1.2. 설비 마스터 관리",
+        "2.1. 펌프 정밀 진단 (17개)",
+        "2.2. 일상/정기 점검일지",
+        "3.1. 오버홀 공정/사진 관리",
+        "3.2. 전문 보고서 백데이터 DB",
+        "4.1. 성능/상태 5대 추이 분석",
+        "5.1. K-water tech 노하우 DB",
+        "5.2. 현장 안전 체크리스트",
+        "6.1. 사용자 권한 관리",
+        "6.2. 통합 DB 일괄 백업"
+    ]
 
-    with st.expander("2. 🩺 점검정비 (Inspection)", expanded=True):
-        if st.button("▪ 2.1. 펌프 정밀 진단 (17개)", key="m2_1"): 
-            select_menu("2.1. 펌프 정밀 진단 (17개)")
-            st.rerun()
-        if st.button("▪ 2.2. 일상/정기 점검일지", key="m2_2"): 
-            select_menu("2.2. 일상/정기 점검일지")
-            st.rerun()
+    selected_sidebar = st.radio(
+        "이동할 메뉴를 선택하세요",
+        options=menu_options,
+        index=menu_options.index(st.session_state.nav_menu) if st.session_state.nav_menu in menu_options else 0,
+        key="main_radio_menu"
+    )
 
-    with st.expander("3. 🛠️ 정비 & 오버홀 (Overhaul)", expanded=True):
-        if st.button("▪ 3.1. 오버홀 공정/사진 관리", key="m3_1"): 
-            select_menu("3.1. 오버홀 공정/사진 관리")
-            st.rerun()
-        if st.button("▪ 3.2. 전문 보고서 백데이터 DB", key="m3_2"): 
-            select_menu("3.2. 전문 보고서 백데이터 DB")
-            st.rerun()
-
-    with st.expander("4. 📊 분석관리 (Analytics)", expanded=True):
-        if st.button("▪ 4.1. 성능/상태 5대 추이 분석", key="m4_1"): 
-            select_menu("4.1. 성능/상태 5대 추이 분석")
-            st.rerun()
-
-    with st.expander("5. 🛡️ 스마트안전 & 노하우", expanded=True):
-        if st.button("▪ 5.1. K-water tech 노하우 DB", key="m5_1"): 
-            select_menu("5.1. K-water tech 노하우 DB")
-            st.rerun()
-        if st.button("▪ 5.2. 현장 안전 체크리스트", key="m5_2"): 
-            select_menu("5.2. 현장 안전 체크리스트")
-            st.rerun()
-
-    with st.expander("6. ⚙️ 시스템관리 (Admin)", expanded=True):
-        if st.button("▪ 6.1. 사용자 권한 관리", key="m6_1"): 
-            select_menu("6.1. 사용자 권한 관리")
-            st.rerun()
-        if st.button("▪ 6.2. 통합 DB 일괄 백업", key="m6_2"): 
-            select_menu("6.2. 통합 DB 일괄 백업")
-            st.rerun()
+    if selected_sidebar != st.session_state.nav_menu:
+        change_page(selected_sidebar)
+        st.rerun()
 
 head_c1, head_c2 = st.columns([3.5, 1.2])
 with head_c1:
@@ -475,7 +467,7 @@ if st.session_state.nav_menu == "1.1. 설비 통합 대시보드":
     else:
         st.success("현재 D/E 등급의 위험 설비가 없습니다.")
 
-# --- 1.2. 설비 마스터 관리 ---
+# --- 1.2. 설비 마스터 관리 (1번 요구사항 반영) ---
 elif st.session_state.nav_menu == "1.2. 설비 마스터 관리":
     st.subheader("📋 설비 마스터 등록 및 관리")
     st.dataframe(st.session_state.pump_list, use_container_width=True)
@@ -491,13 +483,16 @@ elif st.session_state.nav_menu == "1.2. 설비 마스터 관리":
             new_hp = c5.text_input("마력 (HP)", value="150")
             new_head = c6.text_input("양정 (m)", value="45")
             new_build = st.text_input("준공일자", value=datetime.now().strftime("%Y-%m-%d"))
-            if st.form_submit_button("등록 완료", type="primary"):
-                st.session_state.pump_list.append({
+            
+            if st.form_submit_button("등록 신청", type="primary"):
+                st.session_state.temp_new_pump = {
                     "site": new_site, "equip": new_equip, "maker": new_maker,
                     "model": new_model, "hp": new_hp, "head": new_head, "build_date": new_build
-                })
-                st.success(f"{new_equip} 설비가 추가되었습니다!")
+                }
                 st.rerun()
+
+    if st.session_state.temp_new_pump is not None:
+        confirm_add_pump_dialog()
 
 # --- 2.1. 펌프 정밀 진단 (17개) ---
 elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
