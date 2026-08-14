@@ -303,11 +303,12 @@ def ensure_db_exists():
 
 ensure_db_exists()
 
-# 2년치(2024~2026년) 임의 샘플 데이터 생성
-def seed_sample_data():
+# 2년치(2024~2026년) 10대 설비 샘플 데이터 재생성
+def seed_sample_data(force=False):
     wb = load_workbook(DB_FILE_PATH)
     ws = wb["진단이력"]
-    if ws.max_row <= 1:
+    if ws.max_row <= 25 or force:
+        ws.delete_rows(2, ws.max_row) # 기존 데이터 초기화 후 10대 전부 삽입
         dates = ["2024-03-15", "2024-09-10", "2025-03-20", "2025-08-15", "2026-02-10", "2026-08-14"]
         for p in DEFAULT_PUMPS:
             for dt in dates:
@@ -326,7 +327,8 @@ def seed_sample_data():
     # 오버홀 DB 2년치
     wb_o = load_workbook(OVERHAUL_DB_PATH)
     ws_o = wb_o["오버홀이력"]
-    if ws_o.max_row <= 1:
+    if ws_o.max_row <= 10 or force:
+        ws_o.delete_rows(2, ws_o.max_row)
         steps = ["1단계: 분해/해체 점검", "2단계: 부품 가공 및 신품 교체", "3단계: 조립 및 센터링", "4단계: 시운전 및 완료"]
         for i in range(1, 11):
             ws_o.append([f"2024-{i%9+1:02d}-10", "밀양정수장", f"가압펌프 #{i}", steps[0], "최진욱", "임펠러 해체 및 마모 상태 점검", "No Image"])
@@ -338,7 +340,8 @@ def seed_sample_data():
     # 점검일지 2년치
     wb_d = load_workbook(DAILY_LOG_DB_PATH)
     ws_d = wb_d["점검일지"]
-    if ws_d.max_row <= 1:
+    if ws_d.max_row <= 10 or force:
+        ws_d.delete_rows(2, ws_d.max_row)
         for i in range(1, 11):
             ws_d.append(["2024-05-10", "최진욱", f"가압펌프 #{i}", "양호", "양호", "양호", "정상 운전 확인"])
             ws_d.append(["2025-06-12", "최진욱", f"가압펌프 #{i}", "양호", "양호", "양호", "베어링 윤활유 보충"])
@@ -349,7 +352,8 @@ def seed_sample_data():
     # 위험작업허가 2년치
     wb_s = load_workbook(SAFETY_PERMIT_DB_PATH)
     ws_s = wb_s["위험작업허가"]
-    if ws_s.max_row <= 1:
+    if ws_s.max_row <= 10 or force:
+        ws_s.delete_rows(2, ws_s.max_row)
         for i in range(1, 11):
             ws_s.append(["2024-04-10", f"가압펌프 #{i} 오버홀 작업", f"가압펌프 #{i}", "고소/위험성 작업", "2024-04-10~2024-04-15", "최진욱", "승인완료", "LOTO 차단 완료"])
             ws_s.append(["2025-07-20", f"가압펌프 #{i} 모터 정비", f"가압펌프 #{i}", "정전/전기 작업", "2025-07-20~2025-07-22", "최진욱", "승인완료", "안전장구 착용"])
@@ -359,8 +363,9 @@ def seed_sample_data():
 
 seed_sample_data()
 
-if "pump_list" not in st.session_state:
-    st.session_state.pump_list = DEFAULT_PUMPS
+# 세션 관리: 10대 목록으로 강제 동기화
+st.session_state.pump_list = DEFAULT_PUMPS
+
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
@@ -409,6 +414,28 @@ def render_download_button_header(df_data, file_label):
     with h_col2:
         if st.button(f"📥 {file_label} 엑셀 다운", key=f"dl_btn_{file_label}"):
             confirm_excel_download_dialog(df_data, file_label)
+
+# 컬럼 가로너비 일정하게 조절해주는 헬퍼 함수
+def render_styled_dataframe(df):
+    column_config_dict = {
+        "점검일": st.column_config.Column("점검일", width="medium"),
+        "사업장": st.column_config.Column("사업장", width="small"),
+        "설비명": st.column_config.Column("설비명", width="medium"),
+        "제조사": st.column_config.Column("제조사", width="small"),
+        "모델명": st.column_config.Column("모델명", width="small"),
+        "마력(HP)": st.column_config.Column("마력", width="small"),
+        "양정(m)": st.column_config.Column("양정", width="small"),
+        "준공일": st.column_config.Column("준공일", width="small"),
+        "점검자": st.column_config.Column("점검자", width="small"),
+        "종합점수": st.column_config.NumberColumn("종합점수", format="%.1f점", width="small"),
+        "최종등급": st.column_config.Column("최종등급", width="small")
+    }
+    # 17개 세부 평가항목 컬럼 너비를 모두 균일하게 small 설정
+    for _, item_name, _, _, _, _, _ in EVAL_ITEMS:
+        if item_name in df.columns:
+            column_config_dict[item_name] = st.column_config.Column(item_name, width="small")
+            
+    st.dataframe(df, column_config=column_config_dict, use_container_width=True, hide_index=True)
 
 # ============================================================
 # 4. 로그인 화면
@@ -604,7 +631,7 @@ if st.session_state.nav_menu == "1.1. 설비 통합 대시보드":
     st.write("---")
     st.subheader("📜 [통합 이력] 전체 펌프 2년치 정밀 진단 이력")
     if not df_dash.empty:
-        st.dataframe(df_dash, use_container_width=True)
+        render_styled_dataframe(df_dash)
     else:
         st.info("등록된 정밀 진단 이력이 없습니다.")
 
@@ -614,7 +641,7 @@ elif st.session_state.nav_menu == "1.2. 설비 마스터 관리":
     render_download_button_header(df_pumps, "설비마스터목록")
 
     st.subheader("📋 설비 마스터 등록 및 관리 (밀양정수장 10대)")
-    st.dataframe(df_pumps, use_container_width=True)
+    st.dataframe(df_pumps, use_container_width=True, hide_index=True)
 
     with st.expander("➕ 신규 펌프 설비 등록하기"):
         with st.form("add_pump_form"):
@@ -785,7 +812,7 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
     with st.expander("📜 [이력 조회] 선택 펌프의 지난 정밀 진단 기록 보기", expanded=True):
         if not df_diag_all.empty:
             filtered_df = df_diag_all[df_diag_all["설비명"] == selected_pump_name]
-            st.dataframe(filtered_df, use_container_width=True)
+            render_styled_dataframe(filtered_df)
         else:
             st.info(f"{selected_pump_name}의 지난 진단 이력이 없습니다.")
 
@@ -829,7 +856,7 @@ elif st.session_state.nav_menu == "2.2. 일상/정기 점검일지":
     st.write("---")
     st.subheader("📜 [이력 조회] 지난 일상/정기 점검일지 전체 목록 (2년치)")
     if not df_logs.empty:
-        st.dataframe(df_logs, use_container_width=True)
+        st.dataframe(df_logs, use_container_width=True, hide_index=True)
     else:
         st.info("등록된 점검일지 이력이 없습니다.")
 
@@ -870,7 +897,7 @@ elif st.session_state.nav_menu == "3.1. 오버홀 공정/사진 관리":
     st.write("---")
     st.subheader("📜 [이력 조회] 지난 오버홀 공정 진행 기록 전체 목록 (2년치)")
     if not df_overhaul.empty:
-        st.dataframe(df_overhaul, use_container_width=True)
+        st.dataframe(df_overhaul, use_container_width=True, hide_index=True)
     else:
         st.info("등록된 오버홀 공정 이력이 없습니다.")
 
@@ -913,7 +940,7 @@ elif st.session_state.nav_menu == "3.2. 전문 보고서 백데이터 DB":
     st.write("---")
     st.subheader("📜 [이력 조회] 등록된 전문 보고서 아카이빙 전체 이력")
     if not df_docs.empty:
-        st.dataframe(df_docs, use_container_width=True)
+        st.dataframe(df_docs, use_container_width=True, hide_index=True)
     else:
         st.info("등록된 전문 보고서가 없습니다.")
 
@@ -1004,7 +1031,7 @@ elif st.session_state.nav_menu == "5.1. K-water tech 노하우 DB":
     st.write("---")
     st.subheader("📜 [이력 조회] 등록된 정비 기술 노하우 전체 이력")
     if not df_kh.empty:
-        st.dataframe(df_kh, use_container_width=True)
+        st.dataframe(df_kh, use_container_width=True, hide_index=True)
     else:
         st.info("등록된 기술 노하우가 없습니다.")
 
@@ -1082,7 +1109,7 @@ elif st.session_state.nav_menu == "5.4. 위험작업 현황":
         
         st.write("---")
         st.subheader("📜 위험작업 허가 및 진행 상태 리스트")
-        st.dataframe(df_permits, use_container_width=True)
+        st.dataframe(df_permits, use_container_width=True, hide_index=True)
     else:
         st.info("현재 등록된 위험작업 허가 내역이 없습니다.")
 
@@ -1118,7 +1145,7 @@ elif st.session_state.nav_menu == "6.1. 사용자 권한 관리":
     render_download_button_header(df_users, "사용자권한목록")
 
     st.subheader("⚙️ 사용자 및 점검자 권한 관리")
-    st.dataframe(df_users, use_container_width=True)
+    st.dataframe(df_users, use_container_width=True, hide_index=True)
 
     c1, c2, c3 = st.columns(3)
     c1.markdown("<div class='kpi-card'><div class='kpi-title'>총 등록 사용자</div><div class='kpi-value'>1 명</div></div>", unsafe_allow_html=True)
