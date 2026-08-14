@@ -1,27 +1,49 @@
 import os
 import io
+import urllib.request
 from datetime import datetime
 import streamlit as st
 import openpyxl
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.drawing.image import Image as OpenpyxlImage
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import numpy as np
 from PIL import Image as PILImage
 
-# 한글 폰트 설정
-plt.rcParams['font.family'] = 'Malgun Gothic'
-plt.rcParams['axes.unicode_minus'] = False
+# ============================================================
+# [한글 폰트 설정] Streamlit Cloud(Linux) 한글 깨짐 완전 방지 로직
+# ============================================================
+def init_korean_font():
+    font_filename = "NanumGothic.ttf"
+    if not os.path.exists(font_filename):
+        font_url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+        try:
+            urllib.request.urlretrieve(font_url, font_filename)
+        except Exception:
+            pass
+            
+    if os.path.exists(font_filename):
+        fm.fontManager.addfont(font_filename)
+        font_prop = fm.FontProperties(fname=font_filename)
+        plt.rcParams['font.family'] = font_prop.get_name()
+    else:
+        plt.rcParams['font.family'] = 'Malgun Gothic'
+        
+    plt.rcParams['axes.unicode_minus'] = False
+
+init_korean_font()
 
 DB_FILE_PATH = "Pump_Master_DB.xlsx"
 OVERHAUL_DB_PATH = "Pump_Overhaul_DB.xlsx"
 DOC_DB_PATH = "Pump_Docs_DB.xlsx"
 KNOWHOW_DB_PATH = "Pump_Knowhow_DB.xlsx"
+DAILY_LOG_DB_PATH = "Pump_DailyLog_DB.xlsx"
 LOGO_FILE_PATH = "Logo.png"
 
 # ============================================================
-# 1. 페이지 기본 설정 및 모바일 CSS 최적화
+# 1. 페이지 기본 설정 및 모바일 자동 닫힘 CSS/JS 최적화
 # ============================================================
 page_icon_setting = LOGO_FILE_PATH if os.path.exists(LOGO_FILE_PATH) else "🌊"
 
@@ -32,18 +54,15 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-# 모바일 반응형 CSS (상단 헤더 크기 축소 & 여백 최적화)
+# 모바일 반응형 CSS
 st.markdown("""
     <style>
-    /* 메인 여백 설정 */
     .block-container {
         padding-top: 1.0rem !important;
         padding-bottom: 2rem !important;
         padding-left: 1.0rem !important;
         padding-right: 1.0rem !important;
     }
-    
-    /* 모바일 반응형 타이틀 폰트 크기 조정 (요구사항 2번 반영) */
     .main-title {
         font-size: 1.6rem;
         font-weight: 800;
@@ -51,7 +70,6 @@ st.markdown("""
         margin-bottom: 0.2rem;
         line-height: 1.3;
     }
-    
     @media (max-width: 768px) {
         .main-title {
             font-size: 1.15rem !important;
@@ -60,7 +78,6 @@ st.markdown("""
             font-size: 0.8rem !important;
         }
     }
-
     .stButton>button {
         width: 100%;
         border-radius: 6px;
@@ -98,9 +115,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 USER_DB = [
-    {"id": "admin", "name": "관리자", "dept": "안전정비처", "role": "최고관리자", "status": "접속중"},
-    {"id": "kwater", "name": "최진욱", "dept": "밀양권사업소", "role": "정밀진단원", "status": "접속중"},
-    {"id": "user1", "name": "김광일", "dept": "청주권사업소", "role": "점검자", "status": "오프라인"}
+    {"id": "kwatertech최진욱", "name": "최진욱", "dept": "밀양권사업소", "role": "정밀진단원 / 관리자", "status": "접속중"}
 ]
 
 CATEGORIES = {"성능": 40, "내부상태": 27, "기계상태": 25, "정비이력": 5}
@@ -238,6 +253,13 @@ def ensure_db_exists():
         ws.append(["2026-03-10", "진동/소음 원인 해결", "DHP 계열", "베어링 결함 주파수(2X) 피크 발생", "베어링 윤활유 교체 및 런아웃 재조정으로 진동 7.5 -> 1.8mm/s 감소", "최진욱"])
         wb.save(KNOWHOW_DB_PATH)
 
+    if not os.path.exists(DAILY_LOG_DB_PATH):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "점검일지"
+        ws.append(["점검일자", "점검자", "설비명", "누수/윤활유상태", "진동/소음상태", "온도/전류상태", "특이사항 메모"])
+        wb.save(DAILY_LOG_DB_PATH)
+
 ensure_db_exists()
 
 # 세션 상태 초기화
@@ -249,8 +271,9 @@ if "username" not in st.session_state:
     st.session_state.username = ""
 if "nav_menu" not in st.session_state:
     st.session_state.nav_menu = "1.1. 설비 통합 대시보드"
+if "close_sidebar" not in st.session_state:
+    st.session_state.close_sidebar = False
 
-# 세부 항목 등급 세션 상태 초기화
 for idx, item in enumerate(EVAL_ITEMS):
     if f"selected_grade_{idx}" not in st.session_state:
         st.session_state[f"selected_grade_{idx}"] = item[4][0]
@@ -259,19 +282,21 @@ for idx, item in enumerate(EVAL_ITEMS):
 # 3. 로그인 화면
 # ============================================================
 if not st.session_state.logged_in:
-    _, center_col, _ = st.columns([0.2, 3.6, 0.2])
+    _, center_col, _ = st.columns([0.1, 3.8, 0.1])
     with center_col:
         st.write("##")
-        login_left, login_right = st.columns([1.2, 1.8], gap="small")
+        login_left, login_right = st.columns([1.3, 1.7], gap="small")
         
         with login_left:
             st.markdown("""
-                <div style="background-color: #0098DA; padding: 35px 20px; border-radius: 8px 0 0 8px; color: white; min-height: 380px;">
-                    <h2 style="font-size: 2.0rem; font-weight: 300; margin-bottom: 20px;">Log In</h2>
-                    <div style="border-top: 1px solid rgba(255,255,255,0.3); padding-top: 15px;">
-                        <p style="margin-bottom: 8px; font-size: 0.9rem;">▪ K-water tech 펌프진단시스템</p>
-                        <p style="margin-bottom: 8px; font-size: 0.9rem;">▪ 설비 자산 관리 및 오버홀 이력</p>
-                        <p style="margin-bottom: 8px; font-size: 0.9rem;">▪ 전문보고서 문서고 & 노하우 DB</p>
+                <div style="background-color: #0098DA; padding: 35px 22px; border-radius: 8px 0 0 8px; color: white; min-height: 440px;">
+                    <h2 style="font-size: 1.8rem; font-weight: 300; margin-bottom: 20px; border-bottom: 2px solid rgba(255,255,255,0.4); padding-bottom: 10px;">K-water tech</h2>
+                    <div style="font-size: 0.88rem; line-height: 1.7;">
+                        <p style="margin-bottom: 8px;"><b>▪ 펌프 17개 핵심 진단 항목 자동 판정</b><br>&nbsp;&nbsp;- 효율, 진동, 간극, 센터링 등 실시간 등급 산출</p>
+                        <p style="margin-bottom: 8px;"><b>▪ 전문 보고서 파일 백데이터 아카이빙</b><br>&nbsp;&nbsp;- 오버홀·진동·효율진단 원본 PDF/엑셀 관리</p>
+                        <p style="margin-bottom: 8px;"><b>▪ 4단계 오버홀 공정 및 현장 사진 이력</b><br>&nbsp;&nbsp;- 정비 단계별 현장 사진 및 자산 관리</p>
+                        <p style="margin-bottom: 8px;"><b>▪ 정비·진단 노하우 DB (Troubleshooting)</b><br>&nbsp;&nbsp;- 베테랑 기술원의 결함 해결 사례 기술 자산화</p>
+                        <p style="margin-bottom: 8px;"><b>▪ 현장 QR 코드 기반 스마트 점검 체계</b><br>&nbsp;&nbsp;- 모바일 기반 즉시 접속 및 안전 체크리스트</p>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
@@ -279,23 +304,23 @@ if not st.session_state.logged_in:
         with login_right:
             st.markdown("<div style='padding: 10px;'>", unsafe_allow_html=True)
             if os.path.exists(LOGO_FILE_PATH):
-                st.image(LOGO_FILE_PATH, width=200)
-            st.caption("Sign into your Groupware account.")
+                st.image(LOGO_FILE_PATH, width=210)
+            st.caption("Sign into your K-water tech account.")
             
             with st.form("login_form"):
-                user_id = st.text_input("👤 사번/아이디", value="kwater", placeholder="사번을 입력해주세요.")
-                user_pw = st.text_input("🔒 비밀번호", type="password", value="123", placeholder="비밀번호를 입력해주세요.")
+                user_id = st.text_input("👤 사번/아이디", value="kwatertech최진욱", placeholder="사번/아이디를 입력하세요")
+                user_pw = st.text_input("🔒 비밀번호", type="password", value="1234", placeholder="비밀번호를 입력하세요")
                 
                 submit_btn = st.form_submit_button("로그인", type="primary", use_container_width=True)
                 if submit_btn:
-                    if user_id in [u["id"] for u in USER_DB] and user_pw == "123":
+                    if user_id in [u["id"] for u in USER_DB] and user_pw == "1234":
                         user_obj = next(u for u in USER_DB if u["id"] == user_id)
                         st.session_state.logged_in = True
                         st.session_state.username = user_obj["name"]
-                        st.success(f"{user_obj['name']}님 로그인 성공!")
+                        st.success(f"{user_obj['name']} 님 로그인 성공!")
                         st.rerun()
                     else:
-                        st.error("아이디 또는 비밀번호가 잘못되었습니다.")
+                        st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
             st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<p style='text-align: center; color: #0098DA; font-weight: bold; margin-top: 15px;'>케이워터기술주식회사</p>", unsafe_allow_html=True)
@@ -325,11 +350,24 @@ def show_guideline_dialog():
         st.rerun()
 
 # ============================================================
-# 5. 모바일 자동 닫힘 헬퍼 함수 및 좌측 사이드바 트리 메뉴
+# 5. 모바일 사이드바 자동 닫힘(숨김) 처리 함수
 # ============================================================
-# 1번 요구사항: 메뉴 선택 시 이동과 동시에 모바일 사이드바 자동 닫힘 기능
 def select_menu(menu_name):
     st.session_state.nav_menu = menu_name
+    st.session_state.close_sidebar = True
+
+# 메뉴 클릭 후 모바일에서 사이드바가 자동으로 숨겨지도록 자바스크립트 구동
+if st.session_state.close_sidebar:
+    st.markdown("""
+        <script>
+            var sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+            var closeBtn = window.parent.document.querySelector('[data-testid="stSidebar"] button');
+            if (sidebar && closeBtn) {
+                closeBtn.click();
+            }
+        </script>
+    """, unsafe_allow_html=True)
+    st.session_state.close_sidebar = False
 
 with st.sidebar:
     if os.path.exists(LOGO_FILE_PATH):
@@ -346,53 +384,51 @@ with st.sidebar:
 
     st.markdown("### 📂 시스템 메뉴")
 
-    # 3번 요구사항: 1번~6번까지 모든 메뉴를 기본 펼침(expanded=True)으로 변경
     with st.expander("1. 🏠 기준정보 (Master)", expanded=True):
-        if st.button("▪ 1.1. 설비 통합 대시보드"): 
+        if st.button("▪ 1.1. 설비 통합 대시보드", key="m1_1"): 
             select_menu("1.1. 설비 통합 대시보드")
             st.rerun()
-        if st.button("▪ 1.2. 설비 마스터 관리"): 
+        if st.button("▪ 1.2. 설비 마스터 관리", key="m1_2"): 
             select_menu("1.2. 설비 마스터 관리")
             st.rerun()
 
     with st.expander("2. 🩺 점검정비 (Inspection)", expanded=True):
-        if st.button("▪ 2.1. 펌프 정밀 진단 (17개)"): 
+        if st.button("▪ 2.1. 펌프 정밀 진단 (17개)", key="m2_1"): 
             select_menu("2.1. 펌프 정밀 진단 (17개)")
             st.rerun()
-        if st.button("▪ 2.2. 일상/정기 점검일지"): 
+        if st.button("▪ 2.2. 일상/정기 점검일지", key="m2_2"): 
             select_menu("2.2. 일상/정기 점검일지")
             st.rerun()
 
     with st.expander("3. 🛠️ 정비 & 오버홀 (Overhaul)", expanded=True):
-        if st.button("▪ 3.1. 오버홀 공정/사진 관리"): 
+        if st.button("▪ 3.1. 오버홀 공정/사진 관리", key="m3_1"): 
             select_menu("3.1. 오버홀 공정/사진 관리")
             st.rerun()
-        if st.button("▪ 3.2. 전문 보고서 백데이터 DB"): 
+        if st.button("▪ 3.2. 전문 보고서 백데이터 DB", key="m3_2"): 
             select_menu("3.2. 전문 보고서 백데이터 DB")
             st.rerun()
 
-    with st.expander("4. 📊 분석관리 (Analytics)", expanded=True):  # expanded=True 적용
-        if st.button("▪ 4.1. 성능/상태 5대 추이 분석"): 
+    with st.expander("4. 📊 분석관리 (Analytics)", expanded=True):
+        if st.button("▪ 4.1. 성능/상태 5대 추이 분석", key="m4_1"): 
             select_menu("4.1. 성능/상태 5대 추이 분석")
             st.rerun()
 
-    with st.expander("5. 🛡️ 스마트안전 & 노하우", expanded=True):  # expanded=True 적용
-        if st.button("▪ 5.1. K-water tech 노하우 DB"): 
+    with st.expander("5. 🛡️ 스마트안전 & 노하우", expanded=True):
+        if st.button("▪ 5.1. K-water tech 노하우 DB", key="m5_1"): 
             select_menu("5.1. K-water tech 노하우 DB")
             st.rerun()
-        if st.button("▪ 5.2. 현장 안전 체크리스트"): 
+        if st.button("▪ 5.2. 현장 안전 체크리스트", key="m5_2"): 
             select_menu("5.2. 현장 안전 체크리스트")
             st.rerun()
 
     with st.expander("6. ⚙️ 시스템관리 (Admin)", expanded=True):
-        if st.button("▪ 6.1. 사용자 권한 관리"): 
+        if st.button("▪ 6.1. 사용자 권한 관리", key="m6_1"): 
             select_menu("6.1. 사용자 권한 관리")
             st.rerun()
-        if st.button("▪ 6.2. 통합 DB 일괄 백업"): 
+        if st.button("▪ 6.2. 통합 DB 일괄 백업", key="m6_2"): 
             select_menu("6.2. 통합 DB 일괄 백업")
             st.rerun()
 
-# 2번 요구사항: 모바일 접속 시 타이틀이 너무 크지 않도록 반응형 헤더 배치
 head_c1, head_c2 = st.columns([3.5, 1.2])
 with head_c1:
     st.markdown("<div class='main-title'>K-water tech 펌프 진단 & 자산관리</div>", unsafe_allow_html=True)
@@ -465,6 +501,7 @@ elif st.session_state.nav_menu == "1.2. 설비 마스터 관리":
 
 # --- 2.1. 펌프 정밀 진단 (17개) ---
 elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
+    init_korean_font()
     st.subheader("📋 설비 선택 및 기본정보")
     pump_names = [p["equip"] for p in st.session_state.pump_list]
     selected_pump_name = st.selectbox("진단할 펌프 설비를 선택하세요", pump_names)
@@ -556,7 +593,7 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
         ax1.set_theta_offset(np.pi / 2)
         ax1.set_theta_direction(-1)
         ax1.set_xticks(angles[:-1])
-        ax1.set_xticklabels(cats, fontsize=7, fontweight='bold')
+        ax1.set_xticklabels(cats, fontsize=8, fontweight='bold')
         ax1.set_ylim(0, 125)
         ax1.plot(angles, vals, linewidth=1.5, color='#2563EB')
         ax1.fill(angles, vals, color='#3B82F6', alpha=0.25)
@@ -566,7 +603,7 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
         x = np.arange(len(cats))
         ax2.bar(x, list(cat_scores.values()), 0.4, color='#2563EB')
         ax2.set_xticks(x)
-        ax2.set_xticklabels(cats, fontsize=6)
+        ax2.set_xticklabels(cats, fontsize=7)
         ax2.set_title("2. 영역별 환산점수", size=8, fontweight='bold')
 
         ax3 = fig.add_subplot(323)
@@ -662,14 +699,47 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
 # --- 2.2. 일상/정기 점검일지 ---
 elif st.session_state.nav_menu == "2.2. 일상/정기 점검일지":
     st.subheader("📅 일상 및 정기 점검 일지 기록")
-    st.date_input("점검일자", value=datetime.now())
-    st.text_input("점검자", value=st.session_state.username)
-    st.selectbox("점검 펌프 선택", [p["equip"] for p in st.session_state.pump_list])
-    st.checkbox("1. 누수 및 베어링 윤활유 상태 양호")
-    st.checkbox("2. 이상 소모 및 진동 발생 여부 없음")
-    st.checkbox("3. 모터 온도 및 전류값 정상 범위 내 운전")
-    st.text_area("특이사항 및 작업 메모")
-    st.button("점검일지 등록", type="primary")
+    
+    with st.form("daily_log_form"):
+        c1, c2 = st.columns(2)
+        d_date = c1.date_input("점검일자", value=datetime.now())
+        d_user = c2.text_input("점검자", value=st.session_state.username)
+        d_pump = st.selectbox("점검 펌프 선택", [p["equip"] for p in st.session_state.pump_list])
+        
+        c_chk1 = st.checkbox("1. 누수 및 베어링 윤활유 상태 양호")
+        c_chk2 = st.checkbox("2. 이상 소모 및 진동 발생 여부 없음")
+        c_chk3 = st.checkbox("3. 모터 온도 및 전류값 정상 범위 내 운전")
+        d_memo = st.text_area("특이사항 및 작업 메모")
+        
+        if st.form_submit_button("📝 점검일지 등록 및 DB 저장", type="primary"):
+            wb = load_workbook(DAILY_LOG_DB_PATH)
+            ws = wb["점검일지"]
+            ws.append([
+                str(d_date), d_user, d_pump,
+                "양호" if c_chk1 else "점검필요",
+                "양호" if c_chk2 else "점검필요",
+                "양호" if c_chk3 else "점검필요",
+                d_memo
+            ])
+            wb.save(DAILY_LOG_DB_PATH)
+            st.success("일상 점검일지가 성공적으로 저장되었습니다!")
+
+    st.write("---")
+    st.subheader("📜 등록된 일상 점검일지 이력 및 엑셀 다운로드")
+    
+    def generate_daily_log_excel():
+        output = io.BytesIO()
+        wb = load_workbook(DAILY_LOG_DB_PATH)
+        wb.save(output)
+        return output.getvalue()
+
+    st.download_button(
+        label="📥 일상/정기 점검일지 전체 이력 (엑셀) 다운로드",
+        data=generate_daily_log_excel(),
+        file_name=f"Kwater_일상점검일지_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="secondary"
+    )
 
 # --- 3.1. 오버홀 공정/사진 관리 ---
 elif st.session_state.nav_menu == "3.1. 오버홀 공정/사진 관리":
@@ -695,6 +765,23 @@ elif st.session_state.nav_menu == "3.1. 오버홀 공정/사진 관리":
             ws.append([str(work_date), "밀양권사업소", selected_pump, step, st.session_state.username, work_memo, file_name])
             wb.save(OVERHAUL_DB_PATH)
             st.success("오버홀 기록이 등록되었습니다!")
+
+    st.write("---")
+    st.subheader("📜 오버홀 공정 이력 보고서 엑셀 다운로드")
+    
+    def generate_overhaul_excel():
+        output = io.BytesIO()
+        wb = load_workbook(OVERHAUL_DB_PATH)
+        wb.save(output)
+        return output.getvalue()
+
+    st.download_button(
+        label="📥 오버홀 공정 및 사진 이력 보고서 (엑셀) 다운로드",
+        data=generate_overhaul_excel(),
+        file_name=f"Kwater_오버홀공정이력_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="secondary"
+    )
 
 # --- 3.2. 전문 보고서 백데이터 DB ---
 elif st.session_state.nav_menu == "3.2. 전문 보고서 백데이터 DB":
@@ -744,6 +831,7 @@ elif st.session_state.nav_menu == "3.2. 전문 보고서 백데이터 DB":
 
 # --- 4.1. 성능/상태 5대 추이 분석 ---
 elif st.session_state.nav_menu == "4.1. 성능/상태 5대 추이 분석":
+    init_korean_font()
     st.subheader("📈 펌프 건전성 5대 정밀 추이 분석 그래프")
     
     selected_p = st.selectbox("분석 설비 선택", [p["equip"] for p in st.session_state.pump_list])
@@ -837,8 +925,8 @@ elif st.session_state.nav_menu == "6.1. 사용자 권한 관리":
     st.dataframe(USER_DB, use_container_width=True)
 
     c1, c2, c3 = st.columns(3)
-    c1.markdown("<div class='kpi-card'><div class='kpi-title'>총 등록 사용자</div><div class='kpi-value'>3 명</div></div>", unsafe_allow_html=True)
-    c2.markdown("<div class='kpi-card'><div class='kpi-title'>현재 접속 중 계정</div><div class='kpi-value'>2 명</div></div>", unsafe_allow_html=True)
+    c1.markdown("<div class='kpi-card'><div class='kpi-title'>총 등록 사용자</div><div class='kpi-value'>1 명</div></div>", unsafe_allow_html=True)
+    c2.markdown("<div class='kpi-card'><div class='kpi-title'>현재 접속 중 계정</div><div class='kpi-value'>1 명</div></div>", unsafe_allow_html=True)
     c3.markdown("<div class='kpi-card'><div class='kpi-title'>최고 관리자 수</div><div class='kpi-value'>1 명</div></div>", unsafe_allow_html=True)
 
 # --- 6.2. 통합 DB 일괄 백업 ---
