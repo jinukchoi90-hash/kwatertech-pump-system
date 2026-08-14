@@ -3,6 +3,7 @@ import io
 import urllib.request
 from datetime import datetime
 import streamlit as st
+import pandas as pd
 import openpyxl
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -43,6 +44,7 @@ OVERHAUL_DB_PATH = "Pump_Overhaul_DB.xlsx"
 DOC_DB_PATH = "Pump_Docs_DB.xlsx"
 KNOWHOW_DB_PATH = "Pump_Knowhow_DB.xlsx"
 DAILY_LOG_DB_PATH = "Pump_DailyLog_DB.xlsx"
+SAFETY_PERMIT_DB_PATH = "Pump_SafetyPermit_DB.xlsx"
 LOGO_FILE_PATH = "Logo.png"
 
 # ============================================================
@@ -57,7 +59,6 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-# 모바일 메뉴 가독성 극대화 & 스타일링 & 모바일 자동 닫기 CSS
 st.markdown("""
     <style>
     .block-container {
@@ -82,12 +83,10 @@ st.markdown("""
         }
     }
     
-    /* 사이드바 메뉴 스타일 개선 */
     div[data-testid="stSidebarNav"] {
         display: none;
     }
     
-    /* 메뉴 버튼 폰트 및 디자인 강화 */
     .stButton>button {
         width: 100%;
         border-radius: 8px;
@@ -95,13 +94,12 @@ st.markdown("""
         transition: all 0.2s ease-in-out;
     }
     
-    /* 사이드바 전용 버튼 커스텀 (크고 직관적으로 변경) */
     div[data-testid="stSidebar"] .stButton>button {
-        font-size: 1.05rem !important;
-        padding: 12px 14px !important;
+        font-size: 1.02rem !important;
+        padding: 10px 12px !important;
         text-align: left !important;
         justify-content: flex-start !important;
-        margin-bottom: 6px !important;
+        margin-bottom: 5px !important;
         background-color: #f8fafc;
         border: 1px solid #cbd5e1;
         color: #1e293b;
@@ -157,7 +155,6 @@ DEFAULT_PUMPS = [
     {"site": "청주권사업소", "equip": "송수펌프 #1", "maker": "KSB", "model": "Eta-100", "hp": "200", "head": "50", "build_date": "2020-03-15"}
 ]
 
-# 샘플 더미 데이터 자동 생성 함수 (로그인 후 첫 화면 데이터 0 나오는 현상 방지)
 def seed_sample_data():
     if os.path.exists(DB_FILE_PATH):
         wb = load_workbook(DB_FILE_PATH)
@@ -303,10 +300,17 @@ def ensure_db_exists():
         ws.append(["점검일자", "점검자", "설비명", "누수/윤활유상태", "진동/소음상태", "온도/전류상태", "특이사항 메모"])
         wb.save(DAILY_LOG_DB_PATH)
 
+    if not os.path.exists(SAFETY_PERMIT_DB_PATH):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "위험작업허가"
+        ws.append(["신청일자", "작업명", "대상설비", "위험유형", "작업기간", "신청자", "승인상태", "안전조치사항"])
+        ws.append(["2026-08-14", "취수펌프 #1 오버홀 분해작업", "취수펌프 #1", "밀폐공간 / 고소작업", "2026-08-15~2026-08-18", "최진욱", "승인완료", "LOTO 차단, 가스농도 측정, 안전대 착용"])
+        wb.save(SAFETY_PERMIT_DB_PATH)
+
 ensure_db_exists()
 seed_sample_data()
 
-# 세션 상태 초기화
 if "pump_list" not in st.session_state:
     st.session_state.pump_list = DEFAULT_PUMPS
 if "logged_in" not in st.session_state:
@@ -340,7 +344,7 @@ if not st.session_state.logged_in:
                         <p style="margin-bottom: 8px;"><b>▪ 전문 보고서 파일 백데이터 아카이빙</b><br>&nbsp;&nbsp;- 오버홀·진동·효율진단 원본 PDF/엑셀 관리</p>
                         <p style="margin-bottom: 8px;"><b>▪ 4단계 오버홀 공정 및 현장 사진 이력</b><br>&nbsp;&nbsp;- 정비 단계별 현장 사진 및 자산 관리</p>
                         <p style="margin-bottom: 8px;"><b>▪ 정비·진단 노하우 DB (Troubleshooting)</b><br>&nbsp;&nbsp;- 베테랑 기술원의 결함 해결 사례 기술 자산화</p>
-                        <p style="margin-bottom: 8px;"><b>▪ 현장 QR 코드 기반 스마트 점검 체계</b><br>&nbsp;&nbsp;- 모바일 기반 즉시 접속 및 안전 체크리스트</p>
+                        <p style="margin-bottom: 8px;"><b>▪ 현장 안전관리 및 위험작업 허가 체계</b><br>&nbsp;&nbsp;- 허가서 작성, 위험현황 모니터링, 위험성평가</p>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
@@ -394,7 +398,6 @@ def show_guideline_dialog():
     if st.button("확인 및 닫기", type="primary", use_container_width=True):
         st.rerun()
 
-# 신규설비 등록 확인 팝업창 다이얼로그
 @st.dialog("❓ 신규 설비 등록 확인")
 def confirm_add_pump_dialog():
     pump_data = st.session_state.temp_new_pump
@@ -413,7 +416,7 @@ def confirm_add_pump_dialog():
             st.rerun()
 
 # ============================================================
-# 5. 모바일 사이드바 메뉴 완전 개편 (요구사항 1, 2)
+# 5. 모바일 사이드바 메뉴
 # ============================================================
 def navigate_to(menu_name):
     st.session_state.nav_menu = menu_name
@@ -450,6 +453,9 @@ with st.sidebar:
         ("4.1. 성능/상태 5대 추이 분석", "📈 4.1. 성능/상태 5대 추이 분석"),
         ("5.1. K-water tech 노하우 DB", "💡 5.1. K-water tech 노하우 DB"),
         ("5.2. 현장 안전 체크리스트", "🛡️ 5.2. 현장 안전 체크리스트"),
+        ("5.3. 위험작업 허가서", "📑 5.3. 위험작업 허가서"),
+        ("5.4. 위험작업 현황", "🚨 5.4. 위험작업 현황"),
+        ("5.5. 안전작업계획서 및 위험성평가", "📋 5.5. 안전작업계획서/위험성평가"),
         ("6.1. 사용자 권한 관리", "👤 6.1. 사용자 권한 관리"),
         ("6.2. 통합 DB 일괄 백업", "📦 6.2. 통합 DB 일괄 백업")
     ]
@@ -513,14 +519,15 @@ if st.session_state.nav_menu == "1.1. 설비 통합 대시보드":
     diag_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
     wb.close()
     if len(diag_records) > 1:
-        st.dataframe(diag_records[1:], headers=diag_records[0], use_container_width=True)
+        df_diag = pd.DataFrame(diag_records[1:], columns=diag_records[0])
+        st.dataframe(df_diag, use_container_width=True)
     else:
         st.info("등록된 정밀 진단 이력이 없습니다.")
 
 # --- 1.2. 설비 마스터 관리 ---
 elif st.session_state.nav_menu == "1.2. 설비 마스터 관리":
     st.subheader("📋 설비 마스터 등록 및 관리")
-    st.dataframe(st.session_state.pump_list, use_container_width=True)
+    st.dataframe(pd.DataFrame(st.session_state.pump_list), use_container_width=True)
 
     with st.expander("➕ 신규 펌프 설비 등록하기"):
         with st.form("add_pump_form"):
@@ -749,7 +756,7 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
         wb.close()
         filtered = [records[0]] + [r for r in records[1:] if r[2] == selected_pump_name]
         if len(filtered) > 1:
-            st.dataframe(filtered[1:], headers=filtered[0], use_container_width=True)
+            st.dataframe(pd.DataFrame(filtered[1:], columns=filtered[0]), use_container_width=True)
         else:
             st.info(f"{selected_pump_name}의 지난 진단 이력이 없습니다.")
 
@@ -788,7 +795,7 @@ elif st.session_state.nav_menu == "2.2. 일상/정기 점검일지":
     logs = [row for row in ws.iter_rows(min_row=1, values_only=True)]
     wb.close()
     if len(logs) > 1:
-        st.dataframe(logs[1:], headers=logs[0], use_container_width=True)
+        st.dataframe(pd.DataFrame(logs[1:], columns=logs[0]), use_container_width=True)
     else:
         st.info("등록된 점검일지 이력이 없습니다.")
 
@@ -838,7 +845,7 @@ elif st.session_state.nav_menu == "3.1. 오버홀 공정/사진 관리":
     o_records = [row for row in ws.iter_rows(min_row=1, values_only=True)]
     wb.close()
     if len(o_records) > 1:
-        st.dataframe(o_records[1:], headers=o_records[0], use_container_width=True)
+        st.dataframe(pd.DataFrame(o_records[1:], columns=o_records[0]), use_container_width=True)
     else:
         st.info("등록된 오버홀 공정 이력이 없습니다.")
 
@@ -993,10 +1000,82 @@ elif st.session_state.nav_menu == "5.2. 현장 안전 체크리스트":
     st.checkbox("3. 개인 보호구 (안전모, 안전화, 코팅 장갑) 착용 완료")
     st.checkbox("4. 회전 부위 가이드 커버 설치 및 체결 상태 확인")
 
+# --- 5.3. 위험작업 허가서 ---
+elif st.session_state.nav_menu == "5.3. 위험작업 허가서":
+    st.subheader("📑 현장 위험작업 허가서 작성 및 승인 신청")
+    
+    with st.form("safety_permit_form"):
+        c1, c2 = st.columns(2)
+        p_title = c1.text_input("작업명", value="가압펌프 #1 오버홀 해체작업")
+        p_pump = c2.selectbox("대상 설비", [p["equip"] for p in st.session_state.pump_list])
+        
+        c3, c4 = st.columns(2)
+        p_types = c3.multiselect("위험작업 유형 선택", ["밀폐공간 작업", "화기/용접 작업", "고소/위험성 작업", "정전/전기 작업", "중장비/인양 작업"], default=["고소/위험성 작업"])
+        p_period = c4.text_input("작업 예정 기간", value=f"{datetime.now().strftime('%Y-%m-%d')} ~ {(datetime.now()).strftime('%Y-%m-%d')}")
+        
+        st.markdown("##### ■ 필수 사전 안전 조치 점검")
+        s_chk1 = st.checkbox("전기 LOTO(Lockout/Tagout) 차단 및 표지판 게시 완료", value=True)
+        s_chk2 = st.checkbox("유해가스 및 산소농도 측정 완료 (기준치 적정)", value=True)
+        s_chk3 = st.checkbox("화재감시자 배치 및 소화기 현장 비치 완료", value=True)
+        s_chk4 = st.checkbox("안전대/안전모/보호구 착용 상태 검토 완료", value=True)
+        
+        p_memo = st.text_area("기타 특이 안전 조치사항 및 요구조건")
+        
+        if st.form_submit_button("📝 위험작업 허가 신청 등록", type="primary"):
+            wb = load_workbook(SAFETY_PERMIT_DB_PATH)
+            ws = wb["위험작업허가"]
+            ws.append([
+                datetime.now().strftime('%Y-%m-%d'), p_title, p_pump,
+                ", ".join(p_types), p_period, st.session_state.username, "승인대기", p_memo
+            ])
+            wb.save(SAFETY_PERMIT_DB_PATH)
+            st.success("위험작업 허가서 승인 신청이 완료되었습니다!")
+
+# --- 5.4. 위험작업 현황 ---
+elif st.session_state.nav_menu == "5.4. 위험작업 현황":
+    st.subheader("🚨 사업장별 위험작업 진행 현황 모니터링")
+    
+    wb = load_workbook(SAFETY_PERMIT_DB_PATH, data_only=True)
+    ws = wb["위험작업허가"]
+    permits = [row for row in ws.iter_rows(min_row=1, values_only=True)]
+    wb.close()
+    
+    if len(permits) > 1:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("총 등록 허가건", f"{len(permits)-1} 건")
+        c2.metric("진행중/승인완료", f"{sum(1 for r in permits[1:] if r[6]=='승인완료')} 건")
+        c3.metric("승인 대기중", f"{sum(1 for r in permits[1:] if r[6]=='승인대기')} 건")
+        
+        st.write("---")
+        st.subheader("📜 위험작업 허가 및 진행 상태 리스트")
+        st.dataframe(pd.DataFrame(permits[1:], columns=permits[0]), use_container_width=True)
+    else:
+        st.info("현재 등록된 위험작업 허가 내역이 없습니다.")
+
+# --- 5.5. 안전작업계획서 및 위험성평가 ---
+elif st.session_state.nav_menu == "5.5. 안전작업계획서 및 위험성평가":
+    st.subheader("📋 안전작업계획서 및 사전 위험성평가(JSA)")
+    
+    st.markdown("#### 1. 위험성평가 (Risk Assessment) 표준 항목 점검")
+    ra1 = st.checkbox("▪ [낙하/추락] 정비용 가설발판 및 작업대 안전난간 체결 상태 확인 (위험성: 中 -> 低)", value=True)
+    ra2 = st.checkbox("▪ [감전/착오] 모터 전원 케이블 완전 차단 및 접지 상태 점검 (위험성: 高 -> 低)", value=True)
+    ra3 = st.checkbox("▪ [협착/끼임] 펌프 및 모터 회전체 가이드 커버 설치 및 체결 (위험성: 中 -> 低)", value=True)
+    ra4 = st.checkbox("▪ [유해물질] 윤활유/유기용제 취급 시 MSDF 숙지 및 방독/코팅장갑 착용 (위험성: 低)", value=True)
+
+    st.write("---")
+    st.markdown("#### 2. 안전작업계획서 서식 작성 및 제출")
+    with st.form("risk_plan_form"):
+        plan_equip = st.selectbox("작업 대상 펌프", [p["equip"] for p in st.session_state.pump_list])
+        plan_hazard = st.text_area("주요 잠재 위험요인 (Hazard)", value="임펠러 분해 작업 중 중량물 낙하 위험 및 케이싱 내부 협착 위험")
+        plan_counter = st.text_area("위험 감소 대책 (Action Plan)", value="크레인 샤클 및 슬링벨트 사전 점검, 2인 1조 작업 수행, 신호수 배치")
+        
+        if st.form_submit_button("📋 안전작업계획서 승인 제출", type="primary"):
+            st.success("안전작업계획서 및 위험성평가가 제출되었습니다!")
+
 # --- 6.1. 사용자 권한 관리 ---
 elif st.session_state.nav_menu == "6.1. 사용자 권한 관리":
     st.subheader("⚙️ 사용자 및 점검자 권한 관리")
-    st.dataframe(USER_DB, use_container_width=True)
+    st.dataframe(pd.DataFrame(USER_DB), use_container_width=True)
 
     c1, c2, c3 = st.columns(3)
     c1.markdown("<div class='kpi-card'><div class='kpi-title'>총 등록 사용자</div><div class='kpi-value'>1 명</div></div>", unsafe_allow_html=True)
