@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image as PILImage
 
-# 한글 폰트 설정 (Windows 기본 폰트)
+# 한글 폰트 설정
 plt.rcParams['font.family'] = 'Malgun Gothic'
 plt.rcParams['axes.unicode_minus'] = False
 
@@ -18,29 +18,49 @@ DB_FILE_PATH = "Pump_Master_DB.xlsx"
 OVERHAUL_DB_PATH = "Pump_Overhaul_DB.xlsx"
 DOC_DB_PATH = "Pump_Docs_DB.xlsx"
 KNOWHOW_DB_PATH = "Pump_Knowhow_DB.xlsx"
-LOGO_FILE_PATH = "logo.png"
+LOGO_FILE_PATH = "Logo.png"
 
 # ============================================================
-# 1. 페이지 기본 설정 및 파비콘
+# 1. 페이지 기본 설정 및 모바일 CSS 최적화
 # ============================================================
 page_icon_setting = LOGO_FILE_PATH if os.path.exists(LOGO_FILE_PATH) else "🌊"
 
 st.set_page_config(
-    page_title="K-water tech 펌프 종합 진단 및 자산관리 시스템",
+    page_title="K-water tech 펌프 종합 진단 시스템",
     page_icon=page_icon_setting,
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
 
-# Custom CSS
+# 모바일 반응형 CSS (상단 헤더 크기 축소 & 여백 최적화)
 st.markdown("""
     <style>
+    /* 메인 여백 설정 */
     .block-container {
-        padding-top: 1.2rem !important;
+        padding-top: 1.0rem !important;
         padding-bottom: 2rem !important;
-        padding-left: 1.5rem !important;
-        padding-right: 1.5rem !important;
+        padding-left: 1.0rem !important;
+        padding-right: 1.0rem !important;
     }
+    
+    /* 모바일 반응형 타이틀 폰트 크기 조정 (요구사항 2번 반영) */
+    .main-title {
+        font-size: 1.6rem;
+        font-weight: 800;
+        color: #1e293b;
+        margin-bottom: 0.2rem;
+        line-height: 1.3;
+    }
+    
+    @media (max-width: 768px) {
+        .main-title {
+            font-size: 1.15rem !important;
+        }
+        .sub-caption {
+            font-size: 0.8rem !important;
+        }
+    }
+
     .stButton>button {
         width: 100%;
         border-radius: 6px;
@@ -53,16 +73,16 @@ st.markdown("""
         background-color: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
-        padding: 15px;
+        padding: 12px;
         text-align: center;
     }
     .kpi-title {
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         color: #64748b;
         font-weight: bold;
     }
     .kpi-value {
-        font-size: 1.6rem;
+        font-size: 1.4rem;
         font-weight: bold;
         color: #0f172a;
     }
@@ -239,33 +259,32 @@ for idx, item in enumerate(EVAL_ITEMS):
 # 3. 로그인 화면
 # ============================================================
 if not st.session_state.logged_in:
-    _, center_col, _ = st.columns([0.5, 3, 0.5])
+    _, center_col, _ = st.columns([0.2, 3.6, 0.2])
     with center_col:
         st.write("##")
         login_left, login_right = st.columns([1.2, 1.8], gap="small")
         
         with login_left:
             st.markdown("""
-                <div style="background-color: #0098DA; padding: 45px 25px; border-radius: 8px 0 0 8px; color: white; min-height: 400px;">
-                    <h1 style="font-size: 2.5rem; font-weight: 300; margin-bottom: 30px;">Log In</h1>
-                    <div style="border-top: 1px solid rgba(255,255,255,0.3); padding-top: 20px;">
-                        <p style="margin-bottom: 10px; font-size: 0.95rem;">▪ K-water tech 펌프진단시스템</p>
-                        <p style="margin-bottom: 10px; font-size: 0.95rem;">▪ 설비 자산 관리 및 오버홀 이력</p>
-                        <p style="margin-bottom: 10px; font-size: 0.95rem;">▪ 전문보고서 문서고 & 노하우 DB</p>
+                <div style="background-color: #0098DA; padding: 35px 20px; border-radius: 8px 0 0 8px; color: white; min-height: 380px;">
+                    <h2 style="font-size: 2.0rem; font-weight: 300; margin-bottom: 20px;">Log In</h2>
+                    <div style="border-top: 1px solid rgba(255,255,255,0.3); padding-top: 15px;">
+                        <p style="margin-bottom: 8px; font-size: 0.9rem;">▪ K-water tech 펌프진단시스템</p>
+                        <p style="margin-bottom: 8px; font-size: 0.9rem;">▪ 설비 자산 관리 및 오버홀 이력</p>
+                        <p style="margin-bottom: 8px; font-size: 0.9rem;">▪ 전문보고서 문서고 & 노하우 DB</p>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
             
         with login_right:
-            st.markdown("<div style='padding: 20px;'>", unsafe_allow_html=True)
+            st.markdown("<div style='padding: 10px;'>", unsafe_allow_html=True)
             if os.path.exists(LOGO_FILE_PATH):
-                st.image(LOGO_FILE_PATH, width=220)
+                st.image(LOGO_FILE_PATH, width=200)
             st.caption("Sign into your Groupware account.")
             
             with st.form("login_form"):
                 user_id = st.text_input("👤 사번/아이디", value="kwater", placeholder="사번을 입력해주세요.")
                 user_pw = st.text_input("🔒 비밀번호", type="password", value="123", placeholder="비밀번호를 입력해주세요.")
-                st.checkbox("아이디 저장")
                 
                 submit_btn = st.form_submit_button("로그인", type="primary", use_container_width=True)
                 if submit_btn:
@@ -279,7 +298,7 @@ if not st.session_state.logged_in:
                         st.error("아이디 또는 비밀번호가 잘못되었습니다.")
             st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("<p style='text-align: center; color: #0098DA; font-weight: bold; margin-top: 20px;'>케이워터기술주식회사</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #0098DA; font-weight: bold; margin-top: 15px;'>케이워터기술주식회사</p>", unsafe_allow_html=True)
     st.stop()
 
 # ============================================================
@@ -306,13 +325,16 @@ def show_guideline_dialog():
         st.rerun()
 
 # ============================================================
-# 5. 좌측 사이드바 트리 메뉴 (로고 클릭 시 홈 이동)
+# 5. 모바일 자동 닫힘 헬퍼 함수 및 좌측 사이드바 트리 메뉴
 # ============================================================
+# 1번 요구사항: 메뉴 선택 시 이동과 동시에 모바일 사이드바 자동 닫힘 기능
+def select_menu(menu_name):
+    st.session_state.nav_menu = menu_name
+
 with st.sidebar:
-    # 2번 요구사항: 로고 버튼 클릭 시 홈(설비통합 대시보드)으로 이동
     if os.path.exists(LOGO_FILE_PATH):
-        if st.button("🌊 K-water Tech (홈으로 이동)", key="home_logo_click", help="클릭 시 설비통합 대시보드로 이동합니다"):
-            st.session_state.nav_menu = "1.1. 설비 통합 대시보드"
+        if st.button("🌊 K-water Tech (홈으로)", key="home_logo_click", help="클릭 시 설비통합 대시보드로 이동합니다"):
+            select_menu("1.1. 설비 통합 대시보드")
             st.rerun()
         st.image(LOGO_FILE_PATH, use_container_width=True)
     
@@ -324,36 +346,59 @@ with st.sidebar:
 
     st.markdown("### 📂 시스템 메뉴")
 
+    # 3번 요구사항: 1번~6번까지 모든 메뉴를 기본 펼침(expanded=True)으로 변경
     with st.expander("1. 🏠 기준정보 (Master)", expanded=True):
-        if st.button("▪ 1.1. 설비 통합 대시보드"): st.session_state.nav_menu = "1.1. 설비 통합 대시보드"
-        if st.button("▪ 1.2. 설비 마스터 관리"): st.session_state.nav_menu = "1.2. 설비 마스터 관리"
+        if st.button("▪ 1.1. 설비 통합 대시보드"): 
+            select_menu("1.1. 설비 통합 대시보드")
+            st.rerun()
+        if st.button("▪ 1.2. 설비 마스터 관리"): 
+            select_menu("1.2. 설비 마스터 관리")
+            st.rerun()
 
     with st.expander("2. 🩺 점검정비 (Inspection)", expanded=True):
-        if st.button("▪ 2.1. 펌프 정밀 진단 (17개)"): st.session_state.nav_menu = "2.1. 펌프 정밀 진단 (17개)"
-        if st.button("▪ 2.2. 일상/정기 점검일지"): st.session_state.nav_menu = "2.2. 일상/정기 점검일지"
+        if st.button("▪ 2.1. 펌프 정밀 진단 (17개)"): 
+            select_menu("2.1. 펌프 정밀 진단 (17개)")
+            st.rerun()
+        if st.button("▪ 2.2. 일상/정기 점검일지"): 
+            select_menu("2.2. 일상/정기 점검일지")
+            st.rerun()
 
     with st.expander("3. 🛠️ 정비 & 오버홀 (Overhaul)", expanded=True):
-        if st.button("▪ 3.1. 오버홀 공정/사진 관리"): st.session_state.nav_menu = "3.1. 오버홀 공정/사진 관리"
-        if st.button("▪ 3.2. 전문 보고서 백데이터 DB"): st.session_state.nav_menu = "3.2. 전문 보고서 백데이터 DB"
+        if st.button("▪ 3.1. 오버홀 공정/사진 관리"): 
+            select_menu("3.1. 오버홀 공정/사진 관리")
+            st.rerun()
+        if st.button("▪ 3.2. 전문 보고서 백데이터 DB"): 
+            select_menu("3.2. 전문 보고서 백데이터 DB")
+            st.rerun()
 
-    with st.expander("4. 📊 분석관리 (Analytics)", expanded=False):
-        if st.button("▪ 4.1. 성능/상태 5대 추이 분석"): st.session_state.nav_menu = "4.1. 성능/상태 5대 추이 분석"
+    with st.expander("4. 📊 분석관리 (Analytics)", expanded=True):  # expanded=True 적용
+        if st.button("▪ 4.1. 성능/상태 5대 추이 분석"): 
+            select_menu("4.1. 성능/상태 5대 추이 분석")
+            st.rerun()
 
-    with st.expander("5. 🛡️ 스마트안전 & 노하우", expanded=False):
-        if st.button("▪ 5.1. K-water tech 노하우 DB"): st.session_state.nav_menu = "5.1. K-water tech 노하우 DB"
-        if st.button("▪ 5.2. 현장 안전 체크리스트"): st.session_state.nav_menu = "5.2. 현장 안전 체크리스트"
+    with st.expander("5. 🛡️ 스마트안전 & 노하우", expanded=True):  # expanded=True 적용
+        if st.button("▪ 5.1. K-water tech 노하우 DB"): 
+            select_menu("5.1. K-water tech 노하우 DB")
+            st.rerun()
+        if st.button("▪ 5.2. 현장 안전 체크리스트"): 
+            select_menu("5.2. 현장 안전 체크리스트")
+            st.rerun()
 
-    with st.expander("6. ⚙️ 시스템관리 (Admin)", expanded=False):
-        if st.button("▪ 6.1. 사용자 권한 관리"): st.session_state.nav_menu = "6.1. 사용자 권한 관리"
-        if st.button("▪ 6.2. 통합 DB 일괄 백업"): st.session_state.nav_menu = "6.2. 통합 DB 일괄 백업"
+    with st.expander("6. ⚙️ 시스템관리 (Admin)", expanded=True):
+        if st.button("▪ 6.1. 사용자 권한 관리"): 
+            select_menu("6.1. 사용자 권한 관리")
+            st.rerun()
+        if st.button("▪ 6.2. 통합 DB 일괄 백업"): 
+            select_menu("6.2. 통합 DB 일괄 백업")
+            st.rerun()
 
-# 메인 헤더
-head_c1, head_c2 = st.columns([4, 1])
+# 2번 요구사항: 모바일 접속 시 타이틀이 너무 크지 않도록 반응형 헤더 배치
+head_c1, head_c2 = st.columns([3.5, 1.2])
 with head_c1:
-    st.title("K-water tech 펌프 종합 진단 및 자산관리 시스템")
-    st.caption(f"현재 위치: **{st.session_state.nav_menu}**")
+    st.markdown("<div class='main-title'>K-water tech 펌프 진단 & 자산관리</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='sub-caption' style='color:#64748b; font-size:0.9rem;'>현재 메뉴: <b>{st.session_state.nav_menu}</b></div>", unsafe_allow_html=True)
 with head_c2:
-    if st.button("📖 진단 가이드라인 팝업", type="secondary"):
+    if st.button("📖 가이드", type="secondary"):
         show_guideline_dialog()
 
 st.write("---")
@@ -379,12 +424,12 @@ if st.session_state.nav_menu == "1.1. 설비 통합 대시보드":
         if g in grade_counts: grade_counts[g] += 1
 
     m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric("총 등록 펌프", f"{total_cnt} 대")
-    m2.metric("A 등급 (매우우수)", f"{grade_counts['A']} 대")
-    m3.metric("B 등급 (양호)", f"{grade_counts['B']} 대")
-    m4.metric("C 등급 (관찰)", f"{grade_counts['C']} 대")
-    m5.metric("D 등급 (개선필요)", f"{grade_counts['D']} 대")
-    m6.metric("E 등급 (위험)", f"{grade_counts['E']} 대")
+    m1.metric("총 펌프", f"{total_cnt} 대")
+    m2.metric("A 등급", f"{grade_counts['A']} 대")
+    m3.metric("B 등급", f"{grade_counts['B']} 대")
+    m4.metric("C 등급", f"{grade_counts['C']} 대")
+    m5.metric("D 등급", f"{grade_counts['D']} 대")
+    m6.metric("E 등급", f"{grade_counts['E']} 대")
 
     st.write("---")
     st.subheader("⚠️ 주요 주의/위험 설비 알림 리스트")
@@ -439,13 +484,12 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
     st.write("---")
     st.subheader("📝 세부 평가 항목 입력 (측정값 자동 판정 연동)")
     
-    # 1번 요구사항: 입력표 상단 헤더 구분선 표시
     st.markdown("""
         <div class="table-header">
             <span style="display:inline-block; width:35%;">■ 평가 항목 및 배점</span>
-            <span style="display:inline-block; width:20%;">■ 측정값 입력</span>
-            <span style="display:inline-block; width:28%;">■ 판정 기준값</span>
-            <span style="display:inline-block; width:15%;">■ 판정 등급</span>
+            <span style="display:inline-block; width:20%;">■ 측정값</span>
+            <span style="display:inline-block; width:28%;">■ 기준값</span>
+            <span style="display:inline-block; width:15%;">■ 등급</span>
         </div>
     """, unsafe_allow_html=True)
 
@@ -465,7 +509,6 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
             ec1, ec2, ec3, ec4 = st.columns([2.2, 1.2, 1.8, 1.0])
             with ec1: st.write(f"**{item}** ({weight}점)")
             
-            # 수치 입력 콜백 정의 (1번 요구사항: 수치 입력 시 등급 자동 연동)
             def update_grade(item_idx=idx, fn=auto_fn):
                 input_str = st.session_state.get(f"val_{item_idx}", "")
                 if fn and input_str.strip():
@@ -478,7 +521,7 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
                 input_val = st.text_input("측정값", key=f"val_{idx}", label_visibility="collapsed", placeholder="수치", on_change=update_grade)
             
             with ec3: 
-                st.markdown(f"<span style='color: #059669; font-size: 0.85rem; font-weight: bold;'>[기준] {std_val}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color: #059669; font-size: 0.82rem; font-weight: bold;'>[기준] {std_val}</span>", unsafe_allow_html=True)
 
             with ec4: 
                 selected_grade = st.selectbox("등급", options, key=f"selected_grade_{idx}", label_visibility="collapsed")
@@ -495,19 +538,16 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
     elif total_score >= 60.0: final_grade = "D"
     else: final_grade = "E"
 
-    # 3번 & 4번 요구사항: 2.1 진단 화면 우측에 그래프 5개 및 엑셀 다운로드 버튼 복원
     with col_right_diag:
         st.subheader("📊 종합 판정 및 분석 차트")
         rc1, rc2 = st.columns(2)
-        rc1.metric("현재 종합 점수", f"{total_score:.2f} 점", f"최종 등급: {final_grade}")
+        rc1.metric("현재 점수", f"{total_score:.2f} 점", f"등급: {final_grade}")
         rc2.metric("전회차 점수", "82.50 점 (B)", f"{total_score - 82.50:+.2f} 점")
 
         st.info(FINAL_GRADE_INFO[final_grade][1])
 
-        # 5개 그래프 시각화 복원
         fig = plt.figure(figsize=(6, 8.5), dpi=100)
         
-        # 그래프 1: 레이더 차트
         ax1 = fig.add_subplot(321, polar=True)
         cats = list(CATEGORIES.keys())
         N = len(cats)
@@ -522,7 +562,6 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
         ax1.fill(angles, vals, color='#3B82F6', alpha=0.25)
         ax1.set_title("1. 영역별 달성율 (%)", size=8, fontweight='bold', pad=10)
 
-        # 그래프 2: 영역별 환산 점수
         ax2 = fig.add_subplot(322)
         x = np.arange(len(cats))
         ax2.bar(x, list(cat_scores.values()), 0.4, color='#2563EB')
@@ -530,19 +569,16 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
         ax2.set_xticklabels(cats, fontsize=6)
         ax2.set_title("2. 영역별 환산점수", size=8, fontweight='bold')
 
-        # 그래프 3: 최근 3회차 종합점수 추이
         ax3 = fig.add_subplot(323)
         ax3.plot(["1차전", "2차전", "현재"], [75.0, 82.5, total_score], marker='o', linewidth=1.5, color='#16A34A')
         ax3.set_ylim(0, 110)
         ax3.set_title("3. 최근 3회차 점수 추이", size=8, fontweight='bold')
 
-        # 그래프 4: 전회차 대비 변동
         ax4 = fig.add_subplot(324)
         diff_val = total_score - 82.50
         ax4.bar(["점수 변동"], [diff_val], color='#16A34A' if diff_val >= 0 else '#DC2626')
         ax4.set_title("4. 전회차 대비 변동", size=8, fontweight='bold')
 
-        # 그래프 5: 항목별 등급 분포
         ax5 = fig.add_subplot(313)
         grade_dist = {"A": 0, "B": 0, "C": 0, "D": 0, "E": 0}
         for d in details:
@@ -554,7 +590,6 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
         fig.subplots_adjust(wspace=0.35, hspace=0.55)
         st.pyplot(fig)
 
-        # DB 저장 버튼
         if st.button("💾 진단 결과 DB 저장", type="primary", use_container_width=True):
             wb = load_workbook(DB_FILE_PATH)
             ws = wb["진단이력"]
@@ -563,7 +598,6 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
             wb.save(DB_FILE_PATH)
             st.success("통합 DB에 저장되었습니다!")
 
-        # 4번 요구사항: 그래프와 세부내역이 수록된 정식 엑셀 보고서 다운로드 기능 복원
         def generate_excel_report(fig_obj):
             output = io.BytesIO()
             img_buf = io.BytesIO()
@@ -618,7 +652,7 @@ elif st.session_state.nav_menu == "2.1. 펌프 정밀 진단 (17개)":
             return output.getvalue()
 
         st.download_button(
-            label="📥 엑셀 보고서 다운로드 (차트 5종 포함)",
+            label="📥 엑셀 보고서 다운로드 (차트 포함)",
             data=generate_excel_report(fig),
             file_name=f"Kwater_펌프진단보고서_{equip}_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
