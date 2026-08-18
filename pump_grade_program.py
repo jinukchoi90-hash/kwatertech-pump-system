@@ -163,13 +163,31 @@ body,
 
     max-width: 1450px;
 
-    padding-top: 1.0rem !important;
+    padding-top: 3.5rem !important;
 
     padding-bottom: 2rem !important;
 
     padding-left: 1.2rem !important;
 
     padding-right: 1.2rem !important;
+
+}
+
+
+/* ========================================================
+   Streamlit 기본 상단 툴바가 커스텀 헤더 위에
+   겹쳐서 그래픽 상단이 잘리는 것을 방지
+======================================================== */
+
+header[data-testid="stHeader"] {
+
+    background: transparent;
+
+}
+
+.top-header {
+
+    margin-top: 0.4rem;
 
 }
 
@@ -1786,6 +1804,19 @@ if "page" not in st.session_state:
     st.session_state.page = "홈"
 
 
+def go_to_page(
+    page_key
+):
+
+    # 버튼의 on_click 콜백으로 사용.
+    # 상태 변경 직후 Streamlit이 자동으로 rerun을 실행하므로
+    # 별도의 st.rerun() 호출이 필요 없고,
+    # 모바일 인앱 브라우저(카카오톡 등)에서도
+    # 클릭 반응이 더 안정적이다.
+
+    st.session_state.page = page_key
+
+
 with st.sidebar:
 
     st.markdown(
@@ -1839,15 +1870,13 @@ with st.sidebar:
 
     for key, label in main_menus:
 
-        if st.button(
+        st.button(
             label,
             key=f"menu_{key}",
-            use_container_width=True
-        ):
-
-            st.session_state.page = key
-
-            st.rerun()
+            use_container_width=True,
+            on_click=go_to_page,
+            args=(key,)
+        )
 
     st.markdown(
         "<div class='menu-caption'>ANALYSIS</div>",
@@ -1866,15 +1895,13 @@ with st.sidebar:
 
     for key, label in analysis_menus:
 
-        if st.button(
+        st.button(
             label,
             key=f"menu_{key}",
-            use_container_width=True
-        ):
-
-            st.session_state.page = key
-
-            st.rerun()
+            use_container_width=True,
+            on_click=go_to_page,
+            args=(key,)
+        )
 
     st.markdown(
         "<div class='menu-caption'>KNOWLEDGE</div>",
@@ -1893,15 +1920,13 @@ with st.sidebar:
 
     for key, label in knowledge_menus:
 
-        if st.button(
+        st.button(
             label,
             key=f"menu_{key}",
-            use_container_width=True
-        ):
-
-            st.session_state.page = key
-
-            st.rerun()
+            use_container_width=True,
+            on_click=go_to_page,
+            args=(key,)
+        )
 
     st.markdown("---")
 
