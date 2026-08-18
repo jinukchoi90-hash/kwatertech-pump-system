@@ -1172,6 +1172,52 @@ EVAL_ITEMS = [
 
 
 # ============================================================
+# 6-1. 자동판정 항목별 입력 설정
+#
+# EVAL_ITEMS 중 auto_fn(계산함수)이 지정된 항목은
+# 등급을 직접 고르는 대신 측정값을 입력하면
+# 자동으로 등급이 산출된다.
+# (min, max, 기본값, step, 단위표시)
+# ============================================================
+
+AUTO_INPUT_CONFIG = {
+
+    "펌프 효율 유지율 (%)": (
+        0.0, 110.0, 95.0, 0.1, "%"
+    ),
+
+    "설계 양정/유량 도달률 (%)": (
+        0.0, 150.0, 96.0, 0.1, "%"
+    ),
+
+    "BEP 운전점 적정성 (%)": (
+        0.0, 200.0, 100.0, 0.1, "%"
+    ),
+
+    "임펠러/케이싱 링 간극": (
+        0.0, 10.0, 1.2, 0.1, "mm"
+    ),
+
+    "축슬리브 마모": (
+        0.0, 10.0, 0.8, 0.1, "mm"
+    ),
+
+    "Overall 진동 (mm/s)": (
+        0.0, 20.0, 2.0, 0.1, "mm/s"
+    ),
+
+    "펌프-모터 센터링": (
+        0.0, 1.0, 0.05, 0.01, "mm"
+    ),
+
+    "오버홀 주기": (
+        0.0, 30000.0, 8000.0, 100.0, "시간"
+    )
+
+}
+
+
+# ============================================================
 # 7. 종합등급
 # ============================================================
 
@@ -1580,6 +1626,18 @@ def pump_status(
 
         status = "정비검토"
 
+    temperature = round(
+
+        43
+        +
+        vibration
+        *
+        2.3,
+
+        1
+
+    )
+
     return {
 
         "점수": score,
@@ -1590,9 +1648,105 @@ def pump_status(
 
         "진동": vibration,
 
-        "효율": efficiency
+        "효율": efficiency,
+
+        "온도": temperature
 
     }
+
+
+# ============================================================
+# 11-1. 진동 추세 차트 (AI 진단 공용)
+#
+# AI 이상징후 페이지와 QR 포털의 AI진단 탭이
+# 동일한 그래프를 공유하므로 함수로 분리한다.
+# ============================================================
+
+def build_vibration_trend_fig(
+    pump,
+    result,
+    figsize=(9, 4)
+):
+
+    months = [
+
+        "2025.01",
+        "2025.06",
+        "2025.12",
+        "2026.03",
+        "2026.08",
+        "2026.12"
+
+    ]
+
+    base = result["진동"]
+
+    vibration = [
+
+        max(
+            1.2,
+            base - 2.5
+        ),
+
+        max(
+            1.4,
+            base - 2
+        ),
+
+        max(
+            1.6,
+            base - 1.4
+        ),
+
+        max(
+            1.8,
+            base - 0.8
+        ),
+
+        base,
+
+        base + 1.2
+
+    ]
+
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+
+    ax.plot(
+        months,
+        vibration,
+        marker="o",
+        linewidth=2
+    )
+
+    ax.axhline(
+        4.5,
+        linestyle="--",
+        label="관찰 기준"
+    )
+
+    ax.axhline(
+        7.1,
+        linestyle=":",
+        label="주의 기준"
+    )
+
+    ax.set_ylabel(
+        "진동 (mm/s)"
+    )
+
+    ax.set_title(
+        f"{pump['equip']} 진동 추세"
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    ax.legend()
+
+    return fig
 
 
 # ============================================================
@@ -2212,7 +2366,8 @@ elif st.session_state.page == "QR":
 
         <div class="section-caption">
         펌프 옆 QR코드를 스마트폰으로 스캔하면
-        해당 설비의 정보·진단·정비이력을 바로 확인합니다.
+        해당 설비의 제원·도면·이력·AI진단을
+        한 화면에서 바로 확인합니다.
         </div>
         """,
         unsafe_allow_html=True
@@ -2238,6 +2393,12 @@ elif st.session_state.page == "QR":
         pump
     )
 
+    equip_no = DEFAULT_PUMPS.index(
+        pump
+    ) + 1
+
+    qr_id = f"PUMP-MLY-{equip_no:03d}"
+
     c1, c2 = st.columns(
         [1, 2]
     )
@@ -2245,7 +2406,7 @@ elif st.session_state.page == "QR":
     with c1:
 
         st.markdown(
-            """
+            f"""
             <div style="
             background:white;
             border:1px solid #dce8ef;
@@ -2266,7 +2427,7 @@ elif st.session_state.page == "QR":
             color:#64748b;
             font-size:0.75rem;
             ">
-            PUMP-MLY-001
+            {qr_id}
             </div>
 
             </div>
@@ -2281,7 +2442,7 @@ elif st.session_state.page == "QR":
             <div class="platform-card">
 
             <div class="card-title">
-            {pump["equip"]} 디지털 설비카드
+            {pump["equip"]} 디지털 이력카드
             </div>
 
             <b>사업장</b> : {pump["site"]}<br>
@@ -2291,6 +2452,7 @@ elif st.session_state.page == "QR":
             <b>운전시간</b> : {pump["op_hours"]:,} h<br>
             <b>현재 효율</b> : {result["효율"]:.1f}%<br>
             <b>현재 진동</b> : {result["진동"]:.1f} mm/s<br>
+            <b>현재 온도</b> : {result["온도"]:.1f}°C<br>
             <b>CBM Score</b> : {result["점수"]}점<br>
             <b>상태</b> : {result["상태"]}
 
@@ -2301,66 +2463,320 @@ elif st.session_state.page == "QR":
 
     st.write("")
 
-    t1, t2, t3, t4, t5 = st.tabs(
+    t1, t2, t3, t4 = st.tabs(
 
         [
-            "설비정보",
-            "진단이력",
-            "효율진단",
-            "오버홀",
-            "작업기록"
+            "제원",
+            "도면",
+            "이력",
+            "AI진단"
         ]
 
     )
 
     with t1:
 
-        st.success(
-            "QR 접속 성공 · 설비정보 확인 가능"
+        st.dataframe(
+
+            pd.DataFrame(
+
+                [
+
+                    ["사업장", pump["site"]],
+
+                    ["설비명", pump["equip"]],
+
+                    ["제조사", pump["maker"]],
+
+                    ["모델명", pump["model"]],
+
+                    ["정격출력(HP)", pump["hp"]],
+
+                    ["정격양정(m)", pump["head"]],
+
+                    ["정격유량(m³/h)", pump["flow"]],
+
+                    ["회전수(RPM)", pump["rpm"]],
+
+                    ["준공일", pump["build_date"]],
+
+                    [
+                        "누적 운전시간",
+                        f'{pump["op_hours"]:,} h'
+                    ]
+
+                ],
+
+                columns=[
+                    "항목",
+                    "값"
+                ]
+
+            ),
+
+            use_container_width=True,
+
+            hide_index=True
+
         )
 
     with t2:
 
-        st.info(
-            "최근 정밀진단 : 2026-08-15"
+        if "drawings" not in st.session_state:
+
+            st.session_state.drawings = {}
+
+        drawing_file = st.file_uploader(
+
+            "설비 도면 업로드 (배관도·조립도 등)",
+
+            type=["png", "jpg", "jpeg"],
+
+            key=f"drawing_upload_{pump['equip']}"
+
         )
 
-        st.info(
-            f"현재 CBM 등급 : {result['등급']}"
-        )
+        if drawing_file is not None:
+
+            st.session_state.drawings[
+                pump["equip"]
+            ] = drawing_file.getvalue()
+
+        if pump["equip"] in st.session_state.drawings:
+
+            st.image(
+
+                st.session_state.drawings[
+                    pump["equip"]
+                ],
+
+                use_container_width=True,
+
+                caption=f"{pump['equip']} 도면"
+
+            )
+
+            st.caption(
+                "스마트폰에서는 두 손가락으로 확대(핀치 줌)해서 볼 수 있습니다."
+            )
+
+        else:
+
+            st.info(
+                "등록된 도면이 없습니다. "
+                "배관도·조립도 이미지를 업로드하면 "
+                "현장에서 바로 확대해 볼 수 있습니다."
+            )
 
     with t3:
 
-        st.info(
-            "효율진단은 설비 종합상태 판단을 위한 "
-            "입력 데이터 중 하나로 활용됩니다."
+        st.markdown(
+            "##### 최근 정밀진단 이력"
         )
 
-        st.metric(
-            "최근 효율",
-            f'{result["효율"]:.1f}%'
+        pump_history = df_history[
+            df_history["설비명"] == pump["equip"]
+        ] if not df_history.empty else pd.DataFrame()
+
+        if not pump_history.empty:
+
+            st.dataframe(
+
+                pump_history[
+                    [
+                        "점검일",
+                        "종합점수",
+                        "최종등급"
+                    ]
+                ].tail(5),
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+        else:
+
+            st.info(
+                "저장된 정밀진단 이력이 없습니다."
+            )
+
+        st.markdown(
+            "##### 오버홀·현장 작업 이력"
         )
 
-    with t4:
-
-        st.info(
-            "최근 오버홀 : 2025-03-15"
+        df_overhaul = read_excel(
+            OVERHAUL_DB_PATH,
+            "오버홀이력"
         )
 
-    with t5:
+        pump_overhaul = df_overhaul[
+            df_overhaul["설비명"] == pump["equip"]
+        ] if not df_overhaul.empty else pd.DataFrame()
 
-        st.text_area(
-            "현장 작업 메모",
-            placeholder="점검 및 작업 내용을 입력하세요."
+        if not pump_overhaul.empty:
+
+            st.dataframe(
+
+                pump_overhaul[
+                    [
+                        "작업일자",
+                        "공정단계",
+                        "작업내용"
+                    ]
+                ].tail(5),
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+        else:
+
+            st.info(
+                "저장된 오버홀·작업 이력이 없습니다."
+            )
+
+        st.write("")
+
+        work = st.text_area(
+
+            "현장 작업 메모 추가",
+
+            placeholder="점검 및 작업 내용을 입력하세요.",
+
+            key=f"qr_note_{pump['equip']}"
+
         )
 
         if st.button(
+
             "작업기록 저장",
-            type="primary"
+
+            type="primary",
+
+            key=f"qr_save_{pump['equip']}"
+
         ):
+
+            wb = load_workbook(
+                OVERHAUL_DB_PATH
+            )
+
+            ws = wb[
+                "오버홀이력"
+            ]
+
+            ws.append(
+
+                [
+                    datetime.now().strftime(
+                        "%Y-%m-%d"
+                    ),
+
+                    pump["site"],
+
+                    pump["equip"],
+
+                    "현장메모",
+
+                    "최진욱",
+
+                    work,
+
+                    "",
+
+                    "",
+
+                    ""
+
+                ]
+
+            )
+
+            wb.save(
+                OVERHAUL_DB_PATH
+            )
+
+            wb.close()
 
             st.success(
                 "현장 작업기록이 저장되었습니다."
+            )
+
+    with t4:
+
+        status_class = {
+
+            "정상": "status-normal",
+
+            "관찰": "status-watch",
+
+            "정비검토": "status-danger"
+
+        }.get(
+            result["상태"],
+            "status-watch"
+        )
+
+        st.markdown(
+            f"""
+            <span class="{status_class}">
+            {result['상태']}
+            </span>
+            """,
+            unsafe_allow_html=True
+        )
+
+        a, b, c = st.columns(3)
+
+        a.metric(
+            "CBM Score",
+            f'{result["점수"]}점'
+        )
+
+        b.metric(
+            "진동(RMS)",
+            f'{result["진동"]:.1f} mm/s'
+        )
+
+        c.metric(
+            "온도",
+            f'{result["온도"]:.1f}°C'
+        )
+
+        fig = build_vibration_trend_fig(
+
+            pump,
+
+            result,
+
+            figsize=(7, 3)
+
+        )
+
+        st.pyplot(
+            fig
+        )
+
+        if result["진동"] >= 7.1:
+
+            st.error(
+                "CBM 예측 : 고위험 상태 · 정비검토 필요"
+            )
+
+        elif result["진동"] >= 4.5:
+
+            st.warning(
+                "CBM 예측 : 주의 상태 · 추이관찰 및 정밀진단 권고"
+            )
+
+        else:
+
+            st.success(
+                "CBM 예측 : 현재 상태 양호"
             )
 
 
@@ -2440,27 +2856,66 @@ elif st.session_state.page == "진단":
             expanded=False
         ):
 
-            c1, c2 = st.columns(
-                [2, 1]
+            st.caption(
+                f"판정기준 : {standard}"
             )
 
-            with c1:
+            if auto_fn is not None:
 
-                st.caption(
-                    f"판정기준 : {standard}"
+                min_v, max_v, default_v, step_v, unit = AUTO_INPUT_CONFIG[
+                    name
+                ]
+
+                c1, c2 = st.columns(
+                    [2, 1]
                 )
 
-            with c2:
+                with c1:
 
-                grade = st.selectbox(
+                    raw_value = st.number_input(
 
-                    "판정",
+                        f"측정값 입력 ({unit})",
 
-                    options,
+                        min_value=float(min_v),
 
-                    key=f"grade_{idx}"
+                        max_value=float(max_v),
 
+                        value=float(default_v),
+
+                        step=float(step_v),
+
+                        key=f"val_{idx}"
+
+                    )
+
+                grade = auto_fn(
+                    raw_value
                 )
+
+                with c2:
+
+                    st.metric(
+                        "자동판정",
+                        grade
+                    )
+
+            else:
+
+                c1, c2 = st.columns(
+                    [2, 1]
+                )
+
+                with c2:
+
+                    grade = st.selectbox(
+
+                        "판정",
+
+                        options,
+
+                        key=f"grade_{idx}"
+
+                    )
 
             score = score_map[
                 grade
@@ -2936,83 +3391,10 @@ elif st.session_state.page == "AI":
         pump
     )
 
-    months = [
-
-        "2025.01",
-        "2025.06",
-        "2025.12",
-        "2026.03",
-        "2026.08",
-        "2026.12"
-
-    ]
-
-    base = result["진동"]
-
-    vibration = [
-
-        max(
-            1.2,
-            base - 2.5
-        ),
-
-        max(
-            1.4,
-            base - 2
-        ),
-
-        max(
-            1.6,
-            base - 1.4
-        ),
-
-        max(
-            1.8,
-            base - 0.8
-        ),
-
-        base,
-
-        base + 1.2
-
-    ]
-
-    fig, ax = plt.subplots(
-        figsize=(9, 4)
+    fig = build_vibration_trend_fig(
+        pump,
+        result
     )
-
-    ax.plot(
-        months,
-        vibration,
-        marker="o",
-        linewidth=2
-    )
-
-    ax.axhline(
-        4.5,
-        linestyle="--",
-        label="관찰 기준"
-    )
-
-    ax.axhline(
-        7.1,
-        linestyle=":",
-        label="주의 기준"
-    )
-
-    ax.set_ylabel(
-        "진동 (mm/s)"
-    )
-
-    ax.set_title(
-        f"{selected} 진동 추세"
-    )
-
-    ax.grid(
-        alpha=0.2
-    )
-
-    ax.legend()
 
     st.pyplot(
         fig
@@ -3176,32 +3558,26 @@ elif st.session_state.page == "KPI":
     kpis = [
 
         [
-            "CBM 판정-분해점검 일치율",
-            80,
-            "%"
-        ],
-
-        [
-            "TBM 대비 정비비용 절감률",
-            10,
-            "%"
-        ],
-
-        [
-            "현장 QR 활용",
+            "설비정보 조회시간 단축률",
             50,
-            "건/월"
+            "%"
         ],
 
         [
-            "현장기술자 만족도",
-            4,
-            "점/5점"
+            "QR 스캔 성공률",
+            95,
+            "%"
         ],
 
         [
-            "오버홀 전후 효과검증",
-            90,
+            "설비정보 정확성",
+            98,
+            "%"
+        ],
+
+        [
+            "현장 작업자 수용성",
+            70,
             "%"
         ]
 
@@ -3480,6 +3856,13 @@ elif st.session_state.page == "백업":
         </div>
         """,
         unsafe_allow_html=True
+    )
+
+    st.info(
+        "현재 PFM 연동 단계 : 1단계 (수동 입력형) · "
+        "독자 DB 구축·운영 중 — "
+        "2단계(엑셀 Batch 연계) 및 "
+        "3단계(API 연계)는 향후 추진 예정"
     )
 
     st.markdown(
