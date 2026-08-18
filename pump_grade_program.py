@@ -1767,6 +1767,246 @@ def build_vibration_trend_fig(
     return fig
 
 
+def build_trend_fig(
+
+    pump,
+
+    label,
+
+    unit,
+
+    months,
+
+    values,
+
+    watch_threshold=None,
+
+    danger_threshold=None,
+
+    figsize=(6.2, 3.4)
+
+):
+
+    # 진동 외 다른 지표(효율·온도·CBM Score 등)에도
+    # 재사용하는 범용 추세 차트 함수.
+
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+
+    ax.plot(
+        months,
+        values,
+        marker="o",
+        linewidth=2
+    )
+
+    if watch_threshold is not None:
+
+        ax.axhline(
+            watch_threshold,
+            linestyle="--",
+            label="관찰 기준"
+        )
+
+    if danger_threshold is not None:
+
+        ax.axhline(
+            danger_threshold,
+            linestyle=":",
+            label="주의 기준"
+        )
+
+    ax.set_ylabel(
+        f"{label} ({unit})"
+    )
+
+    ax.set_title(
+        f"{pump['equip']} {label} 추세"
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    if watch_threshold is not None or danger_threshold is not None:
+
+        ax.legend()
+
+    return fig
+
+
+TREND_MONTHS = [
+
+    "2025.01",
+    "2025.06",
+    "2025.12",
+    "2026.03",
+    "2026.08",
+    "2026.12"
+
+]
+
+
+def build_efficiency_trend_fig(
+    pump,
+    result,
+    figsize=(6.2, 3.4)
+):
+
+    base = result["효율"]
+
+    values = [
+
+        min(100, base + 8),
+
+        min(100, base + 6),
+
+        min(100, base + 4),
+
+        min(100, base + 2),
+
+        base,
+
+        max(0, base - 3)
+
+    ]
+
+    return build_trend_fig(
+
+        pump,
+        "효율",
+        "%",
+        TREND_MONTHS,
+        values,
+
+        watch_threshold=80,
+
+        danger_threshold=70,
+
+        figsize=figsize
+
+    )
+
+
+def build_temperature_trend_fig(
+    pump,
+    result,
+    figsize=(6.2, 3.4)
+):
+
+    base = result["온도"]
+
+    values = [
+
+        max(35, base - 6),
+
+        max(37, base - 4.5),
+
+        max(39, base - 3),
+
+        max(40, base - 1.5),
+
+        base,
+
+        base + 2
+
+    ]
+
+    return build_trend_fig(
+
+        pump,
+        "온도",
+        "°C",
+        TREND_MONTHS,
+        values,
+
+        watch_threshold=50,
+
+        danger_threshold=55,
+
+        figsize=figsize
+
+    )
+
+
+def build_score_trend_fig(
+    pump,
+    result,
+    figsize=(6.2, 3.4)
+):
+
+    base = result["점수"]
+
+    values = [
+
+        min(100, base + 12),
+
+        min(100, base + 9),
+
+        min(100, base + 6),
+
+        min(100, base + 3),
+
+        base,
+
+        max(0, base - 4)
+
+    ]
+
+    return build_trend_fig(
+
+        pump,
+        "CBM Score",
+        "점",
+        TREND_MONTHS,
+        values,
+
+        watch_threshold=80,
+
+        danger_threshold=70,
+
+        figsize=figsize
+
+    )
+
+
+def build_op_hours_trend_fig(
+    pump,
+    figsize=(6.2, 3.4)
+):
+
+    current_hours = pump["op_hours"]
+
+    values = [
+
+        max(0, current_hours - 5000),
+
+        max(0, current_hours - 4000),
+
+        max(0, current_hours - 3000),
+
+        max(0, current_hours - 2000),
+
+        max(0, current_hours - 1000),
+
+        current_hours
+
+    ]
+
+    return build_trend_fig(
+
+        pump,
+        "누적 운전시간",
+        "h",
+        TREND_MONTHS,
+        values,
+
+        figsize=figsize
+
+    )
+
+
 # ============================================================
 # 12. QR 비용 계산
 # ============================================================
@@ -2858,8 +3098,9 @@ elif st.session_state.page == "진단":
 
     details = []
 
-    for idx, item in enumerate(
-        EVAL_ITEMS
+    def render_eval_item(
+        idx,
+        item
     ):
 
         category = item[0]
@@ -2891,74 +3132,119 @@ elif st.session_state.page == "진단":
                     name
                 ]
 
-                c1, c2 = st.columns(
-                    [2, 1]
+                raw_value = st.number_input(
+
+                    f"측정값 입력 ({unit})",
+
+                    min_value=float(min_v),
+
+                    max_value=float(max_v),
+
+                    value=float(default_v),
+
+                    step=float(step_v),
+
+                    key=f"val_{idx}"
+
                 )
-
-                with c1:
-
-                    raw_value = st.number_input(
-
-                        f"측정값 입력 ({unit})",
-
-                        min_value=float(min_v),
-
-                        max_value=float(max_v),
-
-                        value=float(default_v),
-
-                        step=float(step_v),
-
-                        key=f"val_{idx}"
-
-                    )
 
                 grade = auto_fn(
                     raw_value
                 )
 
-                with c2:
-
-                    st.metric(
-                        "자동판정",
-                        grade
-                    )
+                st.metric(
+                    "자동판정",
+                    grade
+                )
 
             else:
 
-                c1, c2 = st.columns(
-                    [2, 1]
+                grade = st.selectbox(
+
+                    "판정",
+
+                    options,
+
+                    key=f"grade_{idx}"
+
                 )
 
-                with c2:
+        score = score_map[
+            grade
+        ]
 
-                    grade = st.selectbox(
+        return category, name, grade, score
 
-                        "판정",
+    category_order = [
+        "성능",
+        "내부상태",
+        "기계상태",
+        "정비이력"
+    ]
 
-                        options,
+    category_tabs = st.tabs(
 
-                        key=f"grade_{idx}"
+        [
+            f"{cat} · {CATEGORIES[cat]}점"
+            for cat in category_order
+        ]
 
-                    )
+    )
 
-            score = score_map[
-                grade
+    for tab, cat in zip(
+        category_tabs,
+        category_order
+    ):
+
+        with tab:
+
+            cat_items = [
+
+                (idx, item)
+
+                for idx, item in enumerate(EVAL_ITEMS)
+
+                if item[0] == cat
+
             ]
 
-            category_score[
-                category
-            ] += score
+            for i in range(
+                0,
+                len(cat_items),
+                2
+            ):
 
-            total_score += score
+                pair = cat_items[i:i + 2]
 
-            details.append(
-                {
-                    "항목": name,
-                    "등급": grade,
-                    "점수": score
-                }
-            )
+                cols = st.columns(
+                    len(pair)
+                )
+
+                for col, (idx, item) in zip(
+                    cols,
+                    pair
+                ):
+
+                    with col:
+
+                        category, name, grade, score = render_eval_item(
+                            idx,
+                            item
+                        )
+
+                        category_score[
+                            category
+                        ] += score
+
+                        total_score += score
+
+                        details.append(
+                            {
+                                "항목": name,
+                                "등급": grade,
+                                "점수": score
+                            }
+                        )
 
     total_score = round(
         total_score,
@@ -3416,22 +3702,115 @@ elif st.session_state.page == "AI":
         pump
     )
 
-    fig = build_vibration_trend_fig(
-        pump,
-        result
-    )
+    g1, g2 = st.columns(2)
+
+    with g1:
+
+        st.pyplot(
+
+            build_vibration_trend_fig(
+
+                pump,
+
+                result,
+
+                figsize=(6.2, 3.4)
+
+            )
+
+        )
+
+    with g2:
+
+        st.pyplot(
+
+            build_efficiency_trend_fig(
+
+                pump,
+
+                result
+
+            )
+
+        )
+
+    g3, g4 = st.columns(2)
+
+    with g3:
+
+        st.pyplot(
+
+            build_temperature_trend_fig(
+
+                pump,
+
+                result
+
+            )
+
+        )
+
+    with g4:
+
+        st.pyplot(
+
+            build_score_trend_fig(
+
+                pump,
+
+                result
+
+            )
+
+        )
 
     st.pyplot(
-        fig
+
+        build_op_hours_trend_fig(
+
+            pump,
+
+            figsize=(9, 3.2)
+
+        )
+
     )
 
-    if result["진동"] >= 7.1:
+    st.write("")
+
+    if (
+
+        result["진동"] >= 7.1
+
+        or
+        result["효율"] <= 70
+
+        or
+        result["온도"] >= 55
+
+        or
+        result["점수"] < 60
+
+    ):
 
         st.error(
             "고위험 상태 · 정비검토 필요"
         )
 
-    elif result["진동"] >= 4.5:
+    elif (
+
+        result["진동"] >= 4.5
+
+        or
+        result["효율"] <= 80
+
+        or
+        result["온도"] >= 50
+
+        or
+        result["점수"] < 80
+
+    ):
 
         st.warning(
             "주의 상태 · 추이관찰 및 정밀진단 권고"
@@ -3440,7 +3819,7 @@ elif st.session_state.page == "AI":
     else:
 
         st.success(
-            "현재 진동상태 양호"
+            "현재 상태 양호 · 모든 지표 정상범위"
         )
 
 
