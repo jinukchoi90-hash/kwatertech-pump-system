@@ -9,6 +9,7 @@
 import os
 import io
 import urllib.request
+import urllib.parse
 from datetime import datetime, date
 import random
 import math
@@ -24,6 +25,9 @@ from openpyxl import Workbook, load_workbook
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 
+import qrcode
+from filelock import FileLock
+
 
 # ============================================================
 # 0. 기본 설정
@@ -38,9 +42,13 @@ KNOWHOW_DB_PATH = "Pump_Knowhow_DB.xlsx"
 DAILY_LOG_DB_PATH = "Pump_DailyLog_DB.xlsx"
 SAFETY_PERMIT_DB_PATH = "Pump_SafetyPermit_DB.xlsx"
 KPI_DB_PATH = "Pump_KPI_DB.xlsx"
+EQUIP_DB_PATH = "Pump_Equipment_DB.xlsx"
 
 LOGO_FILE_PATH = "Logo.png"
 SEED_FLAG_PATH = "seed_flag.txt"
+
+PHOTO_DIR = "overhaul_photos"
+AUTH_PIN = "2580"
 
 
 # ============================================================
@@ -576,7 +584,45 @@ button[data-baseweb="tab"] {
 
     .kpi-value {
 
-        font-size: 1.1rem;
+        font-size: 1.2rem;
+
+    }
+
+    /* ====================================================
+       실외(햇빛 아래) 스마트폰 사용을 고려해
+       글자를 더 굵고 크게, 명암을 더 진하게
+    ==================================================== */
+
+    body, p, span, div, label {
+
+        font-size: 1.02rem !important;
+
+    }
+
+    .section-title {
+
+        font-size: 1.25rem !important;
+
+    }
+
+    .card-title {
+
+        font-size: 1.05rem !important;
+
+    }
+
+    .kpi-label {
+
+        color: #334155 !important;
+
+        font-weight: 800 !important;
+
+    }
+
+    .platform-card,
+    .kpi-card {
+
+        border-width: 1.5px !important;
 
     }
 
@@ -1236,6 +1282,119 @@ AUTO_INPUT_CONFIG = {
 
 
 # ============================================================
+# 6-2. 전문용어 사전
+#
+# 신입/관리부서 등 비전문가도 볼 수 있도록
+# 항목명 옆에 간단한 설명을 붙인다. (도움말 아이콘)
+# ============================================================
+
+GLOSSARY = {
+
+    "펌프 효율 유지율 (%)":
+        "설계(신품) 효율 대비 현재 효율의 비율. "
+        "100%에 가까울수록 신품 상태에 가깝다.",
+
+    "설계 양정/유량 도달률 (%)":
+        "설계상 목표한 양정(압력)·유량을 실제로 얼마나 "
+        "달성하고 있는지의 비율.",
+
+    "BEP 운전점 적정성 (%)":
+        "BEP(Best Efficiency Point, 최고효율점) 대비 "
+        "현재 운전점의 위치. 100%에 가까울수록 "
+        "펌프가 설계상 가장 효율적인 지점에서 운전 중.",
+
+    "임펠러/케이싱 링 간극":
+        "회전체(임펠러)와 고정체(케이싱) 사이의 틈. "
+        "마모되어 간극이 커지면 내부 누설이 늘어 효율이 떨어진다.",
+
+    "축슬리브 마모":
+        "축을 보호하는 슬리브(축 보호관)의 마모량. "
+        "패킹·메커니컬씰과 맞닿는 부분이라 마모되면 누수로 이어진다.",
+
+    "NPSH 여유율/캐비테이션":
+        "NPSH(Net Positive Suction Head, 유효흡입양정). "
+        "여유가 부족하면 공동현상(캐비테이션)이 발생해 "
+        "임펠러가 손상될 수 있다.",
+
+    "Overall 진동 (mm/s)":
+        "펌프 전체적인 진동의 크기(속도 실효값, RMS). "
+        "베어링·축정렬·불균형 등 여러 원인을 종합적으로 반영한다.",
+
+    "펌프-모터 센터링":
+        "펌프축과 모터축의 중심을 맞추는 작업(축정렬)의 오차. "
+        "오차가 크면 진동·베어링 조기마모의 원인이 된다.",
+
+    "Soft Foot 및 배관 응력":
+        "Soft Foot: 설비 받침(Foot) 중 한 곳이 뜨거나 "
+        "완전히 밀착되지 않은 상태. "
+        "배관 응력: 배관이 설비를 당기거나 미는 힘으로, "
+        "둘 다 진동·정렬불량의 숨은 원인이 된다.",
+
+    "오버홀 주기":
+        "직전 오버홀(분해정비) 이후 누적 운전시간."
+
+}
+
+
+def term_help(name):
+
+    return GLOSSARY.get(
+        name,
+        None
+    )
+
+
+# ============================================================
+# 6-3. 설비별 맞춤 진동 기준
+#
+# 원래는 모든 설비에 똑같은 진동 기준(1.8/4.5/7.1/11.2 mm/s)을
+# 적용했다. 실제로는 펌프 마력·모델마다 정상범위가 다를 수 있어,
+# 설비 마스터에 "기준진동" 값이 등록되어 있으면 그 값을 기준으로
+# 등급을 재계산하고, 없으면 기존 공통 기준을 그대로 쓴다.
+# ============================================================
+
+def get_effective_auto_fn(
+    name,
+    default_fn,
+    pump
+):
+
+    if (
+
+        name == "Overall 진동 (mm/s)"
+
+        and
+        pump.get("기준진동")
+
+    ):
+
+        limit = pump["기준진동"]
+
+        def custom_vib(
+            val,
+            limit=limit
+        ):
+
+            if val < limit * 0.6:
+                return "A"
+
+            if val < limit:
+                return "B"
+
+            if val < limit * 1.4:
+                return "C"
+
+            if val < limit * 1.8:
+                return "D"
+
+            return "E"
+
+        return custom_vib
+
+    return default_fn
+
+
+# ============================================================
 # 7. 종합등급
 # ============================================================
 
@@ -1281,6 +1440,107 @@ def get_grade_text(grade):
 # ============================================================
 # 8. Excel DB 생성
 # ============================================================
+
+def get_lock(
+    path
+):
+
+    # 여러 사람이 거의 동시에 저장할 때 파일이 깨지는 것을
+    # 막기 위한 파일 잠금. 실제 다중 사용자 동시편집을 완벽히
+    # 해결하지는 못하지만(마지막 저장이 우선), 최소한
+    # 두 저장 작업이 겹쳐서 엑셀 파일 자체가 손상되는 것은 막아준다.
+
+    return FileLock(
+        f"{path}.lock",
+        timeout=10
+    )
+
+
+def safe_append_row(
+    path,
+    sheet,
+    row
+):
+
+    with get_lock(path):
+
+        wb = load_workbook(
+            path
+        )
+
+        ws = wb[
+            sheet
+        ]
+
+        ws.append(
+            row
+        )
+
+        wb.save(
+            path
+        )
+
+        wb.close()
+
+
+def migrate_sheet_headers(
+    path,
+    sheet,
+    required_headers
+):
+
+    # 이미 배포되어 있는 엑셀 파일에 컬럼이 부족하면
+    # (예전 버전으로 만들어진 파일) 뒤쪽에 새 컬럼을 추가한다.
+    # 기존 행 데이터는 그대로 두고 새 컬럼만 빈 값으로 늘어난다.
+
+    with get_lock(path):
+
+        wb = load_workbook(
+            path
+        )
+
+        ws = wb[
+            sheet
+        ]
+
+        existing = [
+
+            cell.value
+
+            for cell in ws[1]
+
+        ]
+
+        changed = False
+
+        for header in required_headers:
+
+            if header not in existing:
+
+                ws.cell(
+
+                    row=1,
+
+                    column=len(existing) + 1,
+
+                    value=header
+
+                )
+
+                existing.append(
+                    header
+                )
+
+                changed = True
+
+        if changed:
+
+            wb.save(
+                path
+            )
+
+        wb.close()
+
 
 def ensure_excel_file(
     path,
@@ -1328,6 +1588,49 @@ def ensure_db_exists():
         [
             item[1]
             for item in EVAL_ITEMS
+        ]
+        +
+        [
+            "효율측정값(%)",
+            "진동측정값(mm/s)",
+            "온도측정값(°C)"
+        ]
+
+    )
+
+    migrate_sheet_headers(
+
+        DB_FILE_PATH,
+
+        "진단이력",
+
+        [
+            "효율측정값(%)",
+            "진동측정값(mm/s)",
+            "온도측정값(°C)"
+        ]
+
+    )
+
+    ensure_excel_file(
+
+        EQUIP_DB_PATH,
+
+        "설비마스터",
+
+        [
+            "사업장",
+            "설비명",
+            "제조사",
+            "모델명",
+            "정격출력(HP)",
+            "정격양정(m)",
+            "정격유량(m3/h)",
+            "회전수(RPM)",
+            "준공일",
+            "누적운전시간",
+            "기준진동(mm/s)",
+            "기준효율(%)"
         ]
 
     )
@@ -1571,6 +1874,195 @@ df_history = read_excel(
 
 
 # ============================================================
+# 10-1. 설비 마스터 (추가·삭제 가능한 설비 목록)
+#
+# 예전에는 설비 10대가 코드(DEFAULT_PUMPS)에 고정되어 있어서
+# 현장에서 설비를 추가·삭제할 수 없었다.
+# 이제 설비 목록을 엑셀 DB(EQUIP_DB_PATH)로 관리하고,
+# 비어 있으면 기존 10대로 최초 1회 시딩한다.
+# ============================================================
+
+def seed_equipment_if_empty():
+
+    df_equip = read_excel(
+        EQUIP_DB_PATH,
+        "설비마스터"
+    )
+
+    if not df_equip.empty:
+
+        return
+
+    with get_lock(EQUIP_DB_PATH):
+
+        wb = load_workbook(
+            EQUIP_DB_PATH
+        )
+
+        ws = wb[
+            "설비마스터"
+        ]
+
+        for pump in DEFAULT_PUMPS:
+
+            ws.append(
+
+                [
+                    pump["site"],
+                    pump["equip"],
+                    pump["maker"],
+                    pump["model"],
+                    pump["hp"],
+                    pump["head"],
+                    pump["flow"],
+                    pump["rpm"],
+                    pump["build_date"],
+                    pump["op_hours"],
+                    None,
+                    None
+                ]
+
+            )
+
+        wb.save(
+            EQUIP_DB_PATH
+        )
+
+        wb.close()
+
+
+seed_equipment_if_empty()
+
+
+def get_all_pumps():
+
+    df_equip = read_excel(
+        EQUIP_DB_PATH,
+        "설비마스터"
+    )
+
+    if df_equip.empty:
+
+        return list(
+            DEFAULT_PUMPS
+        )
+
+    pumps = []
+
+    for _, row in df_equip.iterrows():
+
+        pumps.append(
+
+            {
+                "site": row["사업장"],
+                "equip": row["설비명"],
+                "maker": row["제조사"],
+                "model": row["모델명"],
+                "hp": row["정격출력(HP)"],
+                "head": row["정격양정(m)"],
+                "flow": row["정격유량(m3/h)"],
+                "rpm": row["회전수(RPM)"],
+                "build_date": str(
+                    row["준공일"]
+                )[:10],
+                "op_hours": row["누적운전시간"],
+
+                "기준진동": (
+
+                    float(row["기준진동(mm/s)"])
+
+                    if pd.notna(
+                        row.get("기준진동(mm/s)")
+                    )
+
+                    else None
+
+                ),
+
+                "기준효율": (
+
+                    float(row["기준효율(%)"])
+
+                    if pd.notna(
+                        row.get("기준효율(%)")
+                    )
+
+                    else None
+
+                )
+
+            }
+
+        )
+
+    return pumps
+
+
+def add_equipment(new_pump):
+
+    safe_append_row(
+
+        EQUIP_DB_PATH,
+
+        "설비마스터",
+
+        [
+            new_pump["site"],
+            new_pump["equip"],
+            new_pump["maker"],
+            new_pump["model"],
+            new_pump["hp"],
+            new_pump["head"],
+            new_pump["flow"],
+            new_pump["rpm"],
+            new_pump["build_date"],
+            new_pump["op_hours"],
+            new_pump.get("기준진동"),
+            new_pump.get("기준효율")
+        ]
+
+    )
+
+
+def delete_equipment(equip_name):
+
+    with get_lock(EQUIP_DB_PATH):
+
+        wb = load_workbook(
+            EQUIP_DB_PATH
+        )
+
+        ws = wb[
+            "설비마스터"
+        ]
+
+        rows = list(
+            ws.iter_rows(
+                min_row=2
+            )
+        )
+
+        for r in rows:
+
+            if r[1].value == equip_name:
+
+                ws.delete_rows(
+                    r[0].row
+                )
+
+                break
+
+        wb.save(
+            EQUIP_DB_PATH
+        )
+
+        wb.close()
+
+
+ALL_PUMPS = get_all_pumps()
+
+
+# ============================================================
 # 11. 상태 계산
 # ============================================================
 
@@ -1580,53 +2072,132 @@ def pump_status(
 
     name = pump["equip"]
 
-    score = 85
-
-    vibration = 2.2
-
-    efficiency = 88
-
     hours = pump["op_hours"]
 
-    if name == "가압펌프 #2":
+    # ------------------------------------------------------
+    # 1순위: 실제로 저장된 정밀진단 이력이 있으면 그 값을 사용한다.
+    # (예전 버전은 설비명 문자열에 따라 값을 하드코딩해서
+    #  정밀진단에서 아무리 값을 입력해도 다른 화면에 반영이
+    #  안 되는 문제가 있었다. 이제는 최근 진단 결과를 읽어온다.)
+    # ------------------------------------------------------
 
-        score = 68
+    latest = None
 
-        vibration = 5.8
+    if (
 
-        efficiency = 73
+        not df_history.empty
 
-    elif name == "가압펌프 #3":
+        and
+        "설비명" in df_history.columns
 
-        score = 64
+    ):
 
-        vibration = 6.8
+        pump_rows = df_history[
 
-        efficiency = 68
+            df_history["설비명"] == name
 
-    elif name == "가압펌프 #5":
+        ]
 
-        score = 74
+        if not pump_rows.empty:
 
-        vibration = 4.2
+            latest = pump_rows.iloc[
+                -1
+            ]
 
-        efficiency = 75
+    if (
 
-    elif hours > 11000:
+        latest is not None
 
-        score = 77
+        and
+        "효율측정값(%)" in latest.index
 
-        vibration = 3.8
+        and
+        pd.notna(
+            latest["효율측정값(%)"]
+        )
 
-        efficiency = 81
+    ):
 
-    elif hours > 10000:
+        score = float(
+            latest["종합점수"]
+        )
 
-        score = 82
+        efficiency = float(
+            latest["효율측정값(%)"]
+        )
 
-        vibration = 2.8
+        vibration = float(
+            latest["진동측정값(mm/s)"]
+        ) if pd.notna(
+            latest.get("진동측정값(mm/s)")
+        ) else 2.2
 
-        efficiency = 84
+        temperature = float(
+            latest["온도측정값(°C)"]
+        ) if pd.notna(
+            latest.get("온도측정값(°C)")
+        ) else round(
+            43 + vibration * 2.3,
+            1
+        )
+
+    else:
+
+        # ------------------------------------------------------
+        # 2순위: 아직 정밀진단 이력이 없는 설비는
+        # 데모용 기본값(과거 방식)을 그대로 사용한다.
+        # ------------------------------------------------------
+
+        score = 85
+
+        vibration = 2.2
+
+        efficiency = 88
+
+        if name == "가압펌프 #2":
+
+            score = 68
+
+            vibration = 5.8
+
+            efficiency = 73
+
+        elif name == "가압펌프 #3":
+
+            score = 64
+
+            vibration = 6.8
+
+            efficiency = 68
+
+        elif name == "가압펌프 #5":
+
+            score = 74
+
+            vibration = 4.2
+
+            efficiency = 75
+
+        elif hours > 11000:
+
+            score = 77
+
+            vibration = 3.8
+
+            efficiency = 81
+
+        elif hours > 10000:
+
+            score = 82
+
+            vibration = 2.8
+
+            efficiency = 84
+
+        temperature = round(
+            43 + vibration * 2.3,
+            1
+        )
 
     grade = get_final_grade(
         score
@@ -1644,18 +2215,6 @@ def pump_status(
 
         status = "정비검토"
 
-    temperature = round(
-
-        43
-        +
-        vibration
-        *
-        2.3,
-
-        1
-
-    )
-
     return {
 
         "점수": score,
@@ -1668,7 +2227,9 @@ def pump_status(
 
         "효율": efficiency,
 
-        "온도": temperature
+        "온도": temperature,
+
+        "실측이력있음": latest is not None
 
     }
 
@@ -1854,6 +2415,8 @@ def build_efficiency_trend_fig(
     figsize=(6.2, 3.4)
 ):
 
+    # 효율은 막대그래프로 표현
+
     base = result["효율"]
 
     values = [
@@ -1872,21 +2435,67 @@ def build_efficiency_trend_fig(
 
     ]
 
-    return build_trend_fig(
+    colors = [
 
-        pump,
-        "효율",
-        "%",
+        "#e03131" if v < 70
+        else "#f08c00" if v < 80
+        else "#087ea4"
+
+        for v in values
+
+    ]
+
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+
+    ax.bar(
+
         TREND_MONTHS,
+
         values,
 
-        watch_threshold=80,
+        color=colors,
 
-        danger_threshold=70,
-
-        figsize=figsize
+        width=0.55
 
     )
+
+    ax.axhline(
+        80,
+        linestyle="--",
+        color="#a16207",
+        label="관찰 기준"
+    )
+
+    ax.axhline(
+        70,
+        linestyle=":",
+        color="#c62828",
+        label="주의 기준"
+    )
+
+    ax.set_ylabel(
+        "효율 (%)"
+    )
+
+    ax.set_title(
+        f"{pump['equip']} 효율 추세"
+    )
+
+    ax.set_ylim(
+        0,
+        105
+    )
+
+    ax.grid(
+        alpha=0.2,
+        axis="y"
+    )
+
+    ax.legend()
+
+    return fig
 
 
 def build_temperature_trend_fig(
@@ -1894,6 +2503,8 @@ def build_temperature_trend_fig(
     result,
     figsize=(6.2, 3.4)
 ):
+
+    # 온도는 영역(면적)그래프로 표현
 
     base = result["온도"]
 
@@ -1913,68 +2524,156 @@ def build_temperature_trend_fig(
 
     ]
 
-    return build_trend_fig(
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
 
-        pump,
-        "온도",
-        "°C",
+    ax.fill_between(
+
         TREND_MONTHS,
+
         values,
 
-        watch_threshold=50,
+        color="#ff922b",
 
-        danger_threshold=55,
-
-        figsize=figsize
+        alpha=0.35
 
     )
 
+    ax.plot(
 
-def build_score_trend_fig(
+        TREND_MONTHS,
+
+        values,
+
+        marker="o",
+
+        linewidth=2,
+
+        color="#e8590c"
+
+    )
+
+    ax.axhline(
+        50,
+        linestyle="--",
+        color="#a16207",
+        label="관찰 기준"
+    )
+
+    ax.axhline(
+        55,
+        linestyle=":",
+        color="#c62828",
+        label="주의 기준"
+    )
+
+    ax.set_ylabel(
+        "온도 (°C)"
+    )
+
+    ax.set_title(
+        f"{pump['equip']} 온도 추세"
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    ax.legend()
+
+    return fig
+
+
+def build_score_gauge_fig(
     pump,
     result,
-    figsize=(6.2, 3.4)
+    figsize=(6.2, 2.3)
 ):
 
-    base = result["점수"]
+    # CBM Score는 게이지(구간별 색상 막대 + 현재값 표시)로 표현
 
-    values = [
+    score = result["점수"]
 
-        min(100, base + 12),
+    zones = [
 
-        min(100, base + 9),
+        (0, 60, "#ffc9c9"),
 
-        min(100, base + 6),
+        (60, 70, "#ffd8a8"),
 
-        min(100, base + 3),
+        (70, 80, "#fff3bf"),
 
-        base,
+        (80, 90, "#d3f9d8"),
 
-        max(0, base - 4)
+        (90, 100, "#b2f2bb")
 
     ]
 
-    return build_trend_fig(
-
-        pump,
-        "CBM Score",
-        "점",
-        TREND_MONTHS,
-        values,
-
-        watch_threshold=80,
-
-        danger_threshold=70,
-
+    fig, ax = plt.subplots(
         figsize=figsize
+    )
+
+    for start, end, color in zones:
+
+        ax.barh(
+
+            0,
+
+            end - start,
+
+            left=start,
+
+            color=color,
+
+            height=0.6,
+
+            edgecolor="white"
+
+        )
+
+    ax.barh(
+
+        0,
+
+        2,
+
+        left=max(
+            0,
+            min(score, 98)
+        ),
+
+        color="#083b5c",
+
+        height=0.9
 
     )
+
+    ax.set_xlim(
+        0,
+        100
+    )
+
+    ax.set_yticks(
+        []
+    )
+
+    ax.set_xlabel(
+        "CBM Score (0~100)"
+    )
+
+    ax.set_title(
+        f"{pump['equip']} 현재 CBM Score : {score}점 ({result['등급']}등급)"
+    )
+
+    return fig
 
 
 def build_op_hours_trend_fig(
     pump,
-    figsize=(6.2, 3.4)
+    figsize=(9, 3.2)
 ):
+
+    # 누적 운전시간은 영역(면적)그래프로 표현
 
     current_hours = pump["op_hours"]
 
@@ -1994,17 +2693,49 @@ def build_op_hours_trend_fig(
 
     ]
 
-    return build_trend_fig(
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
 
-        pump,
-        "누적 운전시간",
-        "h",
+    ax.fill_between(
+
         TREND_MONTHS,
+
         values,
 
-        figsize=figsize
+        color="#087ea4",
+
+        alpha=0.30
 
     )
+
+    ax.plot(
+
+        TREND_MONTHS,
+
+        values,
+
+        marker="o",
+
+        linewidth=2,
+
+        color="#063b63"
+
+    )
+
+    ax.set_ylabel(
+        "누적 운전시간 (h)"
+    )
+
+    ax.set_title(
+        f"{pump['equip']} 누적 운전시간 추세"
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    return fig
 
 
 # ============================================================
@@ -2036,12 +2767,104 @@ def calculate_qr_cost(
 
 
 # ============================================================
+# 12-1. 로그인 게이트 · 보기 전용 모드
+#
+# URL만 알면 누구나 데이터를 수정할 수 있던 문제에 대한
+# 최소한의 보완. 정식 계정 시스템은 아니고
+# 단순 PIN 게이트 수준이라는 점을 감안해서 사용할 것.
+# ============================================================
+
+if "authenticated" not in st.session_state:
+
+    st.session_state.authenticated = False
+
+if "read_only" not in st.session_state:
+
+    st.session_state.read_only = False
+
+
+def is_read_only():
+
+    return st.session_state.read_only
+
+
+if not st.session_state.authenticated:
+
+    st.markdown(
+        """
+        <div class="top-header">
+        <div class="top-title">
+        💧 K-water tech 설비관리 플랫폼
+        </div>
+        <div class="top-sub">
+        접속하려면 PIN 번호를 입력하세요.
+        </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    pin_input = st.text_input(
+
+        "PIN 번호",
+
+        type="password",
+
+        key="pin_input"
+
+    )
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+
+        if st.button(
+            "접속",
+            type="primary",
+            use_container_width=True
+        ):
+
+            if pin_input == AUTH_PIN:
+
+                st.session_state.authenticated = True
+
+                st.rerun()
+
+            else:
+
+                st.error(
+                    "PIN 번호가 올바르지 않습니다."
+                )
+
+    with col_b:
+
+        if st.button(
+            "👀 보기 전용으로 둘러보기",
+            use_container_width=True
+        ):
+
+            st.session_state.authenticated = True
+
+            st.session_state.read_only = True
+
+            st.rerun()
+
+    st.stop()
+
+
+# ============================================================
 # 13. 사이드바
 # ============================================================
 
 if "page" not in st.session_state:
 
-    st.session_state.page = "홈"
+    # QR 스캔으로 들어온 경우 URL의 ?page=QR&equip=... 를
+    # 그대로 반영해서 해당 설비 화면으로 바로 이동시킨다.
+
+    st.session_state.page = st.query_params.get(
+        "page",
+        "홈"
+    )
 
 
 def go_to_page(
@@ -2178,28 +3001,130 @@ with st.sidebar:
         "밀양정수장"
     )
 
+    st.toggle(
+
+        "🔒 보기 전용 모드",
+
+        key="read_only",
+
+        help="켜면 모든 저장·삭제 버튼이 비활성화됩니다. "
+             "외부인에게 시연할 때 실수로 데이터가 "
+             "바뀌는 것을 막아줍니다."
+
+    )
+
+    _risk_count = sum(
+
+        1
+
+        for p in ALL_PUMPS
+
+        if pump_status(p)["상태"] == "정비검토"
+
+    )
+
+    if _risk_count > 0:
+
+        st.error(
+            f"🚨 정비검토 필요 설비 {_risk_count}대"
+        )
+
 
 # ============================================================
-# 14. 공통 헤더
+# 14. 공통 헤더 및 상단 이동 메뉴
+#
+# - 큰 배너(K-water tech ... 소개문구)는 "홈" 화면에서만 보여준다.
+#   다른 화면에서는 각 화면 자체의 section-title/caption이
+#   맨 위에 바로 보이도록 한다. (요청 6)
+#
+# - 사이드바(왼쪽 서랍 메뉴)는 모바일 브라우저에서 버튼을 눌러도
+#   서랍이 자동으로 닫히지 않는 Streamlit 자체의 한계가 있어,
+#   대신 본문 맨 위에 항상 떠 있는 "메뉴 이동" 드롭다운을 추가한다.
+#   드롭다운은 선택하면 자동으로 닫히는 표준 UI라 이 문제가 없다.
+#   (요청 3)
 # ============================================================
 
-st.markdown(
-    f"""
-    <div class="top-header">
-
-        <div class="top-title">
-            💧 K-water tech 설비관리 통합 플랫폼
-        </div>
-
-        <div class="top-sub">
-            QR 기반 설비정보 · 상태진단 · CBM 정비판단 ·
-            오버홀 · 이력관리 · 데이터 기반 설비관리
-        </div>
-
-    </div>
-    """,
-    unsafe_allow_html=True
+ALL_MENUS = (
+    main_menus
+    +
+    analysis_menus
+    +
+    knowledge_menus
 )
+
+MENU_LABEL_BY_KEY = dict(
+    ALL_MENUS
+)
+
+MENU_KEY_BY_LABEL = {
+
+    label: key
+
+    for key, label in ALL_MENUS
+
+}
+
+_current_page = st.session_state.page
+
+_current_label = MENU_LABEL_BY_KEY.get(
+    _current_page,
+    "🏠 설비관리 홈"
+)
+
+_nav_labels = [
+    label
+    for key, label in ALL_MENUS
+]
+
+
+def _on_top_nav_change():
+
+    chosen_label = st.session_state[
+        f"top_nav_{_current_page}"
+    ]
+
+    st.session_state.page = MENU_KEY_BY_LABEL[
+        chosen_label
+    ]
+
+
+st.selectbox(
+
+    "메뉴 이동",
+
+    _nav_labels,
+
+    index=_nav_labels.index(
+        _current_label
+    ),
+
+    key=f"top_nav_{_current_page}",
+
+    on_change=_on_top_nav_change,
+
+    label_visibility="collapsed"
+
+)
+
+if st.session_state.page == "홈":
+
+    st.markdown(
+        f"""
+        <div class="top-header">
+
+            <div class="top-title">
+                💧 K-water tech 설비관리 통합 플랫폼
+            </div>
+
+            <div class="top-sub">
+                QR 기반 설비정보 · 상태진단 · CBM 정비판단 ·
+                오버홀 · 이력관리 · 데이터 기반 설비관리
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 # ============================================================
@@ -2223,14 +3148,14 @@ if st.session_state.page == "홈":
     )
 
     total = len(
-        DEFAULT_PUMPS
+        ALL_PUMPS
     )
 
     normal = 0
     watch = 0
     repair = 0
 
-    for pump in DEFAULT_PUMPS:
+    for pump in ALL_PUMPS:
 
         result = pump_status(
             pump
@@ -2308,7 +3233,7 @@ if st.session_state.page == "홈":
 
         rows = []
 
-        for pump in DEFAULT_PUMPS:
+        for pump in ALL_PUMPS:
 
             result = pump_status(
                 pump
@@ -2355,7 +3280,7 @@ if st.session_state.page == "홈":
 
         ranking = []
 
-        for pump in DEFAULT_PUMPS:
+        for pump in ALL_PUMPS:
 
             result = pump_status(
                 pump
@@ -2456,7 +3381,7 @@ elif st.session_state.page == "설비":
         </div>
 
         <div class="section-caption">
-        관리 중인 펌프의 기본 제원과 운전상태를 통합 관리합니다.
+        관리 중인 펌프의 기본 제원과 운전상태를 한눈에 확인합니다.
         </div>
         """,
         unsafe_allow_html=True
@@ -2468,18 +3393,48 @@ elif st.session_state.page == "설비":
 
         [
             p["equip"]
-            for p in DEFAULT_PUMPS
+            for p in ALL_PUMPS
         ]
 
     )
 
     pump = next(
-        p for p in DEFAULT_PUMPS
+        p for p in ALL_PUMPS
         if p["equip"] == selected
     )
 
     result = pump_status(
         pump
+    )
+
+    status_class = {
+
+        "정상": "status-normal",
+
+        "관찰": "status-watch",
+
+        "정비검토": "status-danger"
+
+    }.get(
+        result["상태"],
+        "status-watch"
+    )
+
+    st.markdown(
+        f"""
+        <div class="platform-card">
+
+        <div class="card-title">
+        {pump['equip']} 종합 현황
+        </div>
+
+        <span class="{status_class}">
+        {result['상태']}
+        </span>
+
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     a, b, c, d = st.columns(4)
@@ -2490,18 +3445,30 @@ elif st.session_state.page == "설비":
     )
 
     b.metric(
-        "상태",
-        result["상태"]
-    )
-
-    c.metric(
         "현재 효율",
         f'{result["효율"]:.1f}%'
     )
 
-    d.metric(
+    c.metric(
         "진동",
         f'{result["진동"]:.1f} mm/s'
+    )
+
+    d.metric(
+        "온도",
+        f'{result["온도"]:.1f}°C'
+    )
+
+    st.pyplot(
+
+        build_score_gauge_fig(
+
+            pump,
+
+            result
+
+        )
+
     )
 
     st.write("")
@@ -2509,8 +3476,8 @@ elif st.session_state.page == "설비":
     tab1, tab2, tab3 = st.tabs(
 
         [
-            "설비 기본정보",
-            "운전정보",
+            "기본정보",
+            "운전상태",
             "정비이력"
         ]
 
@@ -2518,54 +3485,43 @@ elif st.session_state.page == "설비":
 
     with tab1:
 
-        c1, c2 = st.columns(2)
+        st.dataframe(
 
-        c1.text_input(
-            "사업장",
-            pump["site"],
-            disabled=True
-        )
+            pd.DataFrame(
 
-        c2.text_input(
-            "설비명",
-            pump["equip"],
-            disabled=True
-        )
+                [
 
-        c1.text_input(
-            "제조사",
-            pump["maker"],
-            disabled=True
-        )
+                    ["사업장", pump["site"]],
 
-        c2.text_input(
-            "모델",
-            pump["model"],
-            disabled=True
-        )
+                    ["설비명", pump["equip"]],
 
-        c1.number_input(
-            "정격출력(HP)",
-            value=pump["hp"],
-            disabled=True
-        )
+                    ["제조사", pump["maker"]],
 
-        c2.number_input(
-            "정격양정(m)",
-            value=pump["head"],
-            disabled=True
-        )
+                    ["모델명", pump["model"]],
 
-        c1.number_input(
-            "정격유량(m³/h)",
-            value=pump["flow"],
-            disabled=True
-        )
+                    ["정격출력(HP)", f'{pump["hp"]}'],
 
-        c2.number_input(
-            "회전수(RPM)",
-            value=pump["rpm"],
-            disabled=True
+                    ["정격양정(m)", f'{pump["head"]}'],
+
+                    ["정격유량(m³/h)", f'{pump["flow"]}'],
+
+                    ["회전수(RPM)", f'{pump["rpm"]}'],
+
+                    ["준공일", pump["build_date"]]
+
+                ],
+
+                columns=[
+                    "항목",
+                    "값"
+                ]
+
+            ),
+
+            use_container_width=True,
+
+            hide_index=True
+
         )
 
     with tab2:
@@ -2579,12 +3535,16 @@ elif st.session_state.page == "설비":
                         f'{pump["op_hours"]:,} h'
                     ],
                     [
-                        "최근 진동",
+                        "현재 효율",
+                        f'{result["효율"]:.1f}%'
+                    ],
+                    [
+                        "현재 진동",
                         f'{result["진동"]:.1f} mm/s'
                     ],
                     [
-                        "현재 효율",
-                        f'{result["효율"]:.1f}%'
+                        "현재 온도",
+                        f'{result["온도"]:.1f}°C'
                     ],
                     [
                         "CBM 상태",
@@ -2605,16 +3565,39 @@ elif st.session_state.page == "설비":
 
     with tab3:
 
-        st.info(
-            "최근 오버홀 : "
-            "2025-03-15 / 축슬리브 교체 / "
-            "센터링 완료"
+        df_overhaul = read_excel(
+            OVERHAUL_DB_PATH,
+            "오버홀이력"
         )
 
-        st.info(
-            "다음 정비판단 : CBM Score 및 "
-            "운전시간을 함께 반영"
-        )
+        pump_overhaul = df_overhaul[
+            df_overhaul["설비명"] == pump["equip"]
+        ] if not df_overhaul.empty else pd.DataFrame()
+
+        if not pump_overhaul.empty:
+
+            st.dataframe(
+
+                pump_overhaul[
+                    [
+                        "작업일자",
+                        "공정단계",
+                        "작업내용"
+                    ]
+                ].tail(5),
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+        else:
+
+            st.info(
+                "저장된 오버홀·작업 이력이 없습니다. "
+                "QR 포털의 '이력' 탭에서 현장 작업기록을 추가할 수 있습니다."
+            )
 
 
 # ============================================================
@@ -2638,19 +3621,37 @@ elif st.session_state.page == "QR":
         unsafe_allow_html=True
     )
 
+    _pump_names = [
+        p["equip"]
+        for p in ALL_PUMPS
+    ]
+
+    _query_equip = st.query_params.get(
+        "equip"
+    )
+
+    _default_index = (
+
+        _pump_names.index(_query_equip)
+
+        if _query_equip in _pump_names
+
+        else 0
+
+    )
+
     selected = st.selectbox(
 
         "설비 선택",
 
-        [
-            p["equip"]
-            for p in DEFAULT_PUMPS
-        ]
+        _pump_names,
+
+        index=_default_index
 
     )
 
     pump = next(
-        p for p in DEFAULT_PUMPS
+        p for p in ALL_PUMPS
         if p["equip"] == selected
     )
 
@@ -2658,11 +3659,39 @@ elif st.session_state.page == "QR":
         pump
     )
 
-    equip_no = DEFAULT_PUMPS.index(
+    equip_no = ALL_PUMPS.index(
         pump
     ) + 1
 
     qr_id = f"PUMP-MLY-{equip_no:03d}"
+
+    # 실제로 스캔 가능한 QR 이미지 생성.
+    # 배포 주소를 모르는 로컬 환경에서는 예시 도메인으로
+    # 대체되며, 실제 배포 후에는 REAL APP URL로 바꿔주면 된다.
+
+    APP_BASE_URL = "https://kwatertech-pump.streamlit.app"
+
+    qr_target_url = (
+
+        f"{APP_BASE_URL}/?page=QR&equip="
+
+        +
+        urllib.parse.quote(
+            selected
+        )
+
+    )
+
+    qr_img = qrcode.make(
+        qr_target_url
+    )
+
+    qr_buffer = io.BytesIO()
+
+    qr_img.save(
+        qr_buffer,
+        format="PNG"
+    )
 
     c1, c2 = st.columns(
         [1, 2]
@@ -2670,34 +3699,19 @@ elif st.session_state.page == "QR":
 
     with c1:
 
-        st.markdown(
-            f"""
-            <div style="
-            background:white;
-            border:1px solid #dce8ef;
-            border-radius:16px;
-            padding:25px;
-            text-align:center;
-            ">
-            <div style="
-            font-size:5rem;
-            ">
-            ▦
-            </div>
+        st.image(
 
-            <b>설비 QR CODE</b>
+            qr_buffer.getvalue(),
 
-            <div style="
-            margin-top:8px;
-            color:#64748b;
-            font-size:0.75rem;
-            ">
-            {qr_id}
-            </div>
+            use_container_width=True,
 
-            </div>
-            """,
-            unsafe_allow_html=True
+            caption=qr_id
+
+        )
+
+        st.caption(
+            "실제 스캔 가능한 QR입니다. "
+            "스캔하면 이 설비 페이지로 바로 연결됩니다."
         )
 
     with c2:
@@ -2720,6 +3734,7 @@ elif st.session_state.page == "QR":
             <b>현재 온도</b> : {result["온도"]:.1f}°C<br>
             <b>CBM Score</b> : {result["점수"]}점<br>
             <b>상태</b> : {result["상태"]}
+
 
             </div>
             """,
@@ -2755,13 +3770,13 @@ elif st.session_state.page == "QR":
 
                     ["모델명", pump["model"]],
 
-                    ["정격출력(HP)", pump["hp"]],
+                    ["정격출력(HP)", f'{pump["hp"]}'],
 
-                    ["정격양정(m)", pump["head"]],
+                    ["정격양정(m)", f'{pump["head"]}'],
 
-                    ["정격유량(m³/h)", pump["flow"]],
+                    ["정격유량(m³/h)", f'{pump["flow"]}'],
 
-                    ["회전수(RPM)", pump["rpm"]],
+                    ["회전수(RPM)", f'{pump["rpm"]}'],
 
                     ["준공일", pump["build_date"]],
 
@@ -2861,6 +3876,28 @@ elif st.session_state.page == "QR":
 
             )
 
+            if len(pump_history) > 5:
+
+                with st.expander(
+                    f"전체 진단이력 펼쳐보기 (총 {len(pump_history)}건)"
+                ):
+
+                    st.dataframe(
+
+                        pump_history[
+                            [
+                                "점검일",
+                                "종합점수",
+                                "최종등급"
+                            ]
+                        ],
+
+                        use_container_width=True,
+
+                        hide_index=True
+
+                    )
+
         else:
 
             st.info(
@@ -2898,6 +3935,53 @@ elif st.session_state.page == "QR":
 
             )
 
+            if len(pump_overhaul) > 5:
+
+                with st.expander(
+                    f"전체 작업이력 펼쳐보기 (총 {len(pump_overhaul)}건)"
+                ):
+
+                    st.dataframe(
+
+                        pump_overhaul[
+                            [
+                                "작업일자",
+                                "공정단계",
+                                "작업내용"
+                            ]
+                        ],
+
+                        use_container_width=True,
+
+                        hide_index=True
+
+                    )
+
+            photo_rows = pump_overhaul[
+
+                pump_overhaul["사진파일명"].astype(str) != ""
+
+            ] if "사진파일명" in pump_overhaul.columns else pd.DataFrame()
+
+            for _, prow in photo_rows.tail(3).iterrows():
+
+                photo_path = os.path.join(
+                    PHOTO_DIR,
+                    str(prow["사진파일명"])
+                )
+
+                if os.path.exists(photo_path):
+
+                    st.image(
+
+                        photo_path,
+
+                        caption=f'{prow["작업일자"]} 작업사진',
+
+                        use_container_width=True
+
+                    )
+
         else:
 
             st.info(
@@ -2912,11 +3996,19 @@ elif st.session_state.page == "QR":
 
             placeholder="점검 및 작업 내용을 입력하세요.",
 
-            key=f"qr_note_{pump['equip']}"
+            key=f"qr_note_{pump['equip']}",
+
+            disabled=is_read_only()
 
         )
 
-        if st.button(
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 저장할 수 없습니다."
+            )
+
+        elif st.button(
 
             "작업기록 저장",
 
@@ -2926,15 +4018,11 @@ elif st.session_state.page == "QR":
 
         ):
 
-            wb = load_workbook(
-                OVERHAUL_DB_PATH
-            )
+            safe_append_row(
 
-            ws = wb[
-                "오버홀이력"
-            ]
+                OVERHAUL_DB_PATH,
 
-            ws.append(
+                "오버홀이력",
 
                 [
                     datetime.now().strftime(
@@ -2960,12 +4048,6 @@ elif st.session_state.page == "QR":
                 ]
 
             )
-
-            wb.save(
-                OVERHAUL_DB_PATH
-            )
-
-            wb.close()
 
             st.success(
                 "현장 작업기록이 저장되었습니다."
@@ -3071,13 +4153,13 @@ elif st.session_state.page == "진단":
 
         [
             p["equip"]
-            for p in DEFAULT_PUMPS
+            for p in ALL_PUMPS
         ]
 
     )
 
     pump = next(
-        p for p in DEFAULT_PUMPS
+        p for p in ALL_PUMPS
         if p["equip"] == selected
     )
 
@@ -3086,6 +4168,14 @@ elif st.session_state.page == "진단":
         f'{pump["equip"]} / '
         f'{pump["maker"]} {pump["model"]}'
     )
+
+    if pump.get("기준진동") or pump.get("기준효율"):
+
+        st.caption(
+            f"⚙️ 이 설비는 맞춤 기준 적용 중 · "
+            f"기준진동 {pump.get('기준진동') or '공통기준'} mm/s · "
+            f"기준효율 {pump.get('기준효율') or '공통기준'} %"
+        )
 
     total_score = 0
 
@@ -3097,6 +4187,8 @@ elif st.session_state.page == "진단":
     }
 
     details = []
+
+    auto_raw_values = {}
 
     def render_eval_item(
         idx,
@@ -3126,6 +4218,16 @@ elif st.session_state.page == "진단":
                 f"판정기준 : {standard}"
             )
 
+            glossary_text = term_help(
+                name
+            )
+
+            if glossary_text:
+
+                st.caption(
+                    f"ℹ️ {glossary_text}"
+                )
+
             if auto_fn is not None:
 
                 min_v, max_v, default_v, step_v, unit = AUTO_INPUT_CONFIG[
@@ -3144,11 +4246,23 @@ elif st.session_state.page == "진단":
 
                     step=float(step_v),
 
-                    key=f"val_{idx}"
+                    key=f"val_{idx}",
+
+                    disabled=is_read_only()
 
                 )
 
-                grade = auto_fn(
+                auto_raw_values[
+                    name
+                ] = raw_value
+
+                effective_fn = get_effective_auto_fn(
+                    name,
+                    auto_fn,
+                    pump
+                )
+
+                grade = effective_fn(
                     raw_value
                 )
 
@@ -3165,7 +4279,9 @@ elif st.session_state.page == "진단":
 
                     options,
 
-                    key=f"grade_{idx}"
+                    key=f"grade_{idx}",
+
+                    disabled=is_read_only()
 
                 )
 
@@ -3310,64 +4426,128 @@ elif st.session_state.page == "진단":
         hide_index=True
     )
 
-    if st.button(
-        "💾 진단결과 저장",
-        type="primary",
-        use_container_width=True
-    ):
+    temp_measured = st.number_input(
 
-        wb = load_workbook(
-            DB_FILE_PATH
+        "측정 온도 (°C) — EVAL_ITEMS에는 없지만 "
+        "AI 이상징후 추세에 함께 반영됩니다",
+
+        min_value=0.0,
+
+        max_value=120.0,
+
+        value=45.0,
+
+        step=0.5,
+
+        key="diag_temp",
+
+        disabled=is_read_only()
+
+    )
+
+    if is_read_only():
+
+        st.info(
+            "🔒 보기 전용 모드입니다. "
+            "저장하려면 사이드바에서 보기 전용 모드를 해제하세요."
         )
 
-        ws = wb[
-            "진단이력"
-        ]
+    else:
 
-        row = [
+        if st.button(
+            "💾 진단결과 저장",
+            type="primary",
+            use_container_width=True
+        ):
 
-            datetime.now().strftime(
+            save_time = datetime.now().strftime(
                 "%Y-%m-%d"
-            ),
+            )
 
-            pump["site"],
+            row = [
 
-            pump["equip"],
+                save_time,
 
-            pump["maker"],
+                pump["site"],
 
-            pump["model"],
+                pump["equip"],
 
-            pump["hp"],
+                pump["maker"],
 
-            pump["head"],
+                pump["model"],
 
-            pump["build_date"],
+                pump["hp"],
 
-            "최진욱",
+                pump["head"],
 
-            total_score,
+                pump["build_date"],
 
-            final_grade
+                "최진욱",
 
-        ] + [
+                total_score,
 
-            x["등급"]
-            for x in details
-        ]
+                final_grade
 
-        ws.append(row)
+            ] + [
 
-        wb.save(
-            DB_FILE_PATH
-        )
+                x["등급"]
+                for x in details
 
-        wb.close()
+            ] + [
 
-        st.success(
-            f"{pump['equip']} "
-            f"진단결과가 저장되었습니다."
-        )
+                auto_raw_values.get(
+                    "펌프 효율 유지율 (%)",
+                    ""
+                ),
+
+                auto_raw_values.get(
+                    "Overall 진동 (mm/s)",
+                    ""
+                ),
+
+                temp_measured
+
+            ]
+
+            safe_append_row(
+
+                DB_FILE_PATH,
+
+                "진단이력",
+
+                row
+
+            )
+
+            st.success(
+                f"{pump['equip']} "
+                f"진단결과가 저장되었습니다."
+            )
+
+            # 저장 직후 방금 저장한 값이 실제로
+            # 반영됐는지 바로 눈으로 확인할 수 있도록
+            # 파일을 다시 읽어서 보여준다.
+
+            df_just_saved = read_excel(
+                DB_FILE_PATH,
+                "진단이력"
+            )
+
+            st.markdown(
+                "###### ✅ 방금 저장된 기록"
+            )
+
+            st.dataframe(
+
+                df_just_saved[
+                    df_just_saved["설비명"] == pump["equip"]
+                ].tail(1),
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
 
 
 # ============================================================
@@ -3393,7 +4573,7 @@ elif st.session_state.page == "CBM":
 
     ranking = []
 
-    for pump in DEFAULT_PUMPS:
+    for pump in ALL_PUMPS:
 
         result = pump_status(
             pump
@@ -3516,13 +4696,13 @@ elif st.session_state.page == "오버홀":
 
         [
             p["equip"]
-            for p in DEFAULT_PUMPS
+            for p in ALL_PUMPS
         ]
 
     )
 
     pump = next(
-        p for p in DEFAULT_PUMPS
+        p for p in ALL_PUMPS
         if p["equip"] == selected
     )
 
@@ -3574,23 +4754,78 @@ elif st.session_state.page == "오버홀":
             height=150,
             placeholder=
             "분해점검, 마모측정, "
-            "부품교체, 센터링 등"
+            "부품교체, 센터링 등",
+            disabled=is_read_only()
         )
 
-        if st.button(
+        work_photo = st.file_uploader(
+
+            "작업 전후 사진 첨부 (선택)",
+
+            type=["png", "jpg", "jpeg"],
+
+            key="overhaul_photo_upload",
+
+            disabled=is_read_only()
+
+        )
+
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 저장할 수 없습니다."
+            )
+
+        elif st.button(
             "오버홀 작업기록 저장",
             type="primary"
         ):
 
-            wb = load_workbook(
-                OVERHAUL_DB_PATH
-            )
+            photo_filename = ""
 
-            ws = wb[
-                "오버홀이력"
-            ]
+            if work_photo is not None:
 
-            ws.append(
+                os.makedirs(
+                    PHOTO_DIR,
+                    exist_ok=True
+                )
+
+                photo_filename = (
+
+                    f"{pump['equip']}_"
+
+                    +
+                    datetime.now().strftime(
+                        "%Y%m%d_%H%M%S"
+                    )
+
+                    +
+                    "_"
+                    +
+                    work_photo.name
+
+                )
+
+                with open(
+
+                    os.path.join(
+                        PHOTO_DIR,
+                        photo_filename
+                    ),
+
+                    "wb"
+
+                ) as f:
+
+                    f.write(
+                        work_photo.getbuffer()
+                    )
+
+            safe_append_row(
+
+                OVERHAUL_DB_PATH,
+
+                "오버홀이력",
 
                 [
                     datetime.now().strftime(
@@ -3607,7 +4842,7 @@ elif st.session_state.page == "오버홀":
 
                     work,
 
-                    "",
+                    photo_filename,
 
                     "",
 
@@ -3616,12 +4851,6 @@ elif st.session_state.page == "오버홀":
                 ]
 
             )
-
-            wb.save(
-                OVERHAUL_DB_PATH
-            )
-
-            wb.close()
 
             st.success(
                 "오버홀 작업기록이 저장되었습니다."
@@ -3688,13 +4917,13 @@ elif st.session_state.page == "AI":
 
         [
             p["equip"]
-            for p in DEFAULT_PUMPS
+            for p in ALL_PUMPS
         ]
 
     )
 
     pump = next(
-        p for p in DEFAULT_PUMPS
+        p for p in ALL_PUMPS
         if p["equip"] == selected
     )
 
@@ -3754,7 +4983,7 @@ elif st.session_state.page == "AI":
 
         st.pyplot(
 
-            build_score_trend_fig(
+            build_score_gauge_fig(
 
                 pump,
 
@@ -3768,9 +4997,7 @@ elif st.session_state.page == "AI":
 
         build_op_hours_trend_fig(
 
-            pump,
-
-            figsize=(9, 3.2)
+            pump
 
         )
 
@@ -3843,44 +5070,57 @@ elif st.session_state.page == "ROI":
         unsafe_allow_html=True
     )
 
-    c1, c2 = st.columns(2)
+    # 결과 카드를 입력값보다 먼저 화면에 보여주기 위해
+    # 자리(placeholder)를 미리 만들어 둔다.
+    # 실제 값은 아래에서 입력을 받은 뒤 이 자리에 채워 넣는다.
 
-    rated_kw = c1.number_input(
-        "모터 정격출력(kW)",
-        value=110.0
-    )
+    result_slot = st.container()
 
-    load = c2.number_input(
-        "평균 부하율(%)",
-        value=80.0
-    )
+    with st.expander(
+        "🔧 계산 조건 입력",
+        expanded=True
+    ):
 
-    c1, c2 = st.columns(2)
+        c1, c2 = st.columns(2)
 
-    before = c1.number_input(
-        "정비 전 효율(%)",
-        value=73.0
-    )
+        rated_kw = c1.number_input(
+            "모터 정격출력(kW)",
+            value=110.0
+        )
 
-    after = c2.number_input(
-        "정비 후 효율(%)",
-        value=82.0
-    )
+        load = c2.number_input(
+            "평균 부하율(%)",
+            value=80.0
+        )
 
-    hours = st.number_input(
-        "연간 운전시간",
-        value=6000
-    )
+        c1, c2 = st.columns(2)
 
-    price = st.number_input(
-        "전력단가(원/kWh)",
-        value=140
-    )
+        before = c1.number_input(
+            "정비 전 효율(%)",
+            value=73.0
+        )
 
-    repair = st.number_input(
-        "오버홀 비용(원)",
-        value=35_000_000
-    )
+        after = c2.number_input(
+            "정비 후 효율(%)",
+            value=82.0
+        )
+
+        c1, c2 = st.columns(2)
+
+        hours = c1.number_input(
+            "연간 운전시간",
+            value=6000
+        )
+
+        price = c2.number_input(
+            "전력단가(원/kWh)",
+            value=140
+        )
+
+        repair = st.number_input(
+            "오버홀 비용(원)",
+            value=35_000_000
+        )
 
     effective_kw = (
 
@@ -3922,22 +5162,37 @@ elif st.session_state.page == "ROI":
 
     )
 
-    a, b, c = st.columns(3)
+    with result_slot:
 
-    a.metric(
-        "연간 절감전력",
-        f"{saved_kwh:,.0f} kWh"
-    )
+        st.markdown(
+            f"""
+            <div class="kpi-grid" style="
+            grid-template-columns:
+            repeat(3, 1fr);
+            ">
 
-    b.metric(
-        "연간 절감액",
-        f"{saved_money:,.0f} 원"
-    )
+                <div class="kpi-card">
+                    <div class="kpi-label">연간 절감전력</div>
+                    <div class="kpi-value">{saved_kwh:,.0f}</div>
+                    <div class="kpi-sub">kWh / 년</div>
+                </div>
 
-    c.metric(
-        "투자회수",
-        f"{payback:.1f}년"
-    )
+                <div class="kpi-card">
+                    <div class="kpi-label">연간 절감액</div>
+                    <div class="kpi-value">{saved_money:,.0f}</div>
+                    <div class="kpi-sub">원 / 년</div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-label">투자회수 기간</div>
+                    <div class="kpi-value">{payback:.1f}년</div>
+                    <div class="kpi-sub">오버홀 비용 대비</div>
+                </div>
+
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 
 # ============================================================
@@ -4032,32 +5287,141 @@ elif st.session_state.page == "노하우":
         unsafe_allow_html=True
     )
 
-    wb = load_workbook(
+    df_knowhow = read_excel(
         KNOWHOW_DB_PATH,
-        data_only=True
-    )
-
-    ws = wb[
         "노하우DB"
-    ]
-
-    data = list(
-        ws.values
     )
 
-    wb.close()
+    if not df_knowhow.empty:
 
-    if len(data) > 1:
+        fc1, fc2 = st.columns(
+            [2, 1]
+        )
 
-        df = pd.DataFrame(
-            data[1:],
-            columns=data[0]
+        search_word = fc1.text_input(
+
+            "🔍 키워드 검색 (현상·원인·해결노하우·모델명)",
+
+            key="knowhow_search"
+
+        )
+
+        category_options = ["전체"] + sorted(
+
+            df_knowhow["분류"].dropna().unique().tolist()
+
+        )
+
+        category_filter = fc2.selectbox(
+
+            "분류 필터",
+
+            category_options,
+
+            key="knowhow_category_filter"
+
+        )
+
+        filtered = df_knowhow.copy()
+
+        if category_filter != "전체":
+
+            filtered = filtered[
+
+                filtered["분류"] == category_filter
+
+            ]
+
+        if search_word:
+
+            mask = (
+
+                filtered["관련모델"].astype(str).str.contains(search_word, case=False, na=False)
+
+                |
+                filtered["현상및원인"].astype(str).str.contains(search_word, case=False, na=False)
+
+                |
+                filtered["해결노하우"].astype(str).str.contains(search_word, case=False, na=False)
+
+            )
+
+            filtered = filtered[mask]
+
+        st.caption(
+            f"총 {len(df_knowhow)}건 중 {len(filtered)}건 표시"
         )
 
         st.dataframe(
-            df,
+            filtered,
             use_container_width=True,
             hide_index=True
+        )
+
+        if not is_read_only() and not filtered.empty:
+
+            with st.expander(
+                "🗑️ 노하우 삭제"
+            ):
+
+                delete_options = [
+
+                    f'{i} · {row["등록일자"]} · {row["관련모델"]} · {str(row["현상및원인"])[:20]}'
+
+                    for i, row in filtered.iterrows()
+
+                ]
+
+                delete_choice = st.selectbox(
+
+                    "삭제할 항목 선택",
+
+                    delete_options,
+
+                    key="knowhow_delete_select"
+
+                )
+
+                if st.button(
+                    "선택 항목 삭제",
+                    key="knowhow_delete_btn"
+                ):
+
+                    del_idx = int(
+                        delete_choice.split(" · ")[0]
+                    )
+
+                    with get_lock(KNOWHOW_DB_PATH):
+
+                        wb = load_workbook(
+                            KNOWHOW_DB_PATH
+                        )
+
+                        ws = wb[
+                            "노하우DB"
+                        ]
+
+                        # 엑셀 행 번호 = 데이터프레임 인덱스 + 2
+                        # (1행은 헤더이고, iterrows 인덱스는 0부터 시작)
+
+                        ws.delete_rows(
+                            del_idx + 2
+                        )
+
+                        wb.save(
+                            KNOWHOW_DB_PATH
+                        )
+
+                        wb.close()
+
+                    st.success(
+                        "삭제되었습니다. 페이지를 새로고침하면 반영됩니다."
+                    )
+
+    else:
+
+        st.info(
+            "등록된 노하우가 아직 없습니다."
         )
 
     st.write("")
@@ -4076,35 +5440,41 @@ elif st.session_state.page == "노하우":
                 "오버홀",
                 "누수",
                 "기타"
-            ]
+            ],
+            disabled=is_read_only()
         )
 
         model = st.text_input(
-            "관련 모델"
+            "관련 모델",
+            disabled=is_read_only()
         )
 
         phenomenon = st.text_area(
-            "현상 및 원인"
+            "현상 및 원인",
+            disabled=is_read_only()
         )
 
         solution = st.text_area(
-            "해결 노하우"
+            "해결 노하우",
+            disabled=is_read_only()
         )
 
-        if st.button(
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 등록할 수 없습니다."
+            )
+
+        elif st.button(
             "노하우 저장",
             type="primary"
         ):
 
-            wb = load_workbook(
-                KNOWHOW_DB_PATH
-            )
+            safe_append_row(
 
-            ws = wb[
-                "노하우DB"
-            ]
+                KNOWHOW_DB_PATH,
 
-            ws.append(
+                "노하우DB",
 
                 [
                     datetime.now().strftime(
@@ -4124,12 +5494,6 @@ elif st.session_state.page == "노하우":
                 ]
 
             )
-
-            wb.save(
-                KNOWHOW_DB_PATH
-            )
-
-            wb.close()
 
             st.success(
                 "기술 노하우가 등록되었습니다."
@@ -4268,6 +5632,175 @@ elif st.session_state.page == "백업":
         "2단계(엑셀 Batch 연계) 및 "
         "3단계(API 연계)는 향후 추진 예정"
     )
+
+    st.markdown(
+        "### ⚙️ 설비 마스터 관리"
+    )
+
+    st.caption(
+        "설비 목록이 코드에 고정되어 있지 않고 여기서 "
+        "추가·삭제할 수 있습니다. 설비별로 진동·효율 기준을 "
+        "다르게 두고 싶으면 기준값도 함께 입력하세요 "
+        "(비워두면 공통 기준 적용)."
+    )
+
+    with st.expander(
+        "➕ 새 설비 추가"
+    ):
+
+        nc1, nc2 = st.columns(2)
+
+        new_site = nc1.text_input(
+            "사업장",
+            "밀양정수장",
+            key="new_equip_site"
+        )
+
+        new_equip = nc2.text_input(
+            "설비명",
+            key="new_equip_name"
+        )
+
+        new_maker = nc1.text_input(
+            "제조사",
+            key="new_equip_maker"
+        )
+
+        new_model = nc2.text_input(
+            "모델명",
+            key="new_equip_model"
+        )
+
+        new_hp = nc1.number_input(
+            "정격출력(HP)",
+            value=150,
+            key="new_equip_hp"
+        )
+
+        new_head = nc2.number_input(
+            "정격양정(m)",
+            value=45,
+            key="new_equip_head"
+        )
+
+        new_flow = nc1.number_input(
+            "정격유량(m³/h)",
+            value=1200,
+            key="new_equip_flow"
+        )
+
+        new_rpm = nc2.number_input(
+            "회전수(RPM)",
+            value=1780,
+            key="new_equip_rpm"
+        )
+
+        new_build = nc1.text_input(
+            "준공일 (YYYY-MM-DD)",
+            "2024-01-01",
+            key="new_equip_build"
+        )
+
+        new_hours = nc2.number_input(
+            "누적 운전시간",
+            value=0,
+            key="new_equip_hours"
+        )
+
+        nc1, nc2 = st.columns(2)
+
+        new_vib_limit = nc1.number_input(
+            "기준진동(mm/s) — 선택사항, 0이면 공통기준",
+            value=0.0,
+            key="new_equip_vib"
+        )
+
+        new_eff_target = nc2.number_input(
+            "기준효율(%) — 선택사항, 0이면 공통기준",
+            value=0.0,
+            key="new_equip_eff"
+        )
+
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 설비를 추가할 수 없습니다."
+            )
+
+        elif st.button(
+            "설비 추가",
+            type="primary",
+            key="add_equip_btn"
+        ):
+
+            if not new_equip:
+
+                st.error(
+                    "설비명을 입력해주세요."
+                )
+
+            else:
+
+                add_equipment(
+
+                    {
+                        "site": new_site,
+                        "equip": new_equip,
+                        "maker": new_maker,
+                        "model": new_model,
+                        "hp": new_hp,
+                        "head": new_head,
+                        "flow": new_flow,
+                        "rpm": new_rpm,
+                        "build_date": new_build,
+                        "op_hours": new_hours,
+                        "기준진동": new_vib_limit if new_vib_limit > 0 else None,
+                        "기준효율": new_eff_target if new_eff_target > 0 else None
+                    }
+
+                )
+
+                st.success(
+                    f"{new_equip} 설비가 추가되었습니다. "
+                    "메뉴를 다시 열면 목록에 반영됩니다."
+                )
+
+    with st.expander(
+        "🗑️ 설비 삭제"
+    ):
+
+        del_target = st.selectbox(
+
+            "삭제할 설비",
+
+            [
+                p["equip"]
+                for p in ALL_PUMPS
+            ],
+
+            key="del_equip_select"
+
+        )
+
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 삭제할 수 없습니다."
+            )
+
+        elif st.button(
+            "선택한 설비 삭제",
+            key="del_equip_btn"
+        ):
+
+            delete_equipment(
+                del_target
+            )
+
+            st.success(
+                f"{del_target} 설비가 삭제되었습니다. "
+                "정밀진단·오버홀 이력은 그대로 남아있습니다."
+            )
 
     st.markdown(
         "### 📱 QR 구축비용"
@@ -4427,24 +5960,66 @@ elif st.session_state.page == "백업":
         "### 📦 DB 백업"
     )
 
-    for path, label in [
+    st.warning(
+        "⚠️ 이 데이터는 서버 로컬 파일로 저장됩니다. "
+        "배포 환경이 재시작·재배포되면 초기화될 수 있으니 "
+        "정기적으로 아래에서 전체 백업을 받아두는 것을 권장합니다."
+    )
 
-        (
-            DB_FILE_PATH,
-            "진단 DB"
-        ),
+    _backup_files = [
 
-        (
-            OVERHAUL_DB_PATH,
-            "오버홀 DB"
-        ),
+        (DB_FILE_PATH, "진단 DB"),
+        (OVERHAUL_DB_PATH, "오버홀 DB"),
+        (KNOWHOW_DB_PATH, "노하우 DB"),
+        (EQUIP_DB_PATH, "설비마스터 DB"),
+        (KPI_DB_PATH, "KPI DB")
 
-        (
-            KNOWHOW_DB_PATH,
-            "노하우 DB"
-        )
+    ]
 
-    ]:
+    import zipfile
+
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(
+        zip_buffer,
+        "w",
+        zipfile.ZIP_DEFLATED
+    ) as zf:
+
+        for path, label in _backup_files:
+
+            if os.path.exists(path):
+
+                zf.write(
+                    path,
+                    arcname=os.path.basename(path)
+                )
+
+    st.download_button(
+
+        "📥 전체 DB 한번에 백업 (zip)",
+
+        data=zip_buffer.getvalue(),
+
+        file_name=
+
+        f"kwatertech_backup_"
+
+        +
+        datetime.now().strftime("%Y%m%d_%H%M")
+
+        +
+        ".zip",
+
+        mime="application/zip",
+
+        type="primary",
+
+        use_container_width=True
+
+    )
+
+    for path, label in _backup_files:
 
         if os.path.exists(path):
 
