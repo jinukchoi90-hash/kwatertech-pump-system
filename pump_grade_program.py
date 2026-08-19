@@ -634,144 +634,26 @@ button[data-baseweb="tab"] {
 )
 
 
+
 # ============================================================
-# 4. 설비 기본 DB
+# [pump_calc.py 내용 — 진단기준·등급계산·NPSH계산기·배점검증]
 # ============================================================
-
-DEFAULT_PUMPS = [
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #1",
-        "maker": "효성펌프",
-        "model": "DHP-1",
-        "hp": 160,
-        "head": 47,
-        "flow": 1250,
-        "rpm": 1780,
-        "build_date": "2018-01-15",
-        "op_hours": 10200
-    },
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #2",
-        "maker": "현대중공업",
-        "model": "VTP-20",
-        "hp": 170,
-        "head": 49,
-        "flow": 1300,
-        "rpm": 1780,
-        "build_date": "2018-02-15",
-        "op_hours": 9200
-    },
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #3",
-        "maker": "효성펌프",
-        "model": "DHP-3",
-        "hp": 180,
-        "head": 51,
-        "flow": 1350,
-        "rpm": 1780,
-        "build_date": "2018-03-15",
-        "op_hours": 7800
-    },
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #4",
-        "maker": "현대중공업",
-        "model": "VTP-40",
-        "hp": 190,
-        "head": 53,
-        "flow": 1400,
-        "rpm": 1780,
-        "build_date": "2018-04-15",
-        "op_hours": 10500
-    },
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #5",
-        "maker": "효성펌프",
-        "model": "DHP-5",
-        "hp": 200,
-        "head": 55,
-        "flow": 1450,
-        "rpm": 1780,
-        "build_date": "2018-05-15",
-        "op_hours": 9800
-    },
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #6",
-        "maker": "현대중공업",
-        "model": "VTP-60",
-        "hp": 210,
-        "head": 57,
-        "flow": 1500,
-        "rpm": 1780,
-        "build_date": "2018-06-15",
-        "op_hours": 8700
-    },
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #7",
-        "maker": "효성펌프",
-        "model": "DHP-7",
-        "hp": 220,
-        "head": 59,
-        "flow": 1550,
-        "rpm": 1780,
-        "build_date": "2018-07-15",
-        "op_hours": 11400
-    },
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #8",
-        "maker": "현대중공업",
-        "model": "VTP-80",
-        "hp": 230,
-        "head": 61,
-        "flow": 1600,
-        "rpm": 1780,
-        "build_date": "2018-08-15",
-        "op_hours": 7200
-    },
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #9",
-        "maker": "효성펌프",
-        "model": "DHP-9",
-        "hp": 240,
-        "head": 63,
-        "flow": 1650,
-        "rpm": 1780,
-        "build_date": "2018-09-15",
-        "op_hours": 12300
-    },
-
-    {
-        "site": "밀양정수장",
-        "equip": "가압펌프 #10",
-        "maker": "현대중공업",
-        "model": "VTP-100",
-        "hp": 250,
-        "head": 65,
-        "flow": 1700,
-        "rpm": 1780,
-        "build_date": "2018-10-15",
-        "op_hours": 9100
-    }
-
-]
-
+# ============================================================
+# pump_calc.py
+#
+# 진단 기준·등급 계산 로직 (Streamlit·엑셀과 무관한 순수 계산부).
+# 원래 pump_grade_program.py 한 파일(6천줄+)에 전부 섞여 있던 것을
+# 모듈로 분리했다. 다른 개발자가 인수인계 받을 때
+# "등급 계산 규칙이 어디 있지?"는 이 파일 하나만 보면 된다.
+#
+# 참고 표준:
+# - 진동(Overall Vibration) 판정 구간은 ISO 10816-3
+#   (Mechanical vibration — Evaluation of machine vibration by
+#   measurements on non-rotating parts — Part 3) Class II
+#   (15kW~300kW, 강성 지지) 권고 구간을 참고해서
+#   1.8 / 4.5 / 7.1 / 11.2 mm/s 경계값을 사용한다.
+#   실제 심의 시에는 이 표준 번호를 근거로 제시할 것.
+# ============================================================
 
 # ============================================================
 # 5. 진단 기준
@@ -781,7 +663,7 @@ CATEGORIES = {
 
     "성능": 40,
 
-    "내부상태": 27,
+    "내부상태": 30,
 
     "기계상태": 25,
 
@@ -1318,7 +1200,9 @@ GLOSSARY = {
 
     "Overall 진동 (mm/s)":
         "펌프 전체적인 진동의 크기(속도 실효값, RMS). "
-        "베어링·축정렬·불균형 등 여러 원인을 종합적으로 반영한다.",
+        "베어링·축정렬·불균형 등 여러 원인을 종합적으로 반영한다. "
+        "판정구간은 ISO 10816-3 Class II(15~300kW, 강성 지지) "
+        "권고 기준을 참고했다.",
 
     "펌프-모터 센터링":
         "펌프축과 모터축의 중심을 맞추는 작업(축정렬)의 오차. "
@@ -1435,6 +1319,341 @@ def get_grade_text(grade):
         grade,
         "판정 필요"
     )
+
+
+# ============================================================
+# 7-1. NPSH(유효흡입양정) 간이 계산기
+#
+# 기존에는 "NPSH 여유율/캐비테이션" 항목을 사람이 눈대중으로
+# A~E 등급을 골랐다. 실제로는 배관 조건으로 NPSHa를 계산할 수
+# 있으므로, 계산값이 있으면 그걸로 등급을 자동판정한다.
+#
+# NPSHa = 대기압수두 - 포화증기압수두 - 흡입양정 - 마찰손실수두
+# 여유율(%) = NPSHa / NPSHr(요구값) x 100
+# ============================================================
+
+def calc_npsha(
+    atm_pressure_head,
+    vapor_pressure_head,
+    suction_lift,
+    friction_loss
+):
+
+    return (
+
+        atm_pressure_head
+        -
+        vapor_pressure_head
+        -
+        suction_lift
+        -
+        friction_loss
+
+    )
+
+
+def calc_npsh_margin_grade(
+    margin_ratio_percent
+):
+
+    # margin_ratio_percent = NPSHa / NPSHr x 100
+
+    if margin_ratio_percent >= 150:
+        return "A"
+
+    if margin_ratio_percent >= 130:
+        return "B"
+
+    if margin_ratio_percent >= 115:
+        return "C"
+
+    if margin_ratio_percent >= 100:
+        return "D"
+
+    return "E"
+
+
+# ============================================================
+# 7-2. 다음 오버홀 예정 시점 추정
+#
+# 오버홀 주기 판정기준(10,000시간)을 그대로 활용해서
+# "현재 운전시간 기준으로 몇 시간 뒤가 다음 오버홀 예정인지"를
+# 계산한다. 설비마다 실제 직전 오버홀 시점을 기록해두면 더
+# 정확해지지만, 우선은 누적운전시간을 10,000시간 단위로
+# 나눈 근사치를 사용한다.
+# ============================================================
+
+OVERHAUL_INTERVAL_HOURS = 10000
+
+
+def estimate_next_overhaul(op_hours):
+
+    if op_hours is None:
+
+        return None, None
+
+    cycles_done = op_hours // OVERHAUL_INTERVAL_HOURS
+
+    next_due_hours = (
+
+        (cycles_done + 1)
+        *
+        OVERHAUL_INTERVAL_HOURS
+
+    )
+
+    remaining_hours = next_due_hours - op_hours
+
+    return next_due_hours, remaining_hours
+
+
+# ============================================================
+# 7-3. 배점 합계 자동 검증
+#
+# 17개 항목의 가중치 합, 그리고 4개 분야(CATEGORIES) 배점 합이
+# 각각 100점이어야 정상이다. 누군가 항목을 고치다가 실수로
+# 합이 어긋나도 예전에는 아무 경고 없이 조용히 잘못된 점수를
+# 계속 뱉어냈다. 이제 시작할 때 검증해서 어긋나면 바로 알린다.
+# ============================================================
+
+def validate_eval_weights():
+
+    errors = []
+
+    item_total = sum(
+        item[2]
+        for item in EVAL_ITEMS
+    )
+
+    if abs(item_total - 100) > 0.01:
+
+        errors.append(
+
+            f"EVAL_ITEMS 가중치 합계가 {item_total}점입니다 "
+            f"(100점이어야 함)."
+
+        )
+
+    category_total = sum(
+        CATEGORIES.values()
+    )
+
+    if abs(category_total - 100) > 0.01:
+
+        errors.append(
+
+            f"CATEGORIES 배점 합계가 {category_total}점입니다 "
+            f"(100점이어야 함)."
+
+        )
+
+    category_item_sum = {}
+
+    for item in EVAL_ITEMS:
+
+        category_item_sum[item[0]] = (
+
+            category_item_sum.get(item[0], 0)
+            +
+            item[2]
+
+        )
+
+    for cat, cat_weight in CATEGORIES.items():
+
+        item_sum = category_item_sum.get(cat, 0)
+
+        if abs(item_sum - cat_weight) > 0.01:
+
+            errors.append(
+
+                f"'{cat}' 분야: EVAL_ITEMS 합계 {item_sum}점 "
+                f"vs CATEGORIES 배점 {cat_weight}점이 서로 다릅니다."
+
+            )
+
+    return errors
+
+
+# ============================================================
+# [pump_db.py 내용 — 설비마스터·진단이력 등 엑셀 DB 저장/조회]
+# ============================================================
+# ============================================================
+# pump_db.py
+#
+# 엑셀 기반 데이터 저장/조회 로직 모음.
+# (설비 마스터, 진단이력 DB 생성, 안전저장, 캐시 등)
+#
+# 이 모듈은 Streamlit 페이지를 그리지 않는다 — 오직
+# "데이터를 어떻게 저장하고 읽어오는가"만 담당한다.
+# 화면(UI)은 pump_grade_program.py 쪽에 있다.
+# ============================================================
+
+import os
+import random
+from datetime import datetime
+
+import pandas as pd
+import streamlit as st
+from openpyxl import Workbook, load_workbook
+from filelock import FileLock
+
+
+# ============================================================
+# 0. DB 경로 상수
+# ============================================================
+
+DB_FILE_PATH = "Pump_Master_DB.xlsx"
+OVERHAUL_DB_PATH = "Pump_Overhaul_DB.xlsx"
+DOC_DB_PATH = "Pump_Docs_DB.xlsx"
+KNOWHOW_DB_PATH = "Pump_Knowhow_DB.xlsx"
+DAILY_LOG_DB_PATH = "Pump_DailyLog_DB.xlsx"
+SAFETY_PERMIT_DB_PATH = "Pump_SafetyPermit_DB.xlsx"
+KPI_DB_PATH = "Pump_KPI_DB.xlsx"
+EQUIP_DB_PATH = "Pump_Equipment_DB.xlsx"
+
+SEED_FLAG_PATH = "seed_flag.txt"
+
+
+
+
+# ============================================================
+# 4. 설비 기본 DB (최초 시딩용 — 실제 목록은 EQUIP_DB_PATH)
+# ============================================================
+
+DEFAULT_PUMPS = [
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #1",
+        "maker": "효성펌프",
+        "model": "DHP-1",
+        "hp": 160,
+        "head": 47,
+        "flow": 1250,
+        "rpm": 1780,
+        "build_date": "2018-01-15",
+        "op_hours": 10200
+    },
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #2",
+        "maker": "현대중공업",
+        "model": "VTP-20",
+        "hp": 170,
+        "head": 49,
+        "flow": 1300,
+        "rpm": 1780,
+        "build_date": "2018-02-15",
+        "op_hours": 9200
+    },
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #3",
+        "maker": "효성펌프",
+        "model": "DHP-3",
+        "hp": 180,
+        "head": 51,
+        "flow": 1350,
+        "rpm": 1780,
+        "build_date": "2018-03-15",
+        "op_hours": 7800
+    },
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #4",
+        "maker": "현대중공업",
+        "model": "VTP-40",
+        "hp": 190,
+        "head": 53,
+        "flow": 1400,
+        "rpm": 1780,
+        "build_date": "2018-04-15",
+        "op_hours": 10500
+    },
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #5",
+        "maker": "효성펌프",
+        "model": "DHP-5",
+        "hp": 200,
+        "head": 55,
+        "flow": 1450,
+        "rpm": 1780,
+        "build_date": "2018-05-15",
+        "op_hours": 9800
+    },
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #6",
+        "maker": "현대중공업",
+        "model": "VTP-60",
+        "hp": 210,
+        "head": 57,
+        "flow": 1500,
+        "rpm": 1780,
+        "build_date": "2018-06-15",
+        "op_hours": 8700
+    },
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #7",
+        "maker": "효성펌프",
+        "model": "DHP-7",
+        "hp": 220,
+        "head": 59,
+        "flow": 1550,
+        "rpm": 1780,
+        "build_date": "2018-07-15",
+        "op_hours": 11400
+    },
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #8",
+        "maker": "현대중공업",
+        "model": "VTP-80",
+        "hp": 230,
+        "head": 61,
+        "flow": 1600,
+        "rpm": 1780,
+        "build_date": "2018-08-15",
+        "op_hours": 7200
+    },
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #9",
+        "maker": "효성펌프",
+        "model": "DHP-9",
+        "hp": 240,
+        "head": 63,
+        "flow": 1650,
+        "rpm": 1780,
+        "build_date": "2018-09-15",
+        "op_hours": 12300
+    },
+
+    {
+        "site": "밀양정수장",
+        "equip": "가압펌프 #10",
+        "maker": "현대중공업",
+        "model": "VTP-100",
+        "hp": 250,
+        "head": 65,
+        "flow": 1700,
+        "rpm": 1780,
+        "build_date": "2018-10-15",
+        "op_hours": 9100
+    }
+
+]
 
 
 # ============================================================
@@ -1593,7 +1812,8 @@ def ensure_db_exists():
         [
             "효율측정값(%)",
             "진동측정값(mm/s)",
-            "온도측정값(°C)"
+            "온도측정값(°C)",
+            "전류측정값(A)"
         ]
 
     )
@@ -1607,7 +1827,8 @@ def ensure_db_exists():
         [
             "효율측정값(%)",
             "진동측정값(mm/s)",
-            "온도측정값(°C)"
+            "온도측정값(°C)",
+            "전류측정값(A)"
         ]
 
     )
@@ -1749,6 +1970,7 @@ def ensure_db_exists():
 ensure_db_exists()
 
 
+
 # ============================================================
 # 9. 샘플 데이터
 # ============================================================
@@ -1842,9 +2064,30 @@ def seed_sample_data():
 seed_sample_data()
 
 
+
 # ============================================================
 # 10. 데이터 읽기
+#
+# - 파일 수정시각(mtime)을 캐시 키에 포함시켜서, 저장이 일어나면
+#   자동으로 캐시가 무효화되도록 했다. (매번 통째로 새로 읽던
+#   문제 -> 저장 전까지는 캐시된 결과를 재사용해서 빨라진다)
+# - "파일이 아예 없음"과 "파일은 있는데 읽다가 깨짐"을 구분해서,
+#   후자는 화면에 경고를 띄운다. 예전에는 둘 다 그냥
+#   빈 데이터로 조용히 처리해서 실제 파일이 손상돼도
+#   사용자가 알아챌 방법이 없었다.
 # ============================================================
+
+read_errors = []
+
+
+@st.cache_data(show_spinner=False)
+def _read_excel_cached(path, sheet, mtime):
+
+    return pd.read_excel(
+        path,
+        sheet_name=sheet
+    )
+
 
 def read_excel(
     path,
@@ -1857,20 +2100,23 @@ def read_excel(
 
     try:
 
-        return pd.read_excel(
-            path,
-            sheet_name=sheet
+        mtime = os.path.getmtime(
+            path
         )
 
-    except Exception:
+        return _read_excel_cached(
+            path,
+            sheet,
+            mtime
+        )
+
+    except Exception as e:
+
+        read_errors.append(
+            f"{os.path.basename(path)} ({sheet}) 읽기 실패: {e}"
+        )
 
         return pd.DataFrame()
-
-
-df_history = read_excel(
-    DB_FILE_PATH,
-    "진단이력"
-)
 
 
 # ============================================================
@@ -2059,7 +2305,52 @@ def delete_equipment(equip_name):
         wb.close()
 
 
-ALL_PUMPS = get_all_pumps()
+# ============================================================
+# 12. QR 비용 계산
+# ============================================================
+
+QR_UNIT_COST = {
+
+    "QR 라벨 제작": 2500,
+
+    "표면 세척/준비": 1000,
+
+    "QR 부착 작업": 3000,
+
+    "설비 등록 및 검수": 1500
+
+}
+
+
+def calculate_qr_cost(
+    count
+):
+
+    unit = sum(
+        QR_UNIT_COST.values()
+    )
+
+    return unit, unit * count
+
+
+
+# ============================================================
+# [pump_charts.py 내용 — 상태계산(pump_status) + 추세 차트]
+# ============================================================
+# ============================================================
+# pump_charts.py
+#
+# 설비 상태 계산(pump_status) + 각종 시각화 차트 생성 함수 모음.
+# pump_status는 df_history를 인자로 받는다 — 예전에는
+# 전역변수를 몰래 참조해서 모듈 분리가 어려웠는데,
+# 명시적으로 인자로 넘기게 고쳐서 어디서 호출하든
+# 반드시 "어떤 이력 데이터 기준으로" 계산했는지 코드만 보고
+# 알 수 있게 했다.
+# ============================================================
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
 
 
 # ============================================================
@@ -2067,7 +2358,8 @@ ALL_PUMPS = get_all_pumps()
 # ============================================================
 
 def pump_status(
-    pump
+    pump,
+    df_history
 ):
 
     name = pump["equip"]
@@ -2141,6 +2433,23 @@ def pump_status(
             1
         )
 
+        current_amp = (
+
+            float(latest["전류측정값(A)"])
+
+            if (
+
+                "전류측정값(A)" in latest.index
+
+                and
+                pd.notna(latest.get("전류측정값(A)"))
+
+            )
+
+            else None
+
+        )
+
     else:
 
         # ------------------------------------------------------
@@ -2199,6 +2508,8 @@ def pump_status(
             1
         )
 
+        current_amp = None
+
     grade = get_final_grade(
         score
     )
@@ -2215,6 +2526,10 @@ def pump_status(
 
         status = "정비검토"
 
+    next_due_hours, remaining_hours = estimate_next_overhaul(
+        hours
+    )
+
     return {
 
         "점수": score,
@@ -2229,9 +2544,16 @@ def pump_status(
 
         "온도": temperature,
 
-        "실측이력있음": latest is not None
+        "전류": current_amp,
+
+        "실측이력있음": latest is not None,
+
+        "다음오버홀예정시간": next_due_hours,
+
+        "다음오버홀까지남은시간": remaining_hours
 
     }
+
 
 
 # ============================================================
@@ -2738,32 +3060,46 @@ def build_op_hours_trend_fig(
     return fig
 
 
-# ============================================================
-# 12. QR 비용 계산
-# ============================================================
 
-QR_UNIT_COST = {
+# 배점 합계 검증 — 어긋나 있으면 화면에 크게 경고하고 멈춘다.
+# (예전에는 이런 실수가 나도 조용히 잘못된 점수를 계속 뱉어냈다)
 
-    "QR 라벨 제작": 2500,
+_weight_errors = validate_eval_weights()
 
-    "표면 세척/준비": 1000,
+if _weight_errors:
 
-    "QR 부착 작업": 3000,
-
-    "설비 등록 및 검수": 1500
-
-}
-
-
-def calculate_qr_cost(
-    count
-):
-
-    unit = sum(
-        QR_UNIT_COST.values()
+    st.error(
+        "🚨 진단항목 배점 설정에 오류가 있습니다. "
+        "관리자에게 문의하세요.\n\n"
+        +
+        "\n".join(
+            f"- {e}" for e in _weight_errors
+        )
     )
 
-    return unit, unit * count
+    st.stop()
+
+
+# df_history / ALL_PUMPS는 매 요청(rerun)마다 최신 데이터를
+# 반영해야 하므로, 모듈 import 시점이 아니라 여기서 매번 새로 읽는다.
+
+df_history = read_excel(
+    DB_FILE_PATH,
+    "진단이력"
+)
+
+ALL_PUMPS = get_all_pumps()
+
+if read_errors:
+
+    st.warning(
+        "⚠️ 일부 데이터 파일을 읽는 중 문제가 발생했습니다 "
+        "(파일이 없는 것과는 다른 문제입니다):\n\n"
+        +
+        "\n".join(
+            f"- {e}" for e in read_errors
+        )
+    )
 
 
 # ============================================================
@@ -2782,6 +3118,15 @@ if "read_only" not in st.session_state:
 
     st.session_state.read_only = False
 
+if "user_name" not in st.session_state:
+
+    # 예전에는 모든 저장 기록에 "최진욱"이 하드코딩되어 있어서
+    # 여러 사람이 쓰기 시작하면 누가 입력했는지 구분할 수 없었다.
+    # 이제 접속할 때 이름을 입력받아 세션에 저장해두고,
+    # 저장 시점마다 이 이름을 사용한다.
+
+    st.session_state.user_name = "최진욱"
+
 
 def is_read_only():
 
@@ -2797,11 +3142,21 @@ if not st.session_state.authenticated:
         💧 K-water tech 설비관리 플랫폼
         </div>
         <div class="top-sub">
-        접속하려면 PIN 번호를 입력하세요.
+        접속하려면 이름과 PIN 번호를 입력하세요.
         </div>
         </div>
         """,
         unsafe_allow_html=True
+    )
+
+    name_input = st.text_input(
+
+        "이름",
+
+        value="최진욱",
+
+        key="name_input"
+
     )
 
     pin_input = st.text_input(
@@ -2828,6 +3183,15 @@ if not st.session_state.authenticated:
 
                 st.session_state.authenticated = True
 
+                st.session_state.user_name = (
+
+                    name_input.strip()
+
+                    or
+                    "최진욱"
+
+                )
+
                 st.rerun()
 
             else:
@@ -2846,6 +3210,15 @@ if not st.session_state.authenticated:
             st.session_state.authenticated = True
 
             st.session_state.read_only = True
+
+            st.session_state.user_name = (
+
+                name_input.strip()
+
+                or
+                "방문자"
+
+            )
 
             st.rerun()
 
@@ -2994,7 +3367,17 @@ with st.sidebar:
     st.markdown("---")
 
     st.caption(
-        "최진욱 · 정밀진단원 / 관리자"
+
+        f"{st.session_state.user_name} · "
+        +
+        (
+            "보기 전용 방문자"
+
+            if is_read_only()
+
+            else "정밀진단원 / 관리자"
+        )
+
     )
 
     st.caption(
@@ -3019,7 +3402,7 @@ with st.sidebar:
 
         for p in ALL_PUMPS
 
-        if pump_status(p)["상태"] == "정비검토"
+        if pump_status(p, df_history)["상태"] == "정비검토"
 
     )
 
@@ -3158,7 +3541,8 @@ if st.session_state.page == "홈":
     for pump in ALL_PUMPS:
 
         result = pump_status(
-            pump
+            pump,
+            df_history
         )
 
         if result["상태"] == "정상":
@@ -3236,7 +3620,8 @@ if st.session_state.page == "홈":
         for pump in ALL_PUMPS:
 
             result = pump_status(
-                pump
+                pump,
+                df_history
             )
 
             rows.append(
@@ -3283,7 +3668,8 @@ if st.session_state.page == "홈":
         for pump in ALL_PUMPS:
 
             result = pump_status(
-                pump
+                pump,
+                df_history
             )
 
             ranking.append(
@@ -3404,7 +3790,8 @@ elif st.session_state.page == "설비":
     )
 
     result = pump_status(
-        pump
+        pump,
+        df_history
     )
 
     status_class = {
@@ -3458,6 +3845,37 @@ elif st.session_state.page == "설비":
         "온도",
         f'{result["온도"]:.1f}°C'
     )
+
+    if result.get("전류"):
+
+        st.caption(
+            f"⚡ 측정 전류 : {result['전류']:.1f} A"
+        )
+
+    if result.get("다음오버홀까지남은시간") is not None:
+
+        remaining = result["다음오버홀까지남은시간"]
+
+        if remaining <= 500:
+
+            st.error(
+                f"🔧 다음 오버홀 예정까지 {remaining:,}시간 남음 "
+                f"(기준 {OVERHAUL_INTERVAL_HOURS:,}h 주기) — 임박"
+            )
+
+        elif remaining <= 2000:
+
+            st.warning(
+                f"🔧 다음 오버홀 예정까지 {remaining:,}시간 남음 "
+                f"(기준 {OVERHAUL_INTERVAL_HOURS:,}h 주기)"
+            )
+
+        else:
+
+            st.caption(
+                f"🔧 다음 오버홀 예정까지 {remaining:,}시간 남음 "
+                f"(기준 {OVERHAUL_INTERVAL_HOURS:,}h 주기)"
+            )
 
     st.pyplot(
 
@@ -3656,7 +4074,8 @@ elif st.session_state.page == "QR":
     )
 
     result = pump_status(
-        pump
+        pump,
+        df_history
     )
 
     equip_no = ALL_PUMPS.index(
@@ -4035,7 +4454,7 @@ elif st.session_state.page == "QR":
 
                     "현장메모",
 
-                    "최진욱",
+                    st.session_state.user_name,
 
                     work,
 
@@ -4126,6 +4545,15 @@ elif st.session_state.page == "QR":
                 "CBM 예측 : 현재 상태 양호"
             )
 
+        if result.get("다음오버홀까지남은시간") is not None:
+
+            st.caption(
+
+                f"🔧 다음 오버홀 예정까지 "
+                f"{result['다음오버홀까지남은시간']:,}시간 남음"
+
+            )
+
 
 # ============================================================
 # 18. 정밀진단
@@ -4162,6 +4590,39 @@ elif st.session_state.page == "진단":
         p for p in ALL_PUMPS
         if p["equip"] == selected
     )
+
+    # ------------------------------------------------------
+    # 임시저장(초안) 공간.
+    #
+    # 예전에는 number_input/selectbox의 key만 믿고 있었는데,
+    # 실제로 다른 메뉴로 이동했다가 돌아오면 Streamlit이
+    # 렌더링되지 않은 위젯의 값을 초기화해버려서
+    # 17개 항목을 입력하다가 실수로 다른 메뉴를 누르면
+    # 처음부터 다시 입력해야 하는 문제가 있었다.
+    # (실제로 재현 테스트해서 확인함)
+    #
+    # 이제 위젯 key와 별개로 diag_draft 딕셔너리에 값을
+    # on_change 콜백으로 복사해두고, 위젯을 다시 그릴 때
+    # 그 딕셔너리 값을 초기값으로 사용한다.
+    # ------------------------------------------------------
+
+    if "diag_draft" not in st.session_state:
+
+        st.session_state.diag_draft = {}
+
+    if pump["equip"] not in st.session_state.diag_draft:
+
+        st.session_state.diag_draft[pump["equip"]] = {}
+
+    draft = st.session_state.diag_draft[
+        pump["equip"]
+    ]
+
+    if draft:
+
+        st.caption(
+            "📝 이전에 입력하던 내용이 있어 자동으로 불러왔습니다."
+        )
 
     st.info(
         f'{pump["site"]} / '
@@ -4234,6 +4695,16 @@ elif st.session_state.page == "진단":
                     name
                 ]
 
+                def _save_val_draft(
+                    idx=idx
+                ):
+
+                    draft[
+                        f"val_{idx}"
+                    ] = st.session_state[
+                        f"val_{idx}"
+                    ]
+
                 raw_value = st.number_input(
 
                     f"측정값 입력 ({unit})",
@@ -4242,11 +4713,18 @@ elif st.session_state.page == "진단":
 
                     max_value=float(max_v),
 
-                    value=float(default_v),
+                    value=float(
+                        draft.get(
+                            f"val_{idx}",
+                            default_v
+                        )
+                    ),
 
                     step=float(step_v),
 
                     key=f"val_{idx}",
+
+                    on_change=_save_val_draft,
 
                     disabled=is_read_only()
 
@@ -4271,7 +4749,135 @@ elif st.session_state.page == "진단":
                     grade
                 )
 
+            elif name == "NPSH 여유율/캐비테이션":
+
+                use_calc = st.toggle(
+
+                    "📐 NPSH 계산기 사용",
+
+                    key=f"npsh_calc_toggle_{idx}",
+
+                    disabled=is_read_only()
+
+                )
+
+                if use_calc:
+
+                    nc1, nc2 = st.columns(2)
+
+                    atm = nc1.number_input(
+                        "대기압수두(m) — 보통 10.33",
+                        value=10.33,
+                        key=f"npsh_atm_{idx}",
+                        disabled=is_read_only()
+                    )
+
+                    vapor = nc2.number_input(
+                        "포화증기압수두(m) — 상온 물 약 0.24",
+                        value=0.24,
+                        key=f"npsh_vapor_{idx}",
+                        disabled=is_read_only()
+                    )
+
+                    lift = nc1.number_input(
+                        "흡입양정(m)",
+                        value=2.0,
+                        key=f"npsh_lift_{idx}",
+                        disabled=is_read_only()
+                    )
+
+                    friction = nc2.number_input(
+                        "배관 마찰손실(m)",
+                        value=0.5,
+                        key=f"npsh_friction_{idx}",
+                        disabled=is_read_only()
+                    )
+
+                    npshr = st.number_input(
+                        "NPSHr (펌프 제조사 요구값, m)",
+                        value=3.0,
+                        key=f"npsh_r_{idx}",
+                        disabled=is_read_only()
+                    )
+
+                    npsha = calc_npsha(
+                        atm,
+                        vapor,
+                        lift,
+                        friction
+                    )
+
+                    margin_ratio = (
+
+                        npsha / npshr * 100
+
+                        if npshr > 0
+
+                        else 0
+
+                    )
+
+                    grade = calc_npsh_margin_grade(
+                        margin_ratio
+                    )
+
+                    st.metric(
+
+                        "계산된 NPSHa / 여유율",
+
+                        f"{npsha:.2f} m / {margin_ratio:.0f}%"
+
+                    )
+
+                    st.metric(
+                        "자동판정",
+                        grade
+                    )
+
+                else:
+
+                    def _save_grade_draft(
+                        idx=idx
+                    ):
+
+                        draft[
+                            f"grade_{idx}"
+                        ] = st.session_state[
+                            f"grade_{idx}"
+                        ]
+
+                    grade = st.selectbox(
+
+                        "판정",
+
+                        options,
+
+                        index=options.index(
+                            draft.get(
+                                f"grade_{idx}",
+                                options[0]
+                            )
+                        ),
+
+                        key=f"grade_{idx}",
+
+                        on_change=_save_grade_draft,
+
+                        disabled=is_read_only()
+
+                    )
+
             else:
+
+                def _save_grade_draft(
+                    idx=idx
+                ):
+
+                    draft[
+                        f"grade_{idx}"
+                    ] = st.session_state[
+                        f"grade_{idx}"
+                    ]
 
                 grade = st.selectbox(
 
@@ -4279,7 +4885,16 @@ elif st.session_state.page == "진단":
 
                     options,
 
+                    index=options.index(
+                        draft.get(
+                            f"grade_{idx}",
+                            options[0]
+                        )
+                    ),
+
                     key=f"grade_{idx}",
+
+                    on_change=_save_grade_draft,
 
                     disabled=is_read_only()
 
@@ -4426,6 +5041,10 @@ elif st.session_state.page == "진단":
         hide_index=True
     )
 
+    def _save_temp_draft():
+
+        draft["diag_temp"] = st.session_state.diag_temp
+
     temp_measured = st.number_input(
 
         "측정 온도 (°C) — EVAL_ITEMS에는 없지만 "
@@ -4435,11 +5054,42 @@ elif st.session_state.page == "진단":
 
         max_value=120.0,
 
-        value=45.0,
+        value=float(
+            draft.get("diag_temp", 45.0)
+        ),
 
         step=0.5,
 
         key="diag_temp",
+
+        on_change=_save_temp_draft,
+
+        disabled=is_read_only()
+
+    )
+
+    def _save_current_draft():
+
+        draft["diag_current"] = st.session_state.diag_current
+
+    current_measured = st.number_input(
+
+        "측정 전류 (A) — 부하 이상은 진동보다 "
+        "전류에서 먼저 나타나는 경우가 많습니다",
+
+        min_value=0.0,
+
+        max_value=1000.0,
+
+        value=float(
+            draft.get("diag_current", 0.0)
+        ),
+
+        step=0.5,
+
+        key="diag_current",
+
+        on_change=_save_current_draft,
 
         disabled=is_read_only()
 
@@ -4482,7 +5132,7 @@ elif st.session_state.page == "진단":
 
                 pump["build_date"],
 
-                "최진욱",
+                st.session_state.user_name,
 
                 total_score,
 
@@ -4505,7 +5155,9 @@ elif st.session_state.page == "진단":
                     ""
                 ),
 
-                temp_measured
+                temp_measured,
+
+                current_measured
 
             ]
 
@@ -4523,6 +5175,12 @@ elif st.session_state.page == "진단":
                 f"{pump['equip']} "
                 f"진단결과가 저장되었습니다."
             )
+
+            # 저장이 끝났으니 이 설비의 임시저장(초안)은 비운다.
+
+            st.session_state.diag_draft[
+                pump["equip"]
+            ] = {}
 
             # 저장 직후 방금 저장한 값이 실제로
             # 반영됐는지 바로 눈으로 확인할 수 있도록
@@ -4576,7 +5234,8 @@ elif st.session_state.page == "CBM":
     for pump in ALL_PUMPS:
 
         result = pump_status(
-            pump
+            pump,
+            df_history
         )
 
         risk = round(
@@ -4838,7 +5497,7 @@ elif st.session_state.page == "오버홀":
 
                     "오버홀",
 
-                    "최진욱",
+                    st.session_state.user_name,
 
                     work,
 
@@ -4928,7 +5587,8 @@ elif st.session_state.page == "AI":
     )
 
     result = pump_status(
-        pump
+        pump,
+        df_history
     )
 
     g1, g2 = st.columns(2)
@@ -5489,7 +6149,7 @@ elif st.session_state.page == "노하우":
 
                     solution,
 
-                    "최진욱"
+                    st.session_state.user_name
 
                 ]
 
