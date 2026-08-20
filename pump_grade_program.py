@@ -48,7 +48,29 @@ LOGO_FILE_PATH = "Logo.png"
 SEED_FLAG_PATH = "seed_flag.txt"
 
 PHOTO_DIR = "overhaul_photos"
-AUTH_PIN = "2580"
+CONFIG_DIR = "app_config"
+DRAFT_DIR = "diag_drafts"
+
+# ------------------------------------------------------------
+# PIN 번호: st.secrets에 넣어두면 그걸 우선 쓰고,
+# 없으면 기본값(2580)을 쓴다. 기본값을 그대로 쓰는 경우
+# 로그인 화면에 "st.secrets 설정을 권장한다"는 안내를 띄운다.
+# (깃허브 저장소가 Public이면 코드에 박힌 PIN이 그대로
+#  노출되기 때문 — Streamlit Cloud의 "Secrets" 설정에
+#  AUTH_PIN = "원하는 번호" 를 넣으면 코드에는 안 남는다.)
+# ------------------------------------------------------------
+
+AUTH_PIN_IS_DEFAULT = False
+
+try:
+
+    AUTH_PIN = st.secrets["AUTH_PIN"]
+
+except Exception:
+
+    AUTH_PIN = "2580"
+
+    AUTH_PIN_IS_DEFAULT = True
 
 
 # ============================================================
@@ -1657,6 +1679,174 @@ DEFAULT_PUMPS = [
 
 
 # ============================================================
+# 7-4. 앱 설정 파일 (배포 주소 등 코드 수정 없이 바꿀 수 있는 값)
+#
+# 예전에는 QR코드가 가리키는 배포 주소가 코드에 박혀 있어서
+# 실제 배포 주소가 바뀌면 코드를 다시 고쳐서 올려야 했다.
+# 이제 관리자 화면(데이터관리 페이지)에서 입력하면
+# 텍스트 파일로 저장되고, 다음부터는 그 값을 쓴다.
+# ============================================================
+
+APP_CONFIG_FILE = os.path.join(
+    CONFIG_DIR,
+    "app_base_url.txt"
+)
+
+DEFAULT_APP_BASE_URL = "https://kwatertech-pump.streamlit.app"
+
+
+def get_app_base_url():
+
+    if os.path.exists(APP_CONFIG_FILE):
+
+        try:
+
+            with open(
+                APP_CONFIG_FILE,
+                "r",
+                encoding="utf-8"
+            ) as f:
+
+                saved = f.read().strip()
+
+            if saved:
+
+                return saved
+
+        except Exception:
+
+            pass
+
+    return DEFAULT_APP_BASE_URL
+
+
+def set_app_base_url(url):
+
+    os.makedirs(
+        CONFIG_DIR,
+        exist_ok=True
+    )
+
+    with open(
+        APP_CONFIG_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        f.write(
+            url.strip()
+        )
+
+
+# ============================================================
+# 7-5. 정밀진단 임시저장(초안) — 디스크 백업
+#
+# 세션 안에서 페이지 이동은 diag_draft(세션 상태)로 해결했지만,
+# 브라우저를 새로고침하거나 와이파이가 끊겼다 붙으면
+# 세션 자체가 새로 시작되어 입력하던 값이 날아간다.
+# on_change 콜백이 일어날 때마다 디스크에도 같이 저장해두고,
+# 세션이 새로 시작될 때 디스크에서 복구한다.
+# ============================================================
+
+import json
+
+
+def _draft_file_path(equip_name):
+
+    safe_name = "".join(
+
+        c if c.isalnum() else "_"
+
+        for c in equip_name
+
+    )
+
+    return os.path.join(
+        DRAFT_DIR,
+        f"{safe_name}.json"
+    )
+
+
+def load_draft_from_disk(equip_name):
+
+    path = _draft_file_path(
+        equip_name
+    )
+
+    if not os.path.exists(path):
+
+        return {}
+
+    try:
+
+        with open(
+            path,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            return json.load(f)
+
+    except Exception:
+
+        return {}
+
+
+def save_draft_to_disk(equip_name, draft):
+
+    os.makedirs(
+        DRAFT_DIR,
+        exist_ok=True
+    )
+
+    path = _draft_file_path(
+        equip_name
+    )
+
+    try:
+
+        with open(
+            path,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            json.dump(
+                draft,
+                f,
+                ensure_ascii=False
+            )
+
+    except Exception:
+
+        pass
+
+
+def clear_draft(equip_name):
+
+    if equip_name in st.session_state.get(
+        "diag_draft",
+        {}
+    ):
+
+        st.session_state.diag_draft[equip_name] = {}
+
+    path = _draft_file_path(
+        equip_name
+    )
+
+    if os.path.exists(path):
+
+        try:
+
+            os.remove(path)
+
+        except Exception:
+
+            pass
+
+
+# ============================================================
 # 8. Excel DB 생성
 # ============================================================
 
@@ -2561,54 +2751,205 @@ def pump_status(
 #
 # AI 이상징후 페이지와 QR 포털의 AI진단 탭이
 # 동일한 그래프를 공유하므로 함수로 분리한다.
+#
+# 11-0. 실측 이력 조회 헬퍼
+#
+# 예전에는 그래프 5개가 전부 "현재값 하나를 기준으로 수식으로
+# 만들어낸" 가짜 추세였다. 이제 실제 진단이력이 2건 이상
+# 쌓여 있으면 그 실측값으로 그래프를 그리고, 부족하면
+# 예시 데이터를 쓰되 화면에 "예시 데이터"라고 명확히 표시한다.
 # ============================================================
+
+def get_real_history_series(
+    df_history,
+    pump,
+    column
+):
+
+    if (
+
+        df_history is None
+
+        or
+        df_history.empty
+
+        or
+        "설비명" not in df_history.columns
+
+        or
+        column not in df_history.columns
+
+    ):
+
+        return [], []
+
+    rows = df_history[
+
+        df_history["설비명"] == pump["equip"]
+
+    ].copy()
+
+    if rows.empty:
+
+        return [], []
+
+    rows = rows[
+
+        pd.notna(rows[column])
+
+        &
+        (rows[column].astype(str) != "")
+
+    ]
+
+    if rows.empty:
+
+        return [], []
+
+    rows = rows.sort_values(
+        "점검일"
+    )
+
+    dates = rows["점검일"].astype(str).tolist()
+
+    values = rows[column].astype(float).tolist()
+
+    return dates, values
+
+
+# ============================================================
+# 11-0-1. 통계적 이상탐지 (이동평균 + 표준편차 기반)
+#
+# 예전에는 "진동 >= 7.1이면 위험"처럼 고정 임계값 if문뿐이라
+# "AI 이상징후"라는 메뉴 이름이 무색했다. 실측 이력이
+# 충분히 쌓이면(5건 이상), 최근값이 그 설비 자신의 평균적인
+# 운전 패턴에서 통계적으로 벗어났는지(z-score)를 함께 보여준다.
+# 데이터가 부족하면 "아직 활성화 안 됨"이라고 솔직하게 표시한다.
+# ============================================================
+
+ANOMALY_MIN_SAMPLES = 5
+
+ANOMALY_Z_THRESHOLD = 2.0
+
+
+def detect_statistical_anomaly(values):
+
+    if len(values) < ANOMALY_MIN_SAMPLES:
+
+        return None
+
+    history = values[:-1]
+
+    latest = values[-1]
+
+    mean = sum(history) / len(history)
+
+    variance = sum(
+
+        (v - mean) ** 2 for v in history
+
+    ) / len(history)
+
+    stdev = variance ** 0.5
+
+    if stdev == 0:
+
+        z = 0.0
+
+    else:
+
+        z = (latest - mean) / stdev
+
+    return {
+
+        "mean": mean,
+
+        "stdev": stdev,
+
+        "latest": latest,
+
+        "z": z,
+
+        "is_anomaly": abs(z) >= ANOMALY_Z_THRESHOLD,
+
+        "n": len(values)
+
+    }
+
 
 def build_vibration_trend_fig(
     pump,
     result,
+    df_history=None,
     figsize=(9, 4)
 ):
 
-    months = [
+    real_dates, real_values = (
 
-        "2025.01",
-        "2025.06",
-        "2025.12",
-        "2026.03",
-        "2026.08",
-        "2026.12"
+        get_real_history_series(
+            df_history,
+            pump,
+            "진동측정값(mm/s)"
+        )
 
-    ]
+        if df_history is not None
+
+        else ([], [])
+
+    )
+
+    use_real = len(real_values) >= 2
+
+    if use_real:
+
+        months = real_dates
+
+        vibration = real_values
+
+    else:
+
+        months = [
+
+            "2025.01",
+            "2025.06",
+            "2025.12",
+            "2026.03",
+            "2026.08",
+            "2026.12"
+
+        ]
 
     base = result["진동"]
 
-    vibration = [
+    if not use_real:
 
-        max(
-            1.2,
-            base - 2.5
-        ),
+        vibration = [
 
-        max(
-            1.4,
-            base - 2
-        ),
+            max(
+                1.2,
+                base - 2.5
+            ),
 
-        max(
-            1.6,
-            base - 1.4
-        ),
+            max(
+                1.4,
+                base - 2
+            ),
 
-        max(
-            1.8,
-            base - 0.8
-        ),
+            max(
+                1.6,
+                base - 1.4
+            ),
 
-        base,
+            max(
+                1.8,
+                base - 0.8
+            ),
 
-        base + 1.2
+            base,
 
-    ]
+            base + 1.2
+
+        ]
 
     fig, ax = plt.subplots(
         figsize=figsize
@@ -2637,8 +2978,18 @@ def build_vibration_trend_fig(
         "진동 (mm/s)"
     )
 
+    title_suffix = (
+
+        f"(실측 {len(real_values)}건)"
+
+        if use_real
+
+        else "(예시 데이터)"
+
+    )
+
     ax.set_title(
-        f"{pump['equip']} 진동 추세"
+        f"{pump['equip']} 진동 추세 {title_suffix}"
     )
 
     ax.grid(
@@ -2734,28 +3085,55 @@ TREND_MONTHS = [
 def build_efficiency_trend_fig(
     pump,
     result,
+    df_history=None,
     figsize=(6.2, 3.4)
 ):
 
     # 효율은 막대그래프로 표현
 
+    real_dates, real_values = (
+
+        get_real_history_series(
+            df_history,
+            pump,
+            "효율측정값(%)"
+        )
+
+        if df_history is not None
+
+        else ([], [])
+
+    )
+
+    use_real = len(real_values) >= 2
+
     base = result["효율"]
 
-    values = [
+    if use_real:
 
-        min(100, base + 8),
+        months_e = real_dates
 
-        min(100, base + 6),
+        values = real_values
 
-        min(100, base + 4),
+    else:
 
-        min(100, base + 2),
+        months_e = TREND_MONTHS
 
-        base,
+        values = [
 
-        max(0, base - 3)
+            min(100, base + 8),
 
-    ]
+            min(100, base + 6),
+
+            min(100, base + 4),
+
+            min(100, base + 2),
+
+            base,
+
+            max(0, base - 3)
+
+        ]
 
     colors = [
 
@@ -2773,7 +3151,7 @@ def build_efficiency_trend_fig(
 
     ax.bar(
 
-        TREND_MONTHS,
+        months_e,
 
         values,
 
@@ -2801,8 +3179,18 @@ def build_efficiency_trend_fig(
         "효율 (%)"
     )
 
+    title_suffix = (
+
+        f"(실측 {len(real_values)}건)"
+
+        if use_real
+
+        else "(예시 데이터)"
+
+    )
+
     ax.set_title(
-        f"{pump['equip']} 효율 추세"
+        f"{pump['equip']} 효율 추세 {title_suffix}"
     )
 
     ax.set_ylim(
@@ -2823,28 +3211,55 @@ def build_efficiency_trend_fig(
 def build_temperature_trend_fig(
     pump,
     result,
+    df_history=None,
     figsize=(6.2, 3.4)
 ):
 
     # 온도는 영역(면적)그래프로 표현
 
+    real_dates, real_values = (
+
+        get_real_history_series(
+            df_history,
+            pump,
+            "온도측정값(°C)"
+        )
+
+        if df_history is not None
+
+        else ([], [])
+
+    )
+
+    use_real = len(real_values) >= 2
+
     base = result["온도"]
 
-    values = [
+    if use_real:
 
-        max(35, base - 6),
+        months_t = real_dates
 
-        max(37, base - 4.5),
+        values = real_values
 
-        max(39, base - 3),
+    else:
 
-        max(40, base - 1.5),
+        months_t = TREND_MONTHS
 
-        base,
+        values = [
 
-        base + 2
+            max(35, base - 6),
 
-    ]
+            max(37, base - 4.5),
+
+            max(39, base - 3),
+
+            max(40, base - 1.5),
+
+            base,
+
+            base + 2
+
+        ]
 
     fig, ax = plt.subplots(
         figsize=figsize
@@ -2852,7 +3267,7 @@ def build_temperature_trend_fig(
 
     ax.fill_between(
 
-        TREND_MONTHS,
+        months_t,
 
         values,
 
@@ -2864,7 +3279,7 @@ def build_temperature_trend_fig(
 
     ax.plot(
 
-        TREND_MONTHS,
+        months_t,
 
         values,
 
@@ -2894,8 +3309,18 @@ def build_temperature_trend_fig(
         "온도 (°C)"
     )
 
+    title_suffix = (
+
+        f"(실측 {len(real_values)}건)"
+
+        if use_real
+
+        else "(예시 데이터)"
+
+    )
+
     ax.set_title(
-        f"{pump['equip']} 온도 추세"
+        f"{pump['equip']} 온도 추세 {title_suffix}"
     )
 
     ax.grid(
@@ -3050,7 +3475,8 @@ def build_op_hours_trend_fig(
     )
 
     ax.set_title(
-        f"{pump['equip']} 누적 운전시간 추세"
+        f"{pump['equip']} 누적 운전시간 추세 (추정 — "
+        f"과거 시점별 실측 기록은 별도로 저장하지 않습니다)"
     )
 
     ax.grid(
@@ -3118,6 +3544,10 @@ if "read_only" not in st.session_state:
 
     st.session_state.read_only = False
 
+if "entered_as_viewer" not in st.session_state:
+
+    st.session_state.entered_as_viewer = False
+
 if "user_name" not in st.session_state:
 
     # 예전에는 모든 저장 기록에 "최진욱"이 하드코딩되어 있어서
@@ -3148,6 +3578,17 @@ if not st.session_state.authenticated:
         """,
         unsafe_allow_html=True
     )
+
+    if AUTH_PIN_IS_DEFAULT:
+
+        st.warning(
+            "⚠️ 관리자 안내: PIN이 코드 기본값(2580)으로 "
+            "설정되어 있습니다. 저장소가 Public이면 이 PIN이 "
+            "그대로 노출됩니다. Streamlit Cloud의 "
+            "App settings → Secrets 에 "
+            '`AUTH_PIN = "원하는 번호"` 를 추가하면 '
+            "코드에는 남기지 않고 PIN을 바꿀 수 있습니다."
+        )
 
     name_input = st.text_input(
 
@@ -3183,6 +3624,8 @@ if not st.session_state.authenticated:
 
                 st.session_state.authenticated = True
 
+                st.session_state.entered_as_viewer = False
+
                 st.session_state.user_name = (
 
                     name_input.strip()
@@ -3210,6 +3653,13 @@ if not st.session_state.authenticated:
             st.session_state.authenticated = True
 
             st.session_state.read_only = True
+
+            # 보기전용으로 들어온 사람은 사이드바에서
+            # 스스로 보기전용을 해제할 수 없게 잠근다.
+            # (태블릿만 넘기면 토글 하나로 수정권한이
+            #  생기던 문제에 대한 보완)
+
+            st.session_state.entered_as_viewer = True
 
             st.session_state.user_name = (
 
@@ -3384,17 +3834,43 @@ with st.sidebar:
         "밀양정수장"
     )
 
-    st.toggle(
+    if st.session_state.entered_as_viewer:
 
-        "🔒 보기 전용 모드",
+        # 보기전용으로 들어온 사람은 토글 자체를 못 보게 해서
+        # 스스로 수정권한을 켜는 것을 막는다.
+        # 관리자 권한이 필요하면 로그아웃 후 PIN으로
+        # 다시 들어와야 한다.
 
-        key="read_only",
+        st.caption(
+            "🔒 보기 전용 계정입니다 (수정 불가)"
+        )
 
-        help="켜면 모든 저장·삭제 버튼이 비활성화됩니다. "
-             "외부인에게 시연할 때 실수로 데이터가 "
-             "바뀌는 것을 막아줍니다."
+        if st.button(
+            "🔓 관리자로 다시 로그인",
+            use_container_width=True
+        ):
 
-    )
+            st.session_state.authenticated = False
+
+            st.session_state.read_only = False
+
+            st.session_state.entered_as_viewer = False
+
+            st.rerun()
+
+    else:
+
+        st.toggle(
+
+            "🔒 보기 전용 모드",
+
+            key="read_only",
+
+            help="켜면 모든 저장·삭제 버튼이 비활성화됩니다. "
+                 "외부인에게 시연할 때 실수로 데이터가 "
+                 "바뀌는 것을 막아줍니다."
+
+        )
 
     _risk_count = sum(
 
@@ -4085,10 +4561,18 @@ elif st.session_state.page == "QR":
     qr_id = f"PUMP-MLY-{equip_no:03d}"
 
     # 실제로 스캔 가능한 QR 이미지 생성.
-    # 배포 주소를 모르는 로컬 환경에서는 예시 도메인으로
-    # 대체되며, 실제 배포 후에는 REAL APP URL로 바꿔주면 된다.
+    # 배포 주소는 코드에 박아두지 않고 설정 파일에서 읽어온다.
+    # (데이터관리 페이지에서 관리자가 바꿀 수 있음)
 
-    APP_BASE_URL = "https://kwatertech-pump.streamlit.app"
+    APP_BASE_URL = get_app_base_url()
+
+    if APP_BASE_URL == DEFAULT_APP_BASE_URL:
+
+        st.caption(
+            "⚠️ 배포 주소가 기본값(예시)으로 설정되어 있습니다. "
+            "실제 배포 주소와 다르면 QR을 스캔해도 연결되지 않습니다. "
+            "데이터관리 페이지에서 실제 주소로 바꿔주세요."
+        )
 
     qr_target_url = (
 
@@ -4519,6 +5003,8 @@ elif st.session_state.page == "QR":
 
             result,
 
+            df_history=df_history,
+
             figsize=(7, 3)
 
         )
@@ -4612,7 +5098,12 @@ elif st.session_state.page == "진단":
 
     if pump["equip"] not in st.session_state.diag_draft:
 
-        st.session_state.diag_draft[pump["equip"]] = {}
+        # 세션에 없으면(새로고침 등으로 세션이 새로 시작된 경우
+        # 포함) 디스크에 저장해둔 초안이 있는지 먼저 확인한다.
+
+        st.session_state.diag_draft[pump["equip"]] = load_draft_from_disk(
+            pump["equip"]
+        )
 
     draft = st.session_state.diag_draft[
         pump["equip"]
@@ -4621,7 +5112,8 @@ elif st.session_state.page == "진단":
     if draft:
 
         st.caption(
-            "📝 이전에 입력하던 내용이 있어 자동으로 불러왔습니다."
+            "📝 이전에 입력하던 내용이 있어 자동으로 불러왔습니다 "
+            "(새로고침해도 유지됩니다)."
         )
 
     st.info(
@@ -4704,6 +5196,11 @@ elif st.session_state.page == "진단":
                     ] = st.session_state[
                         f"val_{idx}"
                     ]
+
+                    save_draft_to_disk(
+                        pump["equip"],
+                        draft
+                    )
 
                 raw_value = st.number_input(
 
@@ -4846,6 +5343,11 @@ elif st.session_state.page == "진단":
                             f"grade_{idx}"
                         ]
 
+                        save_draft_to_disk(
+                            pump["equip"],
+                            draft
+                        )
+
                     grade = st.selectbox(
 
                         "판정",
@@ -4878,6 +5380,11 @@ elif st.session_state.page == "진단":
                     ] = st.session_state[
                         f"grade_{idx}"
                     ]
+
+                    save_draft_to_disk(
+                        pump["equip"],
+                        draft
+                    )
 
                 grade = st.selectbox(
 
@@ -5045,6 +5552,11 @@ elif st.session_state.page == "진단":
 
         draft["diag_temp"] = st.session_state.diag_temp
 
+        save_draft_to_disk(
+            pump["equip"],
+            draft
+        )
+
     temp_measured = st.number_input(
 
         "측정 온도 (°C) — EVAL_ITEMS에는 없지만 "
@@ -5071,6 +5583,11 @@ elif st.session_state.page == "진단":
     def _save_current_draft():
 
         draft["diag_current"] = st.session_state.diag_current
+
+        save_draft_to_disk(
+            pump["equip"],
+            draft
+        )
 
     current_measured = st.number_input(
 
@@ -5176,11 +5693,12 @@ elif st.session_state.page == "진단":
                 f"진단결과가 저장되었습니다."
             )
 
-            # 저장이 끝났으니 이 설비의 임시저장(초안)은 비운다.
+            # 저장이 끝났으니 이 설비의 임시저장(초안)은
+            # 세션과 디스크 양쪽에서 모두 비운다.
 
-            st.session_state.diag_draft[
+            clear_draft(
                 pump["equip"]
-            ] = {}
+            )
 
             # 저장 직후 방금 저장한 값이 실제로
             # 반영됐는지 바로 눈으로 확인할 수 있도록
@@ -5271,6 +5789,47 @@ elif st.session_state.page == "CBM":
 
         row["우선순위"] = i + 1
 
+    # ------------------------------------------------------
+    # 설비 간 비교(벤치마킹): "이 설비가 나쁘다"를 절대기준이
+    # 아니라 "우리 설비군 평균 대비 얼마나 벗어나 있는지"로도
+    # 보여준다. 예전에는 설비 하나만 보게 되어 있어서
+    # "가압펌프 #3이 왜 유독 나쁘지?"를 판단할 비교 대상이 없었다.
+    # ------------------------------------------------------
+
+    fleet_avg_eff = sum(
+
+        r["효율"] for r in ranking
+
+    ) / len(ranking)
+
+    fleet_avg_vib = sum(
+
+        r["진동"] for r in ranking
+
+    ) / len(ranking)
+
+    fleet_avg_score = sum(
+
+        r["CBM Score"] for r in ranking
+
+    ) / len(ranking)
+
+    for row in ranking:
+
+        row["효율(전체평균대비)"] = round(
+
+            row["효율"] - fleet_avg_eff,
+            1
+
+        )
+
+        row["진동(전체평균대비)"] = round(
+
+            row["진동"] - fleet_avg_vib,
+            1
+
+        )
+
     df_rank = pd.DataFrame(
         ranking
     )
@@ -5279,6 +5838,130 @@ elif st.session_state.page == "CBM":
         df_rank,
         use_container_width=True,
         hide_index=True
+    )
+
+    st.caption(
+
+        f"전체 {len(ranking)}대 평균 · "
+
+        f"효율 {fleet_avg_eff:.1f}% · "
+
+        f"진동 {fleet_avg_vib:.1f} mm/s · "
+
+        f"CBM Score {fleet_avg_score:.1f}점 "
+
+        "— '전체평균대비' 컬럼이 음수면 평균보다 나쁜 상태입니다."
+
+    )
+
+    st.write("")
+
+    st.markdown(
+        "### 📊 설비 간 비교 (벤치마킹)"
+    )
+
+    compare_target = st.selectbox(
+
+        "비교할 설비 선택",
+
+        [
+            r["설비"]
+            for r in ranking
+        ],
+
+        key="cbm_compare_select"
+
+    )
+
+    compare_row = next(
+
+        r for r in ranking
+
+        if r["설비"] == compare_target
+
+    )
+
+    fig, (ax1, ax2, ax3) = plt.subplots(
+
+        1,
+        3,
+
+        figsize=(10, 3.2)
+
+    )
+
+    def _draw_compare_bar(
+        ax,
+        title,
+        pump_value,
+        fleet_value,
+        unit
+    ):
+
+        bars = ax.bar(
+
+            ["선택 설비", "전체 평균"],
+
+            [pump_value, fleet_value],
+
+            color=["#087ea4", "#adb5bd"]
+
+        )
+
+        ax.set_title(
+            title
+        )
+
+        ax.set_ylabel(
+            unit
+        )
+
+        for b in bars:
+
+            ax.text(
+
+                b.get_x() + b.get_width() / 2,
+
+                b.get_height(),
+
+                f"{b.get_height():.1f}",
+
+                ha="center",
+
+                va="bottom",
+
+                fontsize=8
+
+            )
+
+    _draw_compare_bar(
+        ax1,
+        "효율",
+        compare_row["효율"],
+        fleet_avg_eff,
+        "%"
+    )
+
+    _draw_compare_bar(
+        ax2,
+        "진동",
+        compare_row["진동"],
+        fleet_avg_vib,
+        "mm/s"
+    )
+
+    _draw_compare_bar(
+        ax3,
+        "CBM Score",
+        compare_row["CBM Score"],
+        fleet_avg_score,
+        "점"
+    )
+
+    fig.tight_layout()
+
+    st.pyplot(
+        fig
     )
 
     st.write("")
@@ -5603,6 +6286,8 @@ elif st.session_state.page == "AI":
 
                 result,
 
+                df_history=df_history,
+
                 figsize=(6.2, 3.4)
 
             )
@@ -5617,7 +6302,9 @@ elif st.session_state.page == "AI":
 
                 pump,
 
-                result
+                result,
+
+                df_history=df_history
 
             )
 
@@ -5633,7 +6320,9 @@ elif st.session_state.page == "AI":
 
                 pump,
 
-                result
+                result,
+
+                df_history=df_history
 
             )
 
@@ -5662,6 +6351,64 @@ elif st.session_state.page == "AI":
         )
 
     )
+
+    st.caption(
+        "📊 진동·효율·온도 그래프는 저장된 진단이력이 "
+        "2건 이상 쌓이면 실측값으로, 그전까지는 이해를 돕기 "
+        "위한 예시 데이터로 표시됩니다. 운전시간 그래프는 "
+        "과거 시점별 기록을 저장하지 않아 항상 추정치입니다."
+    )
+
+    st.markdown(
+        "### 🤖 AI 통계 이상탐지"
+    )
+
+    _vib_dates, _vib_values = get_real_history_series(
+        df_history,
+        pump,
+        "진동측정값(mm/s)"
+    )
+
+    anomaly = detect_statistical_anomaly(
+        _vib_values
+    )
+
+    if anomaly is None:
+
+        st.info(
+
+            f"진동 실측 이력이 {len(_vib_values)}건입니다. "
+            f"최소 {ANOMALY_MIN_SAMPLES}건 이상 쌓이면 "
+            f"이 설비 고유의 평균 운전패턴 대비 "
+            f"통계적 이상 여부(z-score)를 자동으로 계산합니다."
+
+        )
+
+    elif anomaly["is_anomaly"]:
+
+        st.error(
+
+            f"🚨 통계적 이상치 감지 · z-score {anomaly['z']:.2f} "
+            f"(과거 평균 {anomaly['mean']:.2f} mm/s, "
+            f"표준편차 {anomaly['stdev']:.2f} 대비 "
+            f"현재 {anomaly['latest']:.2f} mm/s는 "
+            f"{ANOMALY_Z_THRESHOLD}표준편차 이상 벗어남, "
+            f"실측 {anomaly['n']}건 기준)"
+
+        )
+
+    else:
+
+        st.success(
+
+            f"✅ 통계적으로 정상 범위 · z-score {anomaly['z']:.2f} "
+            f"(실측 {anomaly['n']}건 기준, "
+            f"과거 평균 {anomaly['mean']:.2f} mm/s 대비 "
+            f"{ANOMALY_Z_THRESHOLD}표준편차 이내)"
+
+        )
+
+    st.write("")
 
     st.write("")
 
@@ -6294,6 +7041,50 @@ elif st.session_state.page == "백업":
     )
 
     st.markdown(
+        "### 🌐 배포 주소 설정 (QR 코드용)"
+    )
+
+    st.caption(
+        "QR 포털의 QR 이미지가 가리키는 주소입니다. "
+        "실제로 이 앱을 배포한 주소와 다르면 QR을 스캔해도 "
+        "연결되지 않으니, 배포 후 반드시 실제 주소로 바꿔주세요."
+    )
+
+    current_url = get_app_base_url()
+
+    new_url = st.text_input(
+
+        "배포 주소 (예: https://kwatertech-pump.streamlit.app)",
+
+        value=current_url,
+
+        key="app_base_url_input",
+
+        disabled=is_read_only()
+
+    )
+
+    if is_read_only():
+
+        st.info(
+            "🔒 보기 전용 모드에서는 변경할 수 없습니다."
+        )
+
+    elif st.button(
+        "배포 주소 저장",
+        key="save_app_url_btn"
+    ):
+
+        set_app_base_url(
+            new_url
+        )
+
+        st.success(
+            "배포 주소가 저장되었습니다. "
+            "QR 포털 화면을 다시 열면 반영됩니다."
+        )
+
+    st.markdown(
         "### ⚙️ 설비 마스터 관리"
     )
 
@@ -6654,6 +7445,32 @@ elif st.session_state.page == "백업":
                     path,
                     arcname=os.path.basename(path)
                 )
+
+        # 오버홀 작업사진도 백업에 포함시킨다.
+        # (예전에는 사진 파일만 빠져있어서 서버가
+        #  재시작되면 사진만 조용히 사라졌었다)
+
+        if os.path.exists(PHOTO_DIR):
+
+            for fname in os.listdir(PHOTO_DIR):
+
+                fpath = os.path.join(
+                    PHOTO_DIR,
+                    fname
+                )
+
+                if os.path.isfile(fpath):
+
+                    zf.write(
+
+                        fpath,
+
+                        arcname=os.path.join(
+                            "overhaul_photos",
+                            fname
+                        )
+
+                    )
 
     st.download_button(
 
