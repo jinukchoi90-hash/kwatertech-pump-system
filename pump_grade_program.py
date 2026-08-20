@@ -1847,6 +1847,165 @@ def clear_draft(equip_name):
 
 
 # ============================================================
+# 7-6. 메뉴 공용 "엑셀로 저장" 버튼 + 확인 팝업
+#
+# 모든 메뉴 하단에 "엑셀로 저장" 버튼을 놓고, 누르면
+# 바로 저장하지 않고 예/아니오를 묻는 팝업(st.dialog)을
+# 띄운 뒤, "예"를 눌러야 실제로 엑셀 파일이 만들어져서
+# 다운로드 버튼이 나타나도록 한다.
+# ============================================================
+
+@st.dialog("엑셀로 저장")
+def confirm_excel_export_dialog(
+    page_key,
+    filename,
+    build_df_fn
+):
+
+    st.write(
+        "현재 화면의 데이터를 엑셀 파일로 저장하시겠습니까?"
+    )
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+
+        if st.button(
+            "예",
+            key=f"confirm_yes_{page_key}",
+            type="primary",
+            use_container_width=True
+        ):
+
+            df = build_df_fn()
+
+            buffer = io.BytesIO()
+
+            with pd.ExcelWriter(
+
+                buffer,
+
+                engine="openpyxl"
+
+            ) as writer:
+
+                df.to_excel(
+
+                    writer,
+
+                    index=False,
+
+                    sheet_name="데이터"
+
+                )
+
+            st.session_state[
+                f"_export_data_{page_key}"
+            ] = buffer.getvalue()
+
+            st.session_state[
+                f"_export_filename_{page_key}"
+            ] = filename
+
+            # 팝업을 닫는다. (엑셀로 저장 플래그를 꺼서
+            # 다음 rerun부터 다이얼로그를 다시 열지 않게 함)
+
+            st.session_state[
+                f"_show_export_confirm_{page_key}"
+            ] = False
+
+            st.rerun()
+
+    with c2:
+
+        if st.button(
+            "아니오",
+            key=f"confirm_no_{page_key}",
+            use_container_width=True
+        ):
+
+            st.session_state[
+                f"_show_export_confirm_{page_key}"
+            ] = False
+
+            st.rerun()
+
+
+def render_excel_export_section(
+    page_key,
+    filename,
+    build_df_fn
+):
+
+    st.write("---")
+
+    if st.button(
+
+        "📥 엑셀로 저장",
+
+        key=f"export_btn_{page_key}",
+
+        use_container_width=True
+
+    ):
+
+        # 버튼을 누른 그 순간뿐 아니라, 이후 rerun에서도
+        # 팝업이 계속 열려 있도록 세션에 플래그를 남긴다.
+        # (버튼의 "눌림" 상태는 한 번의 rerun에서만 True이므로
+        #  플래그 없이 팝업을 열면 팝업 안의 예/아니오를
+        #  눌렀을 때 팝업을 여는 코드가 다시 실행되지 않아
+        #  버튼이 반응하지 않는 문제가 있었다.)
+
+        st.session_state[
+            f"_show_export_confirm_{page_key}"
+        ] = True
+
+    if st.session_state.get(
+        f"_show_export_confirm_{page_key}"
+    ):
+
+        confirm_excel_export_dialog(
+
+            page_key,
+
+            filename,
+
+            build_df_fn
+
+        )
+
+    export_data = st.session_state.get(
+        f"_export_data_{page_key}"
+    )
+
+    if export_data:
+
+        st.download_button(
+
+            "⬇️ 엑셀 파일 다운로드",
+
+            data=export_data,
+
+            file_name=st.session_state.get(
+                f"_export_filename_{page_key}",
+                filename
+            ),
+
+            mime=(
+                "application/vnd.openxmlformats-"
+                "officedocument.spreadsheetml.sheet"
+            ),
+
+            key=f"dl_{page_key}",
+
+            type="primary",
+
+            use_container_width=True
+
+        )
+
+
+# ============================================================
 # 8. Excel DB 생성
 # ============================================================
 
@@ -3415,6 +3574,123 @@ def build_score_gauge_fig(
     return fig
 
 
+def build_fleet_compare_fig(
+    pump,
+    result,
+    all_pumps,
+    df_history,
+    figsize=(9, 3)
+):
+
+    # 6번째 그래프 유형: 이 설비 vs 전체 설비 평균 비교(막대 3개짜리)
+    # CBM 페이지의 비교뷰와 동일한 로직을 재사용한다.
+
+    fleet_scores = [
+
+        pump_status(p, df_history)
+
+        for p in all_pumps
+
+    ]
+
+    fleet_avg_eff = sum(
+        s["효율"] for s in fleet_scores
+    ) / len(fleet_scores)
+
+    fleet_avg_vib = sum(
+        s["진동"] for s in fleet_scores
+    ) / len(fleet_scores)
+
+    fleet_avg_score = sum(
+        s["점수"] for s in fleet_scores
+    ) / len(fleet_scores)
+
+    fig, (ax1, ax2, ax3) = plt.subplots(
+
+        1,
+        3,
+
+        figsize=figsize
+
+    )
+
+    def _draw(
+        ax,
+        title,
+        pump_value,
+        fleet_value,
+        unit
+    ):
+
+        bars = ax.bar(
+
+            ["선택 설비", "전체 평균"],
+
+            [pump_value, fleet_value],
+
+            color=["#087ea4", "#adb5bd"]
+
+        )
+
+        ax.set_title(
+            title
+        )
+
+        ax.set_ylabel(
+            unit
+        )
+
+        for b in bars:
+
+            ax.text(
+
+                b.get_x() + b.get_width() / 2,
+
+                b.get_height(),
+
+                f"{b.get_height():.1f}",
+
+                ha="center",
+
+                va="bottom",
+
+                fontsize=8
+
+            )
+
+    _draw(
+        ax1,
+        "효율",
+        result["효율"],
+        fleet_avg_eff,
+        "%"
+    )
+
+    _draw(
+        ax2,
+        "진동",
+        result["진동"],
+        fleet_avg_vib,
+        "mm/s"
+    )
+
+    _draw(
+        ax3,
+        "CBM Score",
+        result["점수"],
+        fleet_avg_score,
+        "점"
+    )
+
+    fig.suptitle(
+        f"{pump['equip']} vs 전체 {len(all_pumps)}대 평균"
+    )
+
+    fig.tight_layout()
+
+    return fig
+
+
 def build_op_hours_trend_fig(
     pump,
     figsize=(9, 3.2)
@@ -4229,6 +4505,16 @@ if st.session_state.page == "홈":
         unsafe_allow_html=True
     )
 
+    render_excel_export_section(
+
+        "home",
+
+        "설비관리_현황.xlsx",
+
+        lambda: pd.DataFrame(rows)
+
+    )
+
 
 # ============================================================
 # 16. 설비 관리
@@ -4353,17 +4639,117 @@ elif st.session_state.page == "설비":
                 f"(기준 {OVERHAUL_INTERVAL_HOURS:,}h 주기)"
             )
 
-    st.pyplot(
+    st.markdown(
+        "##### 📊 설비 상태 종합 그래프"
+    )
 
-        build_score_gauge_fig(
+    gc1, gc2 = st.columns(2)
 
-            pump,
+    with gc1:
 
-            result
+        st.pyplot(
+
+            build_score_gauge_fig(
+
+                pump,
+
+                result
+
+            )
 
         )
 
-    )
+    with gc2:
+
+        st.pyplot(
+
+            build_vibration_trend_fig(
+
+                pump,
+
+                result,
+
+                df_history=df_history,
+
+                figsize=(6.2, 2.3)
+
+            )
+
+        )
+
+    gc3, gc4 = st.columns(2)
+
+    with gc3:
+
+        st.pyplot(
+
+            build_efficiency_trend_fig(
+
+                pump,
+
+                result,
+
+                df_history=df_history,
+
+                figsize=(6.2, 3.0)
+
+            )
+
+        )
+
+    with gc4:
+
+        st.pyplot(
+
+            build_temperature_trend_fig(
+
+                pump,
+
+                result,
+
+                df_history=df_history,
+
+                figsize=(6.2, 3.0)
+
+            )
+
+        )
+
+    gc5, gc6 = st.columns(2)
+
+    with gc5:
+
+        st.pyplot(
+
+            build_op_hours_trend_fig(
+
+                pump,
+
+                figsize=(6.2, 3.0)
+
+            )
+
+        )
+
+    with gc6:
+
+        st.pyplot(
+
+            build_fleet_compare_fig(
+
+                pump,
+
+                result,
+
+                ALL_PUMPS,
+
+                df_history,
+
+                figsize=(6.2, 3.0)
+
+            )
+
+        )
 
     st.write("")
 
@@ -4492,6 +4878,35 @@ elif st.session_state.page == "설비":
                 "저장된 오버홀·작업 이력이 없습니다. "
                 "QR 포털의 '이력' 탭에서 현장 작업기록을 추가할 수 있습니다."
             )
+
+    render_excel_export_section(
+
+        f"equip_{pump['equip']}",
+
+        f"{pump['equip']}_설비정보.xlsx",
+
+        lambda: pd.DataFrame(
+
+            [
+
+                ["사업장", pump["site"]],
+                ["설비명", pump["equip"]],
+                ["제조사", pump["maker"]],
+                ["모델명", pump["model"]],
+                ["운전시간(h)", pump["op_hours"]],
+                ["CBM Score", result["점수"]],
+                ["등급", result["등급"]],
+                ["효율(%)", result["효율"]],
+                ["진동(mm/s)", result["진동"]],
+                ["온도(°C)", result["온도"]]
+
+            ],
+
+            columns=["항목", "값"]
+
+        )
+
+    )
 
 
 # ============================================================
@@ -5039,6 +5454,36 @@ elif st.session_state.page == "QR":
                 f"{result['다음오버홀까지남은시간']:,}시간 남음"
 
             )
+
+    render_excel_export_section(
+
+        f"qr_{pump['equip']}",
+
+        f"{pump['equip']}_QR정보.xlsx",
+
+        lambda: pd.DataFrame(
+
+            [
+
+                ["QR ID", qr_id],
+                ["사업장", pump["site"]],
+                ["설비명", pump["equip"]],
+                ["제조사", pump["maker"]],
+                ["모델명", pump["model"]],
+                ["운전시간(h)", pump["op_hours"]],
+                ["효율(%)", result["효율"]],
+                ["진동(mm/s)", result["진동"]],
+                ["온도(°C)", result["온도"]],
+                ["CBM Score", result["점수"]],
+                ["상태", result["상태"]]
+
+            ],
+
+            columns=["항목", "값"]
+
+        )
+
+    )
 
 
 # ============================================================
@@ -5725,6 +6170,16 @@ elif st.session_state.page == "진단":
 
             )
 
+    render_excel_export_section(
+
+        f"diag_{pump['equip']}",
+
+        f"{pump['equip']}_정밀진단결과.xlsx",
+
+        lambda: pd.DataFrame(details)
+
+    )
+
 
 # ============================================================
 # 19. CBM
@@ -6011,6 +6466,16 @@ elif st.session_state.page == "CBM":
         unsafe_allow_html=True
     )
 
+    render_excel_export_section(
+
+        "cbm",
+
+        "CBM_정비우선순위.xlsx",
+
+        lambda: df_rank
+
+    )
+
 
 # ============================================================
 # 20. 오버홀 관리
@@ -6231,6 +6696,32 @@ elif st.session_state.page == "오버홀":
             "진동 감소",
             f"{before_vib-after_vib:+.1f} mm/s"
         )
+
+    render_excel_export_section(
+
+        f"overhaul_{pump['equip']}",
+
+        f"{pump['equip']}_오버홀_전후효과.xlsx",
+
+        lambda: pd.DataFrame(
+
+            [
+
+                ["설비명", pump["equip"]],
+                ["정비 전 효율(%)", before_eff],
+                ["정비 후 효율(%)", after_eff],
+                ["효율 개선(%p)", round(after_eff - before_eff, 2)],
+                ["정비 전 진동(mm/s)", before_vib],
+                ["정비 후 진동(mm/s)", after_vib],
+                ["진동 감소(mm/s)", round(before_vib - after_vib, 2)]
+
+            ],
+
+            columns=["항목", "값"]
+
+        )
+
+    )
 
 
 # ============================================================
@@ -6456,6 +6947,32 @@ elif st.session_state.page == "AI":
             "현재 상태 양호 · 모든 지표 정상범위"
         )
 
+    render_excel_export_section(
+
+        f"ai_{pump['equip']}",
+
+        f"{pump['equip']}_AI이상징후.xlsx",
+
+        lambda: pd.DataFrame(
+
+            [
+
+                ["설비명", pump["equip"]],
+                ["CBM Score", result["점수"]],
+                ["등급", result["등급"]],
+                ["효율(%)", result["효율"]],
+                ["진동(mm/s)", result["진동"]],
+                ["온도(°C)", result["온도"]],
+                ["다음오버홀까지(h)", result.get("다음오버홀까지남은시간")]
+
+            ],
+
+            columns=["항목", "값"]
+
+        )
+
+    )
+
 
 # ============================================================
 # 22. ROI
@@ -6601,6 +7118,29 @@ elif st.session_state.page == "ROI":
             unsafe_allow_html=True
         )
 
+    render_excel_export_section(
+
+        "roi",
+
+        "정비효과_ROI분석.xlsx",
+
+        lambda: pd.DataFrame(
+
+            [
+
+                ["연간 절감전력(kWh)", round(saved_kwh, 0)],
+                ["연간 절감액(원)", round(saved_money, 0)],
+                ["투자회수 기간(년)", round(payback, 2)],
+                ["오버홀 비용(원)", repair]
+
+            ],
+
+            columns=["항목", "값"]
+
+        )
+
+    )
+
 
 # ============================================================
 # 23. KPI
@@ -6649,6 +7189,8 @@ elif st.session_state.page == "KPI":
 
     ]
 
+    kpi_values = []
+
     for name, target, unit in kpis:
 
         value = st.number_input(
@@ -6656,6 +7198,17 @@ elif st.session_state.page == "KPI":
             min_value=0.0,
             value=0.0,
             key=f"kpi_{name}"
+        )
+
+        kpi_values.append(
+
+            {
+                "지표": name,
+                "실적": value,
+                "목표": target,
+                "단위": unit
+            }
+
         )
 
         st.progress(
@@ -6672,6 +7225,97 @@ elif st.session_state.page == "KPI":
         st.caption(
             f"목표 : {target} {unit}"
         )
+
+    if is_read_only():
+
+        st.info(
+            "🔒 보기 전용 모드에서는 저장할 수 없습니다."
+        )
+
+    elif st.button(
+
+        "💾 KPI 실적 저장",
+
+        type="primary",
+
+        use_container_width=True,
+
+        key="kpi_save_btn"
+
+    ):
+
+        save_time = datetime.now().strftime(
+            "%Y-%m-%d"
+        )
+
+        for row in kpi_values:
+
+            safe_append_row(
+
+                KPI_DB_PATH,
+
+                "KPI실적",
+
+                [
+                    save_time,
+                    row["지표"],
+                    row["목표"],
+                    row["실적"],
+                    row["단위"],
+                    ""
+                ]
+
+            )
+
+        st.success(
+            "KPI 실적이 저장되었습니다."
+        )
+
+    df_kpi_history = read_excel(
+        KPI_DB_PATH,
+        "KPI실적"
+    )
+
+    if not df_kpi_history.empty:
+
+        with st.expander(
+            f"📈 저장된 KPI 이력 (총 {len(df_kpi_history)}건)"
+        ):
+
+            st.dataframe(
+
+                df_kpi_history.tail(20),
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+    else:
+
+        st.caption(
+            "아직 저장된 KPI 실적 이력이 없습니다. "
+            "위 '실적 저장' 버튼을 누르면 여기에 쌓입니다."
+        )
+
+    render_excel_export_section(
+
+        "kpi",
+
+        "성과관리_KPI.xlsx",
+
+        lambda: (
+
+            df_kpi_history
+
+            if not df_kpi_history.empty
+
+            else pd.DataFrame(kpi_values)
+
+        )
+
+    )
 
 
 # ============================================================
@@ -6906,6 +7550,24 @@ elif st.session_state.page == "노하우":
                 "기술 노하우가 등록되었습니다."
             )
 
+    render_excel_export_section(
+
+        "knowhow",
+
+        "기술노하우DB.xlsx",
+
+        lambda: (
+
+            filtered
+
+            if "filtered" in dir()
+
+            else df_knowhow
+
+        )
+
+    )
+
 
 # ============================================================
 # 25. 보고서
@@ -7009,6 +7671,30 @@ CBM 상태평가
         mime="text/plain",
 
         type="primary"
+
+    )
+
+    render_excel_export_section(
+
+        f"report_{site}",
+
+        f"진단보고서_{site}.xlsx",
+
+        lambda: pd.DataFrame(
+
+            [
+
+                ["사업장", site],
+                ["진단설비 수", pump_count],
+                ["최우선 정비대상", priority],
+                ["진단방식", "QR 기반 설비정보 + 정밀상태진단 + CBM"],
+                ["정비방식", "상태기반 정비(CBM)"]
+
+            ],
+
+            columns=["항목", "값"]
+
+        )
 
     )
 
@@ -7184,10 +7870,29 @@ elif st.session_state.page == "백업":
             key="add_equip_btn"
         ):
 
-            if not new_equip:
+            existing_names = [
+
+                p["equip"].strip()
+
+                for p in ALL_PUMPS
+
+            ]
+
+            if not new_equip.strip():
 
                 st.error(
                     "설비명을 입력해주세요."
+                )
+
+            elif new_equip.strip() in existing_names:
+
+                st.error(
+
+                    f"'{new_equip.strip()}'는 이미 등록된 설비명입니다. "
+                    "같은 이름이 있으면 QR포털·정밀진단 등에서 "
+                    "어느 설비인지 구분할 수 없으니, "
+                    "다른 이름(예: 번호를 다르게)으로 등록해주세요."
+
                 )
 
             else:
@@ -7196,7 +7901,7 @@ elif st.session_state.page == "백업":
 
                     {
                         "site": new_site,
-                        "equip": new_equip,
+                        "equip": new_equip.strip(),
                         "maker": new_maker,
                         "model": new_model,
                         "hp": new_hp,
@@ -7518,6 +8223,16 @@ elif st.session_state.page == "백업":
                     key=f"download_{path}"
 
                 )
+
+    render_excel_export_section(
+
+        "backup",
+
+        "설비마스터_목록.xlsx",
+
+        lambda: pd.DataFrame(ALL_PUMPS)
+
+    )
 
 
 # ============================================================
