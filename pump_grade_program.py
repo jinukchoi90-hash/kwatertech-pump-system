@@ -21,11 +21,15 @@ import pandas as pd
 import numpy as np
 import openpyxl
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.chart import BarChart, LineChart, Reference
 
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 
 import qrcode
+import base64
 from filelock import FileLock
 
 
@@ -1847,19 +1851,367 @@ def clear_draft(equip_name):
 
 
 # ============================================================
-# 7-6. 메뉴 공용 "엑셀로 저장" 버튼 + 확인 팝업
+# 7-6. 예쁜 엑셀 생성 (스타일 + 자동 차트)
+#
+# 예전에는 df.to_excel()로 서식 하나 없이 그냥 표만 덤프해서
+# "보고서 내용이 너무 간단하다"는 지적을 받았다. 이제 제목행,
+# 색깔이 들어간 헤더, 지브라 줄무늬, 열너비 자동조정, 헤더 고정에
+# 더해 숫자 데이터가 있으면 엑셀 자체 차트(그림이 아니라 진짜
+# 엑셀 차트 객체)까지 자동으로 넣는다.
+# ============================================================
+
+BRAND_HEADER_COLOR = "0F3552"
+BRAND_ACCENT_COLOR = "087EA4"
+BRAND_ZEBRA_COLOR = "F4F9FC"
+
+
+def build_pretty_excel_bytes(
+    df,
+    title,
+    add_chart=True
+):
+
+    wb = Workbook()
+
+    ws = wb.active
+
+    ws.title = "데이터"
+
+    n_cols = max(
+        len(df.columns),
+        1
+    )
+
+    thin = Side(
+        style="thin",
+        color="CCCCCC"
+    )
+
+    border = Border(
+        left=thin,
+        right=thin,
+        top=thin,
+        bottom=thin
+    )
+
+    # ---- 제목행 ----
+
+    ws.merge_cells(
+
+        start_row=1,
+        start_column=1,
+        end_row=1,
+        end_column=n_cols
+
+    )
+
+    title_cell = ws.cell(
+        row=1,
+        column=1,
+        value=f"💧 {title}"
+    )
+
+    title_cell.font = Font(
+        size=16,
+        bold=True,
+        color="FFFFFF"
+    )
+
+    title_cell.fill = PatternFill(
+        "solid",
+        fgColor=BRAND_ACCENT_COLOR
+    )
+
+    title_cell.alignment = Alignment(
+        horizontal="center",
+        vertical="center"
+    )
+
+    ws.row_dimensions[1].height = 28
+
+    # ---- 부제(생성시각) ----
+
+    ws.merge_cells(
+
+        start_row=2,
+        start_column=1,
+        end_row=2,
+        end_column=n_cols
+
+    )
+
+    sub_cell = ws.cell(
+
+        row=2,
+
+        column=1,
+
+        value=(
+
+            "생성일시 : "
+            +
+            datetime.now().strftime("%Y-%m-%d %H:%M")
+            +
+            "  ·  K-water tech 설비관리 통합 플랫폼"
+
+        )
+
+    )
+
+    sub_cell.font = Font(
+        size=9,
+        italic=True,
+        color="666666"
+    )
+
+    sub_cell.alignment = Alignment(
+        horizontal="center"
+    )
+
+    header_row = 4
+
+    # ---- 헤더 ----
+
+    header_fill = PatternFill(
+        "solid",
+        fgColor=BRAND_HEADER_COLOR
+    )
+
+    header_font = Font(
+        bold=True,
+        color="FFFFFF"
+    )
+
+    for j, col in enumerate(
+        df.columns,
+        start=1
+    ):
+
+        c = ws.cell(
+            row=header_row,
+            column=j,
+            value=str(col)
+        )
+
+        c.font = header_font
+
+        c.fill = header_fill
+
+        c.alignment = Alignment(
+            horizontal="center",
+            vertical="center"
+        )
+
+        c.border = border
+
+    # ---- 데이터(지브라 줄무늬) ----
+
+    zebra_fill = PatternFill(
+        "solid",
+        fgColor=BRAND_ZEBRA_COLOR
+    )
+
+    for i, row in enumerate(
+
+        df.itertuples(index=False),
+
+        start=header_row + 1
+
+    ):
+
+        for j, val in enumerate(
+            row,
+            start=1
+        ):
+
+            c = ws.cell(
+                row=i,
+                column=j,
+                value=val
+            )
+
+            c.border = border
+
+            if (i - header_row) % 2 == 0:
+
+                c.fill = zebra_fill
+
+    # ---- 열 너비 자동조정 ----
+
+    for j, col in enumerate(
+        df.columns,
+        start=1
+    ):
+
+        if len(df) > 0:
+
+            max_len = max(
+
+                [len(str(col))]
+                +
+                [
+                    len(str(v))
+                    for v in df[col].astype(str)
+                ]
+
+            )
+
+        else:
+
+            max_len = len(str(col))
+
+        ws.column_dimensions[
+
+            get_column_letter(j)
+
+        ].width = min(
+            max(max_len + 4, 10),
+            40
+        )
+
+    ws.freeze_panes = ws.cell(
+
+        row=header_row + 1,
+
+        column=1
+
+    ).coordinate
+
+    # ---- 숫자 데이터가 있으면 엑셀 자체 차트 삽입 ----
+
+    if add_chart and len(df) >= 2:
+
+        numeric_cols = [
+
+            j
+
+            for j, col in enumerate(df.columns, start=1)
+
+            if pd.api.types.is_numeric_dtype(df[col])
+
+        ]
+
+        if numeric_cols:
+
+            chart = BarChart()
+
+            chart.title = title
+
+            chart.height = 9
+
+            chart.width = 18
+
+            chart.style = 10
+
+            data_ref = Reference(
+
+                ws,
+
+                min_col=numeric_cols[0],
+
+                max_col=numeric_cols[-1],
+
+                min_row=header_row,
+
+                max_row=header_row + len(df)
+
+            )
+
+            cats_ref = Reference(
+
+                ws,
+
+                min_col=1,
+
+                min_row=header_row + 1,
+
+                max_row=header_row + len(df)
+
+            )
+
+            chart.add_data(
+
+                data_ref,
+
+                titles_from_data=True
+
+            )
+
+            chart.set_categories(
+                cats_ref
+            )
+
+            chart_anchor = (
+
+                f"{get_column_letter(n_cols + 2)}"
+                f"{header_row}"
+
+            )
+
+            ws.add_chart(
+                chart,
+                chart_anchor
+            )
+
+    buffer = io.BytesIO()
+
+    wb.save(buffer)
+
+    return buffer.getvalue()
+
+
+def trigger_browser_download(
+    data_bytes,
+    filename,
+    mime
+):
+
+    # "예" 버튼을 누른 즉시 브라우저 다운로드가 실제로
+    # 시작되도록, 숨겨진 링크를 만들어 자바스크립트로
+    # 바로 클릭시킨다. (예전에는 "예"를 누르면 별도의
+    # 다운로드 버튼이 하나 더 생겨서 한 번 더 눌러야 했다.)
+
+    b64 = base64.b64encode(
+        data_bytes
+    ).decode()
+
+    components.html(
+
+        f"""
+        <a id="_auto_dl" style="display:none"
+           href="data:{mime};base64,{b64}"
+           download="{filename}"></a>
+        <script>
+        document.getElementById("_auto_dl").click();
+        </script>
+        """,
+
+        height=0
+
+    )
+
+
+# ============================================================
+# 7-7. 메뉴 공용 "엑셀로 저장" 버튼 + 확인 팝업
 #
 # 모든 메뉴 하단에 "엑셀로 저장" 버튼을 놓고, 누르면
 # 바로 저장하지 않고 예/아니오를 묻는 팝업(st.dialog)을
-# 띄운 뒤, "예"를 눌러야 실제로 엑셀 파일이 만들어져서
-# 다운로드 버튼이 나타나도록 한다.
+# 띄운다. "예"를 누르면 그 자리에서 바로 예쁘게 서식이 적용된
+# 엑셀 파일이 만들어지고 브라우저 다운로드가 즉시 시작된다.
 # ============================================================
+
+EXCEL_MIME = (
+    "application/vnd.openxmlformats-"
+    "officedocument.spreadsheetml.sheet"
+)
+
 
 @st.dialog("엑셀로 저장")
 def confirm_excel_export_dialog(
     page_key,
     filename,
-    build_df_fn
+    build_df_fn,
+    title
 ):
 
     st.write(
@@ -1879,33 +2231,27 @@ def confirm_excel_export_dialog(
 
             df = build_df_fn()
 
-            buffer = io.BytesIO()
+            excel_bytes = build_pretty_excel_bytes(
 
-            with pd.ExcelWriter(
+                df,
 
-                buffer,
+                title
 
-                engine="openpyxl"
+            )
 
-            ) as writer:
+            trigger_browser_download(
 
-                df.to_excel(
+                excel_bytes,
 
-                    writer,
+                filename,
 
-                    index=False,
+                EXCEL_MIME
 
-                    sheet_name="데이터"
-
-                )
+            )
 
             st.session_state[
-                f"_export_data_{page_key}"
-            ] = buffer.getvalue()
-
-            st.session_state[
-                f"_export_filename_{page_key}"
-            ] = filename
+                f"_export_done_{page_key}"
+            ] = True
 
             # 팝업을 닫는다. (엑셀로 저장 플래그를 꺼서
             # 다음 rerun부터 다이얼로그를 다시 열지 않게 함)
@@ -1934,7 +2280,8 @@ def confirm_excel_export_dialog(
 def render_excel_export_section(
     page_key,
     filename,
-    build_df_fn
+    build_df_fn,
+    title=None
 ):
 
     st.write("---")
@@ -1951,14 +2298,16 @@ def render_excel_export_section(
 
         # 버튼을 누른 그 순간뿐 아니라, 이후 rerun에서도
         # 팝업이 계속 열려 있도록 세션에 플래그를 남긴다.
-        # (버튼의 "눌림" 상태는 한 번의 rerun에서만 True이므로
-        #  플래그 없이 팝업을 열면 팝업 안의 예/아니오를
-        #  눌렀을 때 팝업을 여는 코드가 다시 실행되지 않아
-        #  버튼이 반응하지 않는 문제가 있었다.)
 
         st.session_state[
             f"_show_export_confirm_{page_key}"
         ] = True
+
+        # 새로 저장 버튼을 누르면 이전 완료 표시는 지운다.
+
+        st.session_state[
+            f"_export_done_{page_key}"
+        ] = False
 
     if st.session_state.get(
         f"_show_export_confirm_{page_key}"
@@ -1970,39 +2319,21 @@ def render_excel_export_section(
 
             filename,
 
-            build_df_fn
+            build_df_fn,
+
+            title or filename.rsplit(".", 1)[0]
 
         )
 
-    export_data = st.session_state.get(
-        f"_export_data_{page_key}"
-    )
+    if st.session_state.get(
+        f"_export_done_{page_key}"
+    ):
 
-    if export_data:
-
-        st.download_button(
-
-            "⬇️ 엑셀 파일 다운로드",
-
-            data=export_data,
-
-            file_name=st.session_state.get(
-                f"_export_filename_{page_key}",
-                filename
-            ),
-
-            mime=(
-                "application/vnd.openxmlformats-"
-                "officedocument.spreadsheetml.sheet"
-            ),
-
-            key=f"dl_{page_key}",
-
-            type="primary",
-
-            use_container_width=True
-
+        st.success(
+            "✅ 엑셀 다운로드가 시작되었습니다. "
+            "브라우저 하단/다운로드 폴더를 확인하세요."
         )
+
 
 
 # ============================================================
@@ -3854,17 +4185,6 @@ if not st.session_state.authenticated:
         """,
         unsafe_allow_html=True
     )
-
-    if AUTH_PIN_IS_DEFAULT:
-
-        st.warning(
-            "⚠️ 관리자 안내: PIN이 코드 기본값(2580)으로 "
-            "설정되어 있습니다. 저장소가 Public이면 이 PIN이 "
-            "그대로 노출됩니다. Streamlit Cloud의 "
-            "App settings → Secrets 에 "
-            '`AUTH_PIN = "원하는 번호"` 를 추가하면 '
-            "코드에는 남기지 않고 PIN을 바꿀 수 있습니다."
-        )
 
     name_input = st.text_input(
 
