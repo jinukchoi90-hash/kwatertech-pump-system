@@ -212,6 +212,20 @@ body,
 
 }
 
+/* 페이지 전환 시 스크롤이 맨 위로 안 가고 중간에 멈추는
+   문제의 실제 원인은 브라우저의 "스크롤 앵커링" 기능이었다.
+   콘텐츠(그래프 이미지 등)가 로딩되면서 화면 위쪽 내용이
+   바뀌면, 브라우저가 "사용자가 보던 위치를 유지"하려고
+   자동으로 스크롤을 다시 밀어낸다. 이 기능을 꺼서
+   자바스크립트로 맨 위로 되돌린 위치가 유지되게 한다. */
+
+section[data-testid="stMain"],
+[data-testid="stAppViewContainer"] {
+
+    overflow-anchor: none;
+
+}
+
 .block-container {
 
     max-width: 1450px;
@@ -606,6 +620,233 @@ section[data-testid="stSidebar"] .stButton > button:hover {
 
 }
 
+
+/* ========================================================
+   피처 카드 (K-water Tech "부서안내" 카드 참고)
+
+   실제 현장 사진 대신 그라데이션 배경 + 굵은 흰 글자 +
+   "자세히 보기" 스타일의 화살표 링크로 비슷한 느낌을 냈다.
+======================================================== */
+
+.feature-card {
+
+    position: relative;
+
+    border-radius: 16px;
+
+    padding: 22px 20px 18px 20px;
+
+    color: white;
+
+    min-height: 128px;
+
+    margin-bottom: 4px;
+
+    box-shadow:
+        0 10px 24px rgba(10, 70, 100, 0.18);
+
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease;
+
+}
+
+.feature-card:hover {
+
+    transform: translateY(-4px);
+
+    box-shadow:
+        0 16px 32px rgba(10, 70, 100, 0.26);
+
+}
+
+.feature-card-icon {
+
+    font-size: 1.6rem;
+
+}
+
+.feature-card-title {
+
+    font-size: 1.05rem;
+
+    font-weight: 800;
+
+    margin-top: 6px;
+
+}
+
+.feature-card-desc {
+
+    font-size: 0.78rem;
+
+    opacity: 0.92;
+
+    margin-top: 4px;
+
+    line-height: 1.4;
+
+}
+
+.feature-card-link {
+
+    font-size: 0.78rem;
+
+    font-weight: 700;
+
+    margin-top: 10px;
+
+    opacity: 0.95;
+
+}
+
+
+/* ========================================================
+   홈 히어로 배너
+   (K water Tech 사이트 참고 - 큰 그라데이션 배경 +
+    로고 모양 아치 + 색상 혼합 대형 타이틀)
+======================================================== */
+
+.hero-banner {
+
+    position: relative;
+
+    overflow: hidden;
+
+    background:
+        linear-gradient(
+            135deg,
+            #052c4a 0%,
+            #075985 45%,
+            #0891b2 78%,
+            #22c9d6 100%
+        );
+
+    border-radius: 22px;
+
+    padding: 38px 32px 34px 32px;
+
+    margin-bottom: 18px;
+
+    box-shadow:
+        0 14px 34px rgba(3, 65, 100, 0.22);
+
+}
+
+.hero-banner::before {
+
+    content: "";
+
+    position: absolute;
+
+    top: -60px;
+
+    right: -60px;
+
+    width: 260px;
+
+    height: 260px;
+
+    border-radius: 50%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(255, 255, 255, 0.14) 0%,
+            rgba(255, 255, 255, 0) 70%
+        );
+
+}
+
+.hero-banner::after {
+
+    content: "";
+
+    position: absolute;
+
+    bottom: -80px;
+
+    left: -40px;
+
+    width: 220px;
+
+    height: 220px;
+
+    border-radius: 50%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(255, 200, 87, 0.16) 0%,
+            rgba(255, 200, 87, 0) 70%
+        );
+
+}
+
+.hero-inner {
+
+    position: relative;
+
+    z-index: 1;
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 20px;
+
+    flex-wrap: wrap;
+
+}
+
+.hero-title {
+
+    font-size: 1.55rem;
+
+    font-weight: 900;
+
+    letter-spacing: -0.5px;
+
+    line-height: 1.35;
+
+    color: white;
+
+}
+
+.hero-title .hl-cyan {
+
+    color: #67e8f9;
+
+}
+
+.hero-title .hl-amber {
+
+    color: #ffd166;
+
+}
+
+.hero-sub {
+
+    font-size: 0.85rem;
+
+    color: rgba(255, 255, 255, 0.82);
+
+    margin-top: 6px;
+
+    font-weight: 500;
+
+}
+
+.hero-greeting {
+
+    font-size: 0.82rem;
+
+    color: rgba(255, 255, 255, 0.7);
+
+    margin-top: 10px;
+
+}
+
 .highlight-pill {
 
     display: inline-block;
@@ -886,6 +1127,58 @@ button[data-baseweb="tab"] {
     .highlight-pill {
 
         filter: brightness(0.92);
+
+    }
+
+}
+
+
+/* ========================================================
+   인쇄용 스타일
+
+   결재 올릴 때 화면을 그대로 인쇄하면 사이드바·버튼·
+   그림자 효과까지 다 찍혀서 지저분했다. 인쇄(또는
+   브라우저의 "PDF로 저장")할 때는 꼭 필요한 내용만
+   깔끔하게 나오도록 한다.
+======================================================== */
+
+@media print {
+
+    section[data-testid="stSidebar"],
+    .stButton,
+    div[data-testid="stStatusWidget"],
+    header[data-testid="stHeader"] {
+
+        display: none !important;
+
+    }
+
+    .platform-card,
+    .equip-card,
+    .kpi-card {
+
+        box-shadow: none !important;
+
+        border: 1px solid #ccc !important;
+
+        break-inside: avoid;
+
+    }
+
+    .greeting-banner,
+    .top-header {
+
+        background: white !important;
+
+        color: #0f3552 !important;
+
+        border: 1px solid #ccc;
+
+    }
+
+    body {
+
+        color: black !important;
 
     }
 
@@ -1584,6 +1877,25 @@ def get_grade_text(grade):
     )
 
 
+def status_icon(status):
+
+    # 색맹(적록색약 등)인 사람도 색깔에만 의존하지 않고
+    # 구분할 수 있도록, 상태 배지에 색과 함께 쓰는 기호.
+
+    return {
+
+        "정상": "✓",
+
+        "관찰": "△",
+
+        "정비검토": "✕"
+
+    }.get(
+        status,
+        "?"
+    )
+
+
 # ============================================================
 # 7-1. NPSH(유효흡입양정) 간이 계산기
 #
@@ -1977,6 +2289,355 @@ def set_app_base_url(url):
         f.write(
             url.strip()
         )
+
+
+# ============================================================
+# 7-4-1. 알림 임계값 (관리자가 화면에서 직접 조정)
+#
+# 주의: 정밀진단 17개 항목의 등급(A~E) 계산 기준은
+# ISO 10816-3 등 공식 기준을 따르는 채점 엔진이라 바꾸지 않는다.
+# 여기서 조정 가능한 건 AI 이상징후·홈 알림·정비권고사항에서
+# 쓰는 "관찰/주의" 보조 알림 기준이다.
+# ============================================================
+
+THRESHOLDS_CONFIG_FILE = os.path.join(
+    CONFIG_DIR,
+    "alert_thresholds.json"
+)
+
+DEFAULT_ALERT_THRESHOLDS = {
+
+    "vib_watch": 4.5,
+    "vib_danger": 7.1,
+    "eff_watch": 80.0,
+    "eff_danger": 70.0,
+    "temp_watch": 50.0,
+    "temp_danger": 55.0
+
+}
+
+
+def get_alert_thresholds():
+
+    if os.path.exists(THRESHOLDS_CONFIG_FILE):
+
+        try:
+
+            with open(
+
+                THRESHOLDS_CONFIG_FILE,
+
+                "r",
+
+                encoding="utf-8"
+
+            ) as f:
+
+                saved = json.load(f)
+
+            merged = dict(
+                DEFAULT_ALERT_THRESHOLDS
+            )
+
+            merged.update(
+                saved
+            )
+
+            return merged
+
+        except Exception:
+
+            pass
+
+    return dict(
+        DEFAULT_ALERT_THRESHOLDS
+    )
+
+
+def save_alert_thresholds(values):
+
+    os.makedirs(
+        CONFIG_DIR,
+        exist_ok=True
+    )
+
+    with open(
+
+        THRESHOLDS_CONFIG_FILE,
+
+        "w",
+
+        encoding="utf-8"
+
+    ) as f:
+
+        json.dump(
+            values,
+            f,
+            ensure_ascii=False
+        )
+
+
+# ============================================================
+# 7-4-2. 알림 웹훅(Slack 등) 설정
+#
+# 위험설비가 감지되면(정밀진단 D/E등급 저장 시) 설정된 웹훅
+# 주소로 메시지를 보낸다. Slack의 "Incoming Webhook" 형식과
+# 호환되는 형태({"text": "..."})로 보낸다.
+# ============================================================
+
+WEBHOOK_CONFIG_FILE = os.path.join(
+    CONFIG_DIR,
+    "webhook_url.txt"
+)
+
+
+def get_webhook_url():
+
+    if os.path.exists(WEBHOOK_CONFIG_FILE):
+
+        try:
+
+            with open(
+
+                WEBHOOK_CONFIG_FILE,
+
+                "r",
+
+                encoding="utf-8"
+
+            ) as f:
+
+                saved = f.read().strip()
+
+            return saved
+
+        except Exception:
+
+            pass
+
+    return ""
+
+
+def set_webhook_url(url):
+
+    os.makedirs(
+        CONFIG_DIR,
+        exist_ok=True
+    )
+
+    with open(
+
+        WEBHOOK_CONFIG_FILE,
+
+        "w",
+
+        encoding="utf-8"
+
+    ) as f:
+
+        f.write(
+            url.strip()
+        )
+
+
+def send_webhook_notification(message):
+
+    # 웹훅 주소가 설정 안 돼 있으면 조용히 건너뛴다.
+    # 네트워크 문제 등으로 실패해도 앱이 멈추면 안 되므로
+    # 예외를 전부 흡수한다.
+
+    url = get_webhook_url()
+
+    if not url:
+
+        return False
+
+    try:
+
+        req = urllib.request.Request(
+
+            url,
+
+            data=json.dumps(
+
+                {"text": message}
+
+            ).encode("utf-8"),
+
+            headers={
+                "Content-Type": "application/json"
+            }
+
+        )
+
+        urllib.request.urlopen(
+            req,
+            timeout=5
+        )
+
+        return True
+
+    except Exception:
+
+        return False
+
+
+# ============================================================
+# 7-4-3. 감사 로그 (누가 언제 무엇을 삭제/추가했는지)
+# ============================================================
+
+AUDIT_LOG_PATH = "Pump_AuditLog_DB.xlsx"
+
+
+def ensure_audit_log_exists():
+
+    ensure_excel_file(
+
+        AUDIT_LOG_PATH,
+
+        "감사로그",
+
+        [
+            "일시",
+            "사용자",
+            "동작",
+            "대상",
+            "상세"
+        ]
+
+    )
+
+
+def log_audit(action, target, detail=""):
+
+    try:
+
+        safe_append_row(
+
+            AUDIT_LOG_PATH,
+
+            "감사로그",
+
+            [
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                st.session_state.get("user_name", ""),
+                action,
+                target,
+                detail
+            ]
+
+        )
+
+    except Exception:
+
+        pass
+
+
+# ============================================================
+# 7-4-4. 도면 이력 관리
+#
+# 예전에는 도면을 새로 올리면 이전 도면이 세션에서만 잠깐
+# 저장됐다가 그냥 덮어써졌다(디스크 저장조차 안 됨). 이제
+# 디스크에 저장하고 이력을 DB로 남겨서, 예전 도면과 비교해
+# 볼 수 있게 한다.
+# ============================================================
+
+DRAWING_DIR = "drawings"
+
+DRAWING_DB_PATH = "Pump_Drawing_DB.xlsx"
+
+
+def ensure_drawing_db_exists():
+
+    ensure_excel_file(
+
+        DRAWING_DB_PATH,
+
+        "도면이력",
+
+        [
+            "등록일자",
+            "설비명",
+            "파일명",
+            "원본파일명"
+        ]
+
+    )
+
+
+def save_drawing(equip_name, file_bytes, original_filename):
+
+    os.makedirs(
+        DRAWING_DIR,
+        exist_ok=True
+    )
+
+    ext = (
+
+        original_filename.rsplit(".", 1)[-1]
+
+        if "." in original_filename
+
+        else "png"
+
+    )
+
+    safe_name = "".join(
+
+        c if c.isalnum() else "_"
+
+        for c in equip_name
+
+    )
+
+    saved_filename = (
+
+        f"{safe_name}_"
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}."
+        f"{ext}"
+
+    )
+
+    with open(
+
+        os.path.join(
+            DRAWING_DIR,
+            saved_filename
+        ),
+
+        "wb"
+
+    ) as f:
+
+        f.write(
+            file_bytes
+        )
+
+    safe_append_row(
+
+        DRAWING_DB_PATH,
+
+        "도면이력",
+
+        [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            equip_name,
+            saved_filename,
+            original_filename
+        ]
+
+    )
+
+    log_audit(
+
+        "도면 업로드",
+
+        equip_name,
+
+        original_filename
+
+    )
 
 
 # ============================================================
@@ -3018,6 +3679,8 @@ def generate_action_items(
 
     items = []
 
+    _th = get_alert_thresholds()
+
     if result["등급"] in ["D", "E"]:
 
         items.append(
@@ -3027,38 +3690,38 @@ def generate_action_items(
 
         )
 
-    if result["진동"] >= 7.1:
+    if result["진동"] >= _th["vib_danger"]:
 
         items.append(
 
-            "진동이 주의 기준(7.1 mm/s)을 초과하여 "
+            f"진동이 주의 기준({_th['vib_danger']} mm/s)을 초과하여 "
             "베어링·축정렬 상태에 대한 정밀점검이 필요합니다."
 
         )
 
-    elif result["진동"] >= 4.5:
+    elif result["진동"] >= _th["vib_watch"]:
 
         items.append(
 
-            "진동이 관찰 기준(4.5 mm/s)을 초과하여 "
+            f"진동이 관찰 기준({_th['vib_watch']} mm/s)을 초과하여 "
             "다음 점검 시 원인 분석이 권장됩니다."
 
         )
 
-    if result["효율"] < 80:
+    if result["효율"] < _th["eff_watch"]:
 
         items.append(
 
-            "효율이 80% 미만으로 저하되어 "
+            f"효율이 {_th['eff_watch']}% 미만으로 저하되어 "
             "내부 마모(링간극·축슬리브 등) 점검이 권장됩니다."
 
         )
 
-    if result["온도"] >= 55:
+    if result["온도"] >= _th["temp_danger"]:
 
         items.append(
 
-            "온도가 주의 기준(55°C)을 초과하여 "
+            f"온도가 주의 기준({_th['temp_danger']}°C)을 초과하여 "
             "냉각·윤활 상태 점검이 필요합니다."
 
         )
@@ -4410,6 +5073,8 @@ def ensure_db_exists():
 
 ensure_db_exists()
 
+ensure_audit_log_exists()
+
 
 
 # ============================================================
@@ -4710,6 +5375,16 @@ def add_equipment(new_pump):
 
     )
 
+    log_audit(
+
+        "설비 추가",
+
+        new_pump["equip"],
+
+        f"사업장={new_pump['site']}, 모델={new_pump['model']}"
+
+    )
+
 
 def delete_equipment(equip_name):
 
@@ -4744,6 +5419,14 @@ def delete_equipment(equip_name):
         )
 
         wb.close()
+
+    log_audit(
+
+        "설비 삭제",
+
+        equip_name
+
+    )
 
 
 # ============================================================
@@ -5141,6 +5824,8 @@ def build_vibration_trend_fig(
         df_history
     )
 
+    _th = get_alert_thresholds()
+
     fig, ax = plt.subplots(
         figsize=figsize
     )
@@ -5153,13 +5838,13 @@ def build_vibration_trend_fig(
     )
 
     ax.axhline(
-        4.5,
+        _th["vib_watch"],
         linestyle="--",
         label="관찰 기준"
     )
 
     ax.axhline(
-        7.1,
+        _th["vib_danger"],
         linestyle=":",
         label="주의 기준"
     )
@@ -5565,10 +6250,12 @@ def build_efficiency_trend_fig(
         df_history
     )
 
+    _th = get_alert_thresholds()
+
     colors = [
 
-        "#e03131" if v < 70
-        else "#f08c00" if v < 80
+        "#e03131" if v < _th["eff_danger"]
+        else "#f08c00" if v < _th["eff_watch"]
         else "#087ea4"
 
         for v in values
@@ -5592,14 +6279,14 @@ def build_efficiency_trend_fig(
     )
 
     ax.axhline(
-        80,
+        _th["eff_watch"],
         linestyle="--",
         color="#a16207",
         label="관찰 기준"
     )
 
     ax.axhline(
-        70,
+        _th["eff_danger"],
         linestyle=":",
         color="#c62828",
         label="주의 기준"
@@ -5683,15 +6370,17 @@ def build_temperature_trend_fig(
 
     )
 
+    _th = get_alert_thresholds()
+
     ax.axhline(
-        50,
+        _th["temp_watch"],
         linestyle="--",
         color="#a16207",
         label="관찰 기준"
     )
 
     ax.axhline(
-        55,
+        _th["temp_danger"],
         linestyle=":",
         color="#c62828",
         label="주의 기준"
@@ -6005,6 +6694,140 @@ def build_score_gauge_fig(
     )
 
     return fig
+
+
+def build_fleet_average_trend_fig(
+    all_pumps,
+    df_history,
+    metric_key,
+    label,
+    unit,
+    color,
+    figsize=(9, 3.5)
+):
+
+    # 설비 하나씩 보는 추세 그래프만 있고, "전체 설비 평균이
+    # 어떻게 변해왔나"를 보는 화면이 없었다. 각 설비의 현재값을
+    # 기준으로 한 예시 추세(설비 개별 화면과 같은 방식)를 평균내서
+    # 전사 차원의 큰 흐름을 보여준다.
+    #
+    # (개별 설비 화면처럼 실측/예시를 따로 구분하지 않고,
+    #  여러 설비를 한 축(6개 시점)으로 맞추기 위해
+    #  일관된 예시 추세식을 사용한다 — 개별 설비의 진짜 실측
+    #  추세는 각 설비 화면에서 확인하는 것이 정확하다)
+
+    series = []
+
+    for pump in all_pumps:
+
+        result = pump_status(
+            pump,
+            df_history
+        )
+
+        base = result[metric_key]
+
+        if metric_key == "효율":
+
+            values = [
+                min(100, base + 8),
+                min(100, base + 6),
+                min(100, base + 4),
+                min(100, base + 2),
+                base,
+                max(0, base - 3)
+            ]
+
+        elif metric_key == "진동":
+
+            values = [
+                max(1.2, base - 2.5),
+                max(1.4, base - 2),
+                max(1.6, base - 1.4),
+                max(1.8, base - 0.8),
+                base,
+                base + 1.2
+            ]
+
+        elif metric_key == "온도":
+
+            values = [
+                max(35, base - 6),
+                max(37, base - 4.5),
+                max(39, base - 3),
+                max(40, base - 1.5),
+                base,
+                base + 2
+            ]
+
+        else:
+
+            values = [
+                min(100, base + 12),
+                min(100, base + 9),
+                min(100, base + 6),
+                min(100, base + 3),
+                base,
+                max(0, base - 4)
+            ]
+
+        series.append(
+            values
+        )
+
+    avg_values = [
+
+        sum(v[i] for v in series) / len(series)
+
+        for i in range(6)
+
+    ]
+
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+
+    ax.plot(
+
+        TREND_MONTHS,
+
+        avg_values,
+
+        marker="o",
+
+        linewidth=2.4,
+
+        color=color
+
+    )
+
+    ax.fill_between(
+
+        TREND_MONTHS,
+
+        avg_values,
+
+        alpha=0.12,
+
+        color=color
+
+    )
+
+    ax.set_ylabel(
+        f"{label} ({unit})"
+    )
+
+    ax.set_title(
+
+        f"전체 {len(all_pumps)}대 평균 {label} 추이 (참고용)"
+
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    return fig, avg_values
 
 
 def build_fleet_compare_fig(
@@ -6389,6 +7212,7 @@ def go_to_page(
 
 with st.sidebar:
 
+
     st.markdown(
         """
         <div style="
@@ -6456,6 +7280,8 @@ with st.sidebar:
     analysis_menus = [
 
         ("AI", "📈 AI 이상징후"),
+
+        ("전사트렌드", "🌐 전사 트렌드"),
 
         ("ROI", "💰 정비효과·ROI"),
 
@@ -6614,6 +7440,71 @@ _current_label = MENU_LABEL_BY_KEY.get(
     "🏠 설비관리 홈"
 )
 
+# ------------------------------------------------------------
+# 메뉴를 눌러서 페이지가 실제로 바뀐 경우에만, 스크롤을
+# 맨 위로 되돌린다. (같은 페이지 안에서 체크박스·입력창 같은
+# 걸 조작할 때는 스크롤 위치를 그대로 유지해야 하므로,
+# "페이지 자체가 바뀌었을 때"만 동작하도록 구분했다.)
+# ------------------------------------------------------------
+
+if st.session_state.get("_last_rendered_page") != _current_page:
+
+    st.session_state["_last_rendered_page"] = _current_page
+
+    components.html(
+
+        f"""
+        <!-- page-nonce: {_current_page} -->
+        <script>
+        function scrollAppToTop() {{
+            try {{
+                window.parent.scrollTo({{top: 0, left: 0}});
+            }} catch (e) {{
+                console.log("DEBUG scrollAppToTop window.parent.scrollTo 실패:", e);
+            }}
+            try {{
+                var stMain = window.parent.document.querySelector(
+                    'section[data-testid="stMain"]'
+                );
+                if (stMain) {{
+                    stMain.scrollTop = 0;
+                    console.log("DEBUG stMain 찾음, scrollTop 설정 후:", stMain.scrollTop);
+                }} else {{
+                    console.log("DEBUG stMain 못찾음");
+                }}
+            }} catch (e) {{
+                console.log("DEBUG stMain 접근 실패:", e);
+            }}
+        }}
+
+        console.log("DEBUG scrollAppToTop 스크립트 로드됨 ({_current_page})");
+
+        scrollAppToTop();
+
+        var _scrollFightCount = 0;
+
+        var _scrollFightTimer = setInterval(function () {{
+
+            scrollAppToTop();
+
+            _scrollFightCount += 1;
+
+            if (_scrollFightCount > 30) {{
+
+                clearInterval(_scrollFightTimer);
+
+                console.log("DEBUG 스크롤 재설정 반복 종료");
+
+            }}
+
+        }}, 100);
+        </script>
+        """,
+
+        height=0
+
+    )
+
 _nav_labels = [
     label
     for key, label in ALL_MENUS
@@ -6649,25 +7540,11 @@ st.selectbox(
 
 )
 
-if st.session_state.page == "홈":
-
-    st.markdown(
-        f"""
-        <div class="top-header">
-
-            <div class="top-title">
-                💧 K-water tech 설비관리 통합 플랫폼
-            </div>
-
-            <div class="top-sub">
-                QR 기반 설비정보 · 상태진단 · CBM 정비판단 ·
-                오버홀 · 이력관리 · 데이터 기반 설비관리
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+# 예전에는 홈 화면 맨 위에 "K-water tech 설비관리 통합
+# 플랫폼"이라는 일반 배너가 있었는데, 이제 홈 화면 자체에
+# 더 화려한 히어로 배너(아치 로고 + 색상 강조 타이틀)가
+# 항상 나오므로, 같은 내용을 두 번 겹쳐 보여주지 않도록
+# 이 일반 배너는 제거했다.
 
 
 # ============================================================
@@ -6690,41 +7567,61 @@ if st.session_state.page == "홈":
 
         _greeting = "수고 많으셨습니다"
 
-    # 세션 안에서 홈 화면을 여러 번 오갈 때마다 큼직한 인사말이
-    # 계속 반복되면 지루하므로, 이번 세션 첫 방문에만 크게
-    # 보여주고 그 다음부터는 작게 줄인다.
+    # 실제 회사 홈페이지들이 방문할 때마다 똑같은 히어로
+    # 배너를 보여주듯, 여기서도 홈에 올 때마다 항상 큰
+    # 히어로 배너를 보여준다. (예전에는 세션 첫 방문에만
+    # 크게 보여주고 그 다음부터 작게 줄였는데, 그러면
+    # "히어로 배너가 안 보인다"고 느끼기 쉬웠다)
 
-    if not st.session_state.get("_home_greeted_once"):
+    st.markdown(
 
-        st.session_state._home_greeted_once = True
+        f"""
+        <div class="hero-banner">
+        <div class="hero-inner">
 
-        st.markdown(
+            <svg width="58" height="58" viewBox="0 0 58 58"
+                 xmlns="http://www.w3.org/2000/svg">
+                <path d="M6 20 A 24 24 0 0 1 52 20"
+                      stroke="url(#heroArc)" stroke-width="5"
+                      fill="none" stroke-linecap="round"/>
+                <path d="M29 24
+                         C 29 24, 16 40, 16 47
+                         C 16 53.5, 21.5 58, 29 58
+                         C 36.5 58, 42 53.5, 42 47
+                         C 42 40, 29 24, 29 24 Z"
+                      fill="white" opacity="0.95"/>
+                <defs>
+                    <linearGradient id="heroArc"
+                        x1="0" y1="0" x2="58" y2="0">
+                        <stop offset="0%" stop-color="#ffd166"/>
+                        <stop offset="55%" stop-color="#67e8f9"/>
+                        <stop offset="100%" stop-color="#67e8f9"/>
+                    </linearGradient>
+                </defs>
+            </svg>
 
-            f"""
-            <div class="greeting-banner">
-
-            <div style="font-size:1.25rem; font-weight:800;">
-            {_greeting}, {st.session_state.get('user_name', '')}님 👋
+            <div>
+                <div class="hero-title">
+                설비를 <span class="hl-cyan">살아있게</span>
+                관리하는 <span class="hl-amber">기술</span>
+                </div>
+                <div class="hero-sub">
+                K-water tech 설비관리 통합 플랫폼 ·
+                Smart Pump Management
+                </div>
+                <div class="hero-greeting">
+                {_greeting}, {st.session_state.get('user_name', '')}님 👋
+                오늘도 설비 현황을 한눈에 확인해보세요.
+                </div>
             </div>
 
-            <div style="font-size:0.85rem; opacity:0.9; margin-top:4px;">
-            오늘도 설비 현황을 한눈에 확인해보세요.
-            </div>
+        </div>
+        </div>
+        """,
 
-            </div>
-            """,
+        unsafe_allow_html=True
 
-            unsafe_allow_html=True
-
-        )
-
-    else:
-
-        st.caption(
-
-            f"{_greeting}, {st.session_state.get('user_name', '')}님 👋"
-
-        )
+    )
 
     st.markdown(
         """
@@ -6769,11 +7666,34 @@ if st.session_state.page == "홈":
 
         )
 
-    # ---------------- 바로가기 버튼 ----------------
+    # ---------------- 바로가기 피처 카드 ----------------
+    #
+    # K-water Tech 사이트의 "부서안내" 카드처럼, 그라데이션
+    # 배경에 굵은 흰 글자로 된 카드로 자주 쓰는 기능 3개를
+    # 바로가기로 보여준다. (실제 현장 사진 대신 색으로 구분)
 
     qc1, qc2, qc3 = st.columns(3)
 
     with qc1:
+
+        st.markdown(
+
+            """
+            <div class="feature-card" style="
+            background: linear-gradient(135deg, #063b63, #0891b2);">
+                <div class="feature-card-icon">🔍</div>
+                <div class="feature-card-title">정밀진단</div>
+                <div class="feature-card-desc">
+                17개 항목으로 설비 상태를 점검하고
+                등급을 산출합니다.
+                </div>
+                <div class="feature-card-link">시작하기 →</div>
+            </div>
+            """,
+
+            unsafe_allow_html=True
+
+        )
 
         st.button(
 
@@ -6791,6 +7711,25 @@ if st.session_state.page == "홈":
 
     with qc2:
 
+        st.markdown(
+
+            """
+            <div class="feature-card" style="
+            background: linear-gradient(135deg, #0f5132, #2f9e44);">
+                <div class="feature-card-icon">📝</div>
+                <div class="feature-card-title">월간 보고서</div>
+                <div class="feature-card-desc">
+                설비별 점검·오버홀 이력을 담은
+                Word 보고서를 만듭니다.
+                </div>
+                <div class="feature-card-link">만들기 →</div>
+            </div>
+            """,
+
+            unsafe_allow_html=True
+
+        )
+
         st.button(
 
             "📝 월간 보고서 만들기",
@@ -6807,6 +7746,25 @@ if st.session_state.page == "홈":
 
     with qc3:
 
+        st.markdown(
+
+            """
+            <div class="feature-card" style="
+            background: linear-gradient(135deg, #9a3412, #f08c00);">
+                <div class="feature-card-icon">📱</div>
+                <div class="feature-card-title">QR 설비 포털</div>
+                <div class="feature-card-desc">
+                QR을 스캔하면 바로 뜨는
+                설비별 실시간 화면입니다.
+                </div>
+                <div class="feature-card-link">열기 →</div>
+            </div>
+            """,
+
+            unsafe_allow_html=True
+
+        )
+
         st.button(
 
             "📱 QR 포털 열기",
@@ -6821,8 +7779,52 @@ if st.session_state.page == "홈":
 
         )
 
+    # ---------------- 사업장 필터 ----------------
+    #
+    # 지금은 밀양정수장 설비만 있지만, 다른 사업장 설비가
+    # 추가되면(설비 추가 화면에서 사업장을 다르게 입력) 홈에서
+    # 사업장별로 나눠 볼 수 있게 한다.
+
+    _site_list = sorted(
+
+        set(
+            p["site"] for p in ALL_PUMPS
+        )
+
+    )
+
+    if len(_site_list) > 1:
+
+        _site_filter = st.selectbox(
+
+            "🏢 사업장 필터",
+
+            ["전체"] + _site_list,
+
+            key="home_site_filter"
+
+        )
+
+    else:
+
+        _site_filter = "전체"
+
+    if _site_filter == "전체":
+
+        _filtered_pumps = ALL_PUMPS
+
+    else:
+
+        _filtered_pumps = [
+
+            p for p in ALL_PUMPS
+
+            if p["site"] == _site_filter
+
+        ]
+
     total = len(
-        ALL_PUMPS
+        _filtered_pumps
     )
 
     normal = 0
@@ -6831,7 +7833,7 @@ if st.session_state.page == "홈":
 
     _all_results = []
 
-    for pump in ALL_PUMPS:
+    for pump in _filtered_pumps:
 
         result = pump_status(
             pump,
@@ -7048,6 +8050,56 @@ if st.session_state.page == "홈":
 
         )
 
+        # ---------------- 즐겨찾기 ----------------
+        #
+        # 관리하는 설비가 늘어나면 자주 보는 몇 대만 따로
+        # 모아보고 싶어질 수 있다. 세션 동안 유지되는
+        # 간단한 즐겨찾기 기능.
+
+        if "favorite_equips" not in st.session_state:
+
+            st.session_state.favorite_equips = set()
+
+        fav_c1, fav_c2 = st.columns(
+            [2, 1]
+        )
+
+        with fav_c1:
+
+            selected_favorites = st.multiselect(
+
+                "⭐ 즐겨찾기 설비 선택",
+
+                [p["equip"] for p in _filtered_pumps],
+
+                default=[
+
+                    e for e in st.session_state.favorite_equips
+
+                    if e in [p["equip"] for p in _filtered_pumps]
+
+                ],
+
+                key="home_favorite_select"
+
+            )
+
+            st.session_state.favorite_equips = set(
+                selected_favorites
+            )
+
+        with fav_c2:
+
+            show_favorites_only = st.toggle(
+
+                "즐겨찾기만 보기",
+
+                key="home_favorites_only_toggle",
+
+                disabled=len(st.session_state.favorite_equips) == 0
+
+            )
+
         rows = []
 
         card_html_parts = []
@@ -7122,6 +8174,17 @@ if st.session_state.page == "홈":
 
                 continue
 
+            if (
+
+                show_favorites_only
+
+                and
+                pump["equip"] not in st.session_state.favorite_equips
+
+            ):
+
+                continue
+
             home_search_matched_names.add(
                 pump["equip"]
             )
@@ -7179,14 +8242,14 @@ if st.session_state.page == "홈":
                 border-left:4px solid {text_color};">
 
                     <div class="equip-card-title">
-                    {pump['equip']}
+                    {'⭐ ' if pump['equip'] in st.session_state.favorite_equips else ''}{pump['equip']}
                     </div>
 
                     <span style="
                     background:{bg_color}; color:{text_color};
                     border-radius:999px; padding:2px 9px;
                     font-size:0.68rem; font-weight:800;">
-                    {result['상태']} · {result['등급']}등급
+                    {status_icon(result['상태'])} {result['상태']} · {result['등급']}등급
                     </span>
 
                     <div class="cbm-bar-track">
@@ -7607,7 +8670,7 @@ elif st.session_state.page == "설비":
         </div>
 
         <span class="{status_class}">
-        {result['상태']}
+        {status_icon(result['상태'])} {result['상태']}
         </span>
 
         </div>
@@ -8138,43 +9201,121 @@ elif st.session_state.page == "QR":
 
     with t2:
 
-        if "drawings" not in st.session_state:
-
-            st.session_state.drawings = {}
-
         drawing_file = st.file_uploader(
 
             "설비 도면 업로드 (배관도·조립도 등)",
 
             type=["png", "jpg", "jpeg"],
 
-            key=f"drawing_upload_{pump['equip']}"
+            key=f"drawing_upload_{pump['equip']}",
+
+            disabled=is_read_only()
 
         )
 
-        if drawing_file is not None:
+        if drawing_file is not None and not is_read_only():
 
-            st.session_state.drawings[
-                pump["equip"]
-            ] = drawing_file.getvalue()
+            save_drawing(
 
-        if pump["equip"] in st.session_state.drawings:
+                pump["equip"],
 
-            st.image(
+                drawing_file.getvalue(),
 
-                st.session_state.drawings[
-                    pump["equip"]
-                ],
-
-                use_container_width=True,
-
-                caption=f"{pump['equip']} 도면"
+                drawing_file.name
 
             )
 
-            st.caption(
-                "스마트폰에서는 두 손가락으로 확대(핀치 줌)해서 볼 수 있습니다."
+            st.success(
+                "도면이 저장되었습니다."
             )
+
+        df_drawings = read_excel(
+
+            DRAWING_DB_PATH,
+
+            "도면이력"
+
+        )
+
+        pump_drawings = pd.DataFrame()
+
+        if (
+
+            not df_drawings.empty
+
+            and
+            "설비명" in df_drawings.columns
+
+        ):
+
+            pump_drawings = df_drawings[
+
+                df_drawings["설비명"] == pump["equip"]
+
+            ].sort_values("등록일자")
+
+        if not pump_drawings.empty:
+
+            latest = pump_drawings.iloc[-1]
+
+            latest_path = os.path.join(
+
+                DRAWING_DIR,
+
+                str(latest["파일명"])
+
+            )
+
+            if os.path.exists(latest_path):
+
+                st.image(
+
+                    latest_path,
+
+                    use_container_width=True,
+
+                    caption=(
+
+                        f"{pump['equip']} 최신 도면 "
+                        f"({latest['등록일자']})"
+
+                    )
+
+                )
+
+                st.caption(
+                    "스마트폰에서는 두 손가락으로 확대(핀치 줌)해서 볼 수 있습니다."
+                )
+
+            if len(pump_drawings) > 1:
+
+                with st.expander(
+
+                    f"📜 이전 도면 이력 보기 (총 {len(pump_drawings)}건)"
+
+                ):
+
+                    for _, drow in pump_drawings.iloc[:-1][::-1].iterrows():
+
+                        old_path = os.path.join(
+
+                            DRAWING_DIR,
+
+                            str(drow["파일명"])
+
+                        )
+
+                        if os.path.exists(old_path):
+
+                            st.image(
+
+                                old_path,
+
+                                use_container_width=True,
+
+                                caption=f"등록일 : {drow['등록일자']}"
+
+                            )
 
         else:
 
@@ -8407,7 +9548,7 @@ elif st.session_state.page == "QR":
         st.markdown(
             f"""
             <span class="{status_class}">
-            {result['상태']}
+            {status_icon(result['상태'])} {result['상태']}
             </span>
             """,
             unsafe_allow_html=True
@@ -8446,13 +9587,15 @@ elif st.session_state.page == "QR":
             fig
         )
 
-        if result["진동"] >= 7.1:
+        _th_qr = get_alert_thresholds()
+
+        if result["진동"] >= _th_qr["vib_danger"]:
 
             st.error(
                 "CBM 예측 : 고위험 상태 · 정비검토 필요"
             )
 
-        elif result["진동"] >= 4.5:
+        elif result["진동"] >= _th_qr["vib_watch"]:
 
             st.warning(
                 "CBM 예측 : 주의 상태 · 추이관찰 및 정밀진단 권고"
@@ -8718,6 +9861,16 @@ elif st.session_state.page == "진단":
                     "자동판정",
                     grade
                 )
+
+                if grade == "E":
+
+                    st.caption(
+
+                        "⚠️ 측정값이 정상 범위를 크게 벗어난 "
+                        "최하 등급입니다. 오타나 측정 오류가 "
+                        "아닌지 한 번 더 확인해주세요."
+
+                    )
 
             elif name == "NPSH 여유율/캐비테이션":
 
@@ -9161,10 +10314,32 @@ elif st.session_state.page == "진단":
 
             )
 
+            log_audit(
+
+                "정밀진단 저장",
+
+                pump["equip"],
+
+                f"종합점수={total_score}, 등급={final_grade}"
+
+            )
+
             st.success(
                 f"{pump['equip']} "
                 f"진단결과가 저장되었습니다."
             )
+
+            # 위험 등급(D/E)이면 설정된 웹훅으로 알림을 보낸다.
+            # 웹훅이 설정 안 돼 있으면 아무 일도 안 일어난다.
+
+            if final_grade in ("D", "E"):
+
+                send_webhook_notification(
+
+                    f"🚨 [K-water tech] {pump['equip']} 정밀진단 결과 "
+                    f"{final_grade}등급({total_score}점) - 정비검토가 필요합니다."
+
+                )
 
             # 저장이 끝났으니 이 설비의 임시저장(초안)은
             # 세션과 디스크 양쪽에서 모두 비운다.
@@ -9962,15 +11137,17 @@ elif st.session_state.page == "AI":
 
     st.write("")
 
+    _th_ai = get_alert_thresholds()
+
     if (
 
-        result["진동"] >= 7.1
+        result["진동"] >= _th_ai["vib_danger"]
 
         or
-        result["효율"] <= 70
+        result["효율"] <= _th_ai["eff_danger"]
 
         or
-        result["온도"] >= 55
+        result["온도"] >= _th_ai["temp_danger"]
 
         or
         result["점수"] < 60
@@ -9983,13 +11160,13 @@ elif st.session_state.page == "AI":
 
     elif (
 
-        result["진동"] >= 4.5
+        result["진동"] >= _th_ai["vib_watch"]
 
         or
-        result["효율"] <= 80
+        result["효율"] <= _th_ai["eff_watch"]
 
         or
-        result["온도"] >= 50
+        result["온도"] >= _th_ai["temp_watch"]
 
         or
         result["점수"] < 80
@@ -10019,6 +11196,149 @@ elif st.session_state.page == "AI":
             result,
 
             df_history
+
+        )
+
+    )
+
+
+# ============================================================
+# 21-1. 전사 트렌드
+# ============================================================
+
+elif st.session_state.page == "전사트렌드":
+
+    st.markdown(
+        """
+        <div class="section-title">
+        🌐 전사 트렌드
+        </div>
+
+        <div class="section-caption">
+        설비 하나하나가 아니라, 전체 설비의 평균적인 추이를
+        큰 그림으로 봅니다. 경영진 보고나 전체 현황 파악에
+        활용하세요.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.caption(
+
+        "※ 개별 설비 화면과 달리, 실측/예시 데이터를 구분하지 "
+        "않고 현재값 기준 참고용 추이를 평균낸 것입니다. "
+        "정확한 실측 추세는 각 설비의 AI 이상징후 화면에서 "
+        "확인하세요."
+
+    )
+
+    fg1, fg2 = st.columns(2)
+
+    with fg1:
+
+        fig_eff, avg_eff = build_fleet_average_trend_fig(
+
+            ALL_PUMPS,
+
+            df_history,
+
+            "효율",
+
+            "평균 효율",
+
+            "%",
+
+            "#087ea4"
+
+        )
+
+        st.pyplot(
+            fig_eff
+        )
+
+    with fg2:
+
+        fig_vib, avg_vib = build_fleet_average_trend_fig(
+
+            ALL_PUMPS,
+
+            df_history,
+
+            "진동",
+
+            "평균 진동",
+
+            "mm/s",
+
+            "#e8590c"
+
+        )
+
+        st.pyplot(
+            fig_vib
+        )
+
+    fg3, fg4 = st.columns(2)
+
+    with fg3:
+
+        fig_temp, avg_temp = build_fleet_average_trend_fig(
+
+            ALL_PUMPS,
+
+            df_history,
+
+            "온도",
+
+            "평균 온도",
+
+            "°C",
+
+            "#c62828"
+
+        )
+
+        st.pyplot(
+            fig_temp
+        )
+
+    with fg4:
+
+        fig_score, avg_score = build_fleet_average_trend_fig(
+
+            ALL_PUMPS,
+
+            df_history,
+
+            "점수",
+
+            "평균 CBM Score",
+
+            "점",
+
+            "#2f9e44"
+
+        )
+
+        st.pyplot(
+            fig_score
+        )
+
+    render_excel_export_section(
+
+        "fleet_trend",
+
+        "전사트렌드.xlsx",
+
+        lambda: pd.DataFrame(
+
+            {
+                "시점": TREND_MONTHS,
+                "평균효율(%)": [round(v, 1) for v in avg_eff],
+                "평균진동(mm/s)": [round(v, 2) for v in avg_vib],
+                "평균온도(°C)": [round(v, 1) for v in avg_temp],
+                "평균CBMScore": [round(v, 1) for v in avg_score]
+            }
 
         )
 
@@ -10516,6 +11836,14 @@ elif st.session_state.page == "노하우":
 
                         wb.close()
 
+                    log_audit(
+
+                        "노하우 삭제",
+
+                        delete_choice
+
+                    )
+
                     st.success(
                         "삭제되었습니다. 페이지를 새로고침하면 반영됩니다."
                     )
@@ -10982,6 +12310,225 @@ elif st.session_state.page == "백업":
         st.success(
             "배포 주소가 저장되었습니다. "
             "QR 포털 화면을 다시 열면 반영됩니다."
+        )
+
+    st.markdown(
+        "### 🚨 알림 기준값 설정"
+    )
+
+    st.caption(
+
+        "AI 이상징후·정비권고사항·홈 화면에서 쓰는 "
+        "'관찰/주의' 보조 알림 기준입니다. "
+        "정밀진단 17개 항목의 A~E 등급 계산 기준(ISO 10816-3 등)은 "
+        "여기서 바뀌지 않고 그대로 유지됩니다."
+
+    )
+
+    _cur_th = get_alert_thresholds()
+
+    th_c1, th_c2 = st.columns(2)
+
+    new_vib_watch = th_c1.number_input(
+
+        "진동 관찰 기준(mm/s)",
+
+        value=float(_cur_th["vib_watch"]),
+
+        key="th_vib_watch",
+
+        disabled=is_read_only()
+
+    )
+
+    new_vib_danger = th_c2.number_input(
+
+        "진동 주의 기준(mm/s)",
+
+        value=float(_cur_th["vib_danger"]),
+
+        key="th_vib_danger",
+
+        disabled=is_read_only()
+
+    )
+
+    new_eff_watch = th_c1.number_input(
+
+        "효율 관찰 기준(%)",
+
+        value=float(_cur_th["eff_watch"]),
+
+        key="th_eff_watch",
+
+        disabled=is_read_only()
+
+    )
+
+    new_eff_danger = th_c2.number_input(
+
+        "효율 주의 기준(%)",
+
+        value=float(_cur_th["eff_danger"]),
+
+        key="th_eff_danger",
+
+        disabled=is_read_only()
+
+    )
+
+    new_temp_watch = th_c1.number_input(
+
+        "온도 관찰 기준(°C)",
+
+        value=float(_cur_th["temp_watch"]),
+
+        key="th_temp_watch",
+
+        disabled=is_read_only()
+
+    )
+
+    new_temp_danger = th_c2.number_input(
+
+        "온도 주의 기준(°C)",
+
+        value=float(_cur_th["temp_danger"]),
+
+        key="th_temp_danger",
+
+        disabled=is_read_only()
+
+    )
+
+    if is_read_only():
+
+        st.info(
+            "🔒 보기 전용 모드에서는 변경할 수 없습니다."
+        )
+
+    elif st.button(
+        "알림 기준값 저장",
+        key="save_thresholds_btn"
+    ):
+
+        save_alert_thresholds(
+
+            {
+                "vib_watch": new_vib_watch,
+                "vib_danger": new_vib_danger,
+                "eff_watch": new_eff_watch,
+                "eff_danger": new_eff_danger,
+                "temp_watch": new_temp_watch,
+                "temp_danger": new_temp_danger
+            }
+
+        )
+
+        log_audit(
+
+            "알림 기준값 변경",
+
+            "전체",
+
+            f"진동({new_vib_watch}/{new_vib_danger}) "
+            f"효율({new_eff_watch}/{new_eff_danger}) "
+            f"온도({new_temp_watch}/{new_temp_danger})"
+
+        )
+
+        st.success(
+            "알림 기준값이 저장되었습니다."
+        )
+
+    st.markdown(
+        "### 🔔 알림 웹훅 설정 (Slack 등)"
+    )
+
+    st.caption(
+
+        "정밀진단 결과가 D/E등급으로 저장되면 아래 웹훅 주소로 "
+        "자동 알림을 보냅니다. Slack의 'Incoming Webhook' 주소를 "
+        "그대로 붙여넣으면 됩니다. 비워두면 알림을 보내지 않습니다. "
+        "⚠️ 실제 알림이 도착하는지는 워크스페이스에 웹훅을 "
+        "등록하신 뒤 직접 확인해주세요."
+
+    )
+
+    current_webhook = get_webhook_url()
+
+    new_webhook = st.text_input(
+
+        "웹훅 URL",
+
+        value=current_webhook,
+
+        key="webhook_url_input",
+
+        type="password",
+
+        disabled=is_read_only()
+
+    )
+
+    if is_read_only():
+
+        st.info(
+            "🔒 보기 전용 모드에서는 변경할 수 없습니다."
+        )
+
+    elif st.button(
+        "웹훅 주소 저장",
+        key="save_webhook_btn"
+    ):
+
+        set_webhook_url(
+            new_webhook
+        )
+
+        log_audit(
+            "웹훅 설정 변경",
+            "알림설정"
+        )
+
+        st.success(
+            "웹훅 주소가 저장되었습니다."
+        )
+
+    st.markdown(
+        "### 🕵️ 감사 로그 (누가 언제 무엇을 했는지)"
+    )
+
+    df_audit = read_excel(
+
+        AUDIT_LOG_PATH,
+
+        "감사로그"
+
+    )
+
+    if not df_audit.empty:
+
+        with st.expander(
+
+            f"최근 감사 로그 (총 {len(df_audit)}건)"
+
+        ):
+
+            st.dataframe(
+
+                df_audit.tail(30).iloc[::-1],
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+    else:
+
+        st.caption(
+            "아직 기록된 감사 로그가 없습니다."
         )
 
     st.markdown(
