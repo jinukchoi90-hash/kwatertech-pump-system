@@ -30,7 +30,15 @@ import matplotlib.font_manager as fm
 
 import qrcode
 import base64
+import glob
+import zipfile
 from filelock import FileLock
+
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 
 # ============================================================
@@ -54,6 +62,17 @@ SEED_FLAG_PATH = "seed_flag.txt"
 PHOTO_DIR = "overhaul_photos"
 CONFIG_DIR = "app_config"
 DRAFT_DIR = "diag_drafts"
+
+# ------------------------------------------------------------
+# 로그인(PIN) 게이트 켜고 끄기 스위치.
+#
+# 평가위원 시연 등으로 로그인 화면 없이 바로 앱을 보여줘야
+# 할 때는 False로 두면 된다. 나중에 다시 PIN을 쓰려면
+# True로만 바꾸면 되고, PIN 검증 로직 자체는 그대로 남아있다.
+# ------------------------------------------------------------
+
+LOGIN_GATE_ENABLED = False
+
 
 # ------------------------------------------------------------
 # PIN 번호: st.secrets에 넣어두면 그걸 우선 쓰고,
@@ -443,6 +462,19 @@ section[data-testid="stSidebar"] .stButton > button:hover {
     box-shadow:
         0 3px 14px rgba(10, 70, 100, 0.055);
 
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease;
+
+}
+
+.platform-card:hover {
+
+    transform: translateY(-2px);
+
+    box-shadow:
+        0 10px 26px rgba(10, 70, 100, 0.12);
+
 }
 
 .card-title {
@@ -454,6 +486,141 @@ section[data-testid="stSidebar"] .stButton > button:hover {
     font-size: 0.98rem;
 
     margin-bottom: 8px;
+
+}
+
+
+/* ========================================================
+   설비 카드 그리드 (홈)
+======================================================== */
+
+.equip-card-grid {
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(auto-fill, minmax(220px, 1fr));
+
+    gap: 12px;
+
+    margin-bottom: 10px;
+
+}
+
+.equip-card {
+
+    background: white;
+
+    border-radius: 13px;
+
+    padding: 13px 15px;
+
+    box-shadow:
+        0 3px 12px rgba(10, 70, 100, 0.07);
+
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease;
+
+}
+
+.equip-card:hover {
+
+    transform: translateY(-3px);
+
+    box-shadow:
+        0 12px 24px rgba(10, 70, 100, 0.16);
+
+}
+
+.equip-card-title {
+
+    font-weight: 800;
+
+    font-size: 0.92rem;
+
+    color: #0f3552;
+
+    margin-bottom: 4px;
+
+}
+
+.equip-card-meta {
+
+    font-size: 0.72rem;
+
+    color: #64748b;
+
+    display: flex;
+
+    justify-content: space-between;
+
+    margin-top: 6px;
+
+}
+
+.cbm-bar-track {
+
+    width: 100%;
+
+    height: 8px;
+
+    border-radius: 999px;
+
+    background: #eef2f5;
+
+    overflow: hidden;
+
+    margin-top: 8px;
+
+}
+
+.cbm-bar-fill {
+
+    height: 100%;
+
+    border-radius: 999px;
+
+}
+
+.greeting-banner {
+
+    background:
+        linear-gradient(
+            120deg,
+            #063b63 0%,
+            #087ea4 55%,
+            #11a6c9 100%
+        );
+
+    border-radius: 16px;
+
+    padding: 18px 22px;
+
+    color: white;
+
+    margin-bottom: 16px;
+
+    box-shadow:
+        0 8px 22px rgba(3, 65, 100, 0.15);
+
+}
+
+.highlight-pill {
+
+    display: inline-block;
+
+    padding: 6px 12px;
+
+    border-radius: 999px;
+
+    font-size: 0.78rem;
+
+    font-weight: 700;
+
+    margin-right: 8px;
+
+    margin-bottom: 6px;
 
 }
 
@@ -649,6 +816,76 @@ button[data-baseweb="tab"] {
     .kpi-card {
 
         border-width: 1.5px !important;
+
+    }
+
+    /* ====================================================
+       설비 카드 그리드 - 좁은 화면에서는 1열로,
+       게이지바/스파크라인이 카드 폭에 맞게 줄어들도록
+    ==================================================== */
+
+    .equip-card-grid {
+
+        grid-template-columns: 1fr !important;
+
+    }
+
+    .equip-card {
+
+        padding: 12px 13px !important;
+
+    }
+
+    .equip-card svg {
+
+        width: 70px !important;
+
+    }
+
+}
+
+
+/* ========================================================
+   다크모드 대응 (오늘 새로 추가한 컴포넌트 한정)
+
+   Streamlit 시스템/브라우저가 다크모드일 때, 흰 배경을
+   하드코딩해둔 카드들이 붕 떠 보이지 않도록 보정한다.
+   (기존에 이미 검증된 platform-card/kpi-card 등은
+    건드리지 않고, 오늘 새로 만든 것들만 대상으로 한다)
+======================================================== */
+
+@media (prefers-color-scheme: dark) {
+
+    .equip-card {
+
+        background: #1e293b;
+
+        box-shadow:
+            0 3px 12px rgba(0, 0, 0, 0.35);
+
+    }
+
+    .equip-card-title {
+
+        color: #e2e8f0;
+
+    }
+
+    .equip-card-meta {
+
+        color: #94a3b8;
+
+    }
+
+    .cbm-bar-track {
+
+        background: #334155;
+
+    }
+
+    .highlight-pill {
+
+        filter: brightness(0.92);
 
     }
 
@@ -1865,17 +2102,12 @@ BRAND_ACCENT_COLOR = "087EA4"
 BRAND_ZEBRA_COLOR = "F4F9FC"
 
 
-def build_pretty_excel_bytes(
+def _write_excel_sheet(
+    ws,
     df,
     title,
-    add_chart=True
+    chart_kind
 ):
-
-    wb = Workbook()
-
-    ws = wb.active
-
-    ws.title = "데이터"
 
     n_cols = max(
         len(df.columns),
@@ -2077,9 +2309,15 @@ def build_pretty_excel_bytes(
 
     ).coordinate
 
-    # ---- 숫자 데이터가 있으면 엑셀 자체 차트 삽입 ----
+    # ---- 그래프 삽입 ----
+    #
+    # chart_kind:
+    #   "auto" - 숫자열이 있으면 전부 묶어서 막대차트 (기존 방식)
+    #   "bar"  - 첫 숫자열 하나로 막대차트 (화면의 막대그래프와 매칭)
+    #   "line" - 첫 숫자열 하나로 꺾은선차트 (화면의 선/영역그래프와 매칭)
+    #   None   - 차트 없음
 
-    if add_chart and len(df) >= 2:
+    if chart_kind and len(df) >= 2:
 
         numeric_cols = [
 
@@ -2093,7 +2331,13 @@ def build_pretty_excel_bytes(
 
         if numeric_cols:
 
-            chart = BarChart()
+            if chart_kind == "line":
+
+                chart = LineChart()
+
+            else:
+
+                chart = BarChart()
 
             chart.title = title
 
@@ -2103,13 +2347,21 @@ def build_pretty_excel_bytes(
 
             chart.style = 10
 
+            if chart_kind == "auto":
+
+                min_c, max_c = numeric_cols[0], numeric_cols[-1]
+
+            else:
+
+                min_c = max_c = numeric_cols[0]
+
             data_ref = Reference(
 
                 ws,
 
-                min_col=numeric_cols[0],
+                min_col=min_c,
 
-                max_col=numeric_cols[-1],
+                max_col=max_c,
 
                 min_row=header_row,
 
@@ -2153,6 +2405,58 @@ def build_pretty_excel_bytes(
                 chart_anchor
             )
 
+
+def build_pretty_excel_bytes(
+    sheets,
+    title
+):
+
+    # sheets: pandas DataFrame 하나를 그대로 넘기면 단일 시트로
+    # 처리하고(예전 방식과 호환), 여러 그래프를 함께 넣고 싶으면
+    # [{"name":.., "df":.., "chart": "bar"/"line"/"auto"/None}, ...]
+    # 형태의 리스트를 넘긴다.
+
+    if isinstance(sheets, pd.DataFrame):
+
+        sheets = [
+
+            {
+                "name": "데이터",
+                "df": sheets,
+                "chart": "auto"
+            }
+
+        ]
+
+    wb = Workbook()
+
+    wb.remove(
+        wb.active
+    )
+
+    for spec in sheets:
+
+        sheet_title = spec.get(
+            "name",
+            "데이터"
+        )[:31]
+
+        ws = wb.create_sheet(
+            sheet_title
+        )
+
+        _write_excel_sheet(
+
+            ws,
+
+            spec["df"],
+
+            spec.get("title", title),
+
+            spec.get("chart", "auto")
+
+        )
+
     buffer = io.BytesIO()
 
     wb.save(buffer)
@@ -2160,35 +2464,1470 @@ def build_pretty_excel_bytes(
     return buffer.getvalue()
 
 
-def trigger_browser_download(
-    data_bytes,
-    filename,
-    mime
+# ============================================================
+# 7-6-1. 설비별 월간 보고서 (Word)
+#
+# 월간보고서는 사내에서 쓰는 다른 화면들과 달리 회사 밖으로
+# 나가는(혹은 상위 결재를 받는) 유일한 산출물이라 별도로
+# 공을 들인다. 화면에 보이는 데이터를 최대한 그대로 담고,
+# 그래프도 이미지가 아니라 화면과 동일한 그래프를 그대로 삽입한다.
+# ============================================================
+
+def find_logo_file():
+
+    for pattern in (
+        "[Ll]ogo.png",
+        "[Ll]ogo.jpg",
+        "[Ll]ogo.jpeg"
+    ):
+
+        matches = glob.glob(pattern)
+
+        if matches:
+
+            return matches[0]
+
+    return None
+
+
+def build_report_qr_image_bytes(
+    pump,
+    all_pumps
 ):
 
-    # "예" 버튼을 누른 즉시 브라우저 다운로드가 실제로
-    # 시작되도록, 숨겨진 링크를 만들어 자바스크립트로
-    # 바로 클릭시킨다. (예전에는 "예"를 누르면 별도의
-    # 다운로드 버튼이 하나 더 생겨서 한 번 더 눌러야 했다.)
+    # 종이로 인쇄한 보고서에서도 QR을 찍으면 바로 그 설비의
+    # 실시간 화면으로 연결되도록 표지에 작은 QR을 넣는다.
+    # (QR 포털의 QR 생성 로직과 동일한 방식)
 
-    b64 = base64.b64encode(
-        data_bytes
-    ).decode()
+    equip_no = (
 
-    components.html(
+        all_pumps.index(pump) + 1
 
-        f"""
-        <a id="_auto_dl" style="display:none"
-           href="data:{mime};base64,{b64}"
-           download="{filename}"></a>
-        <script>
-        document.getElementById("_auto_dl").click();
-        </script>
-        """,
+        if pump in all_pumps
 
-        height=0
+        else 0
 
     )
+
+    app_base_url = get_app_base_url()
+
+    qr_target_url = (
+
+        f"{app_base_url}/?page=QR&equip="
+
+        +
+        urllib.parse.quote(
+            pump["equip"]
+        )
+
+    )
+
+    qr_img = qrcode.make(
+        qr_target_url
+    )
+
+    buf = io.BytesIO()
+
+    qr_img.save(
+        buf,
+        format="PNG"
+    )
+
+    buf.seek(0)
+
+    return buf
+
+
+def check_data_sufficiency(
+    result,
+    month_history
+):
+
+    # 신규 설비이거나 실측 이력이 적으면 보고서 여러 섹션이
+    # 예시데이터/이력없음으로 휑하게 보일 수 있다. 이런 경우
+    # 맨 앞에 안내 문구를 넣어, 보는 사람이 "왜 이렇게
+    # 비어있지?"라고 오해하지 않도록 한다.
+
+    if result.get("실측이력있음") and not month_history.empty:
+
+        return None
+
+    return (
+
+        "※ 본 설비는 아직 축적된 진단 이력이 충분하지 않아 "
+        "일부 항목(추세 그래프 등)이 실측이 아닌 예시 데이터로 "
+        "표시됩니다. 정밀진단을 반복해서 저장할수록 이후 "
+        "보고서의 신뢰도가 높아집니다."
+
+    )
+
+
+def _clean_cell_value(
+    val,
+    default=""
+):
+
+    # 엑셀에서 읽어온 값이 NaN(빈칸)이면 워드 표에
+    # "nan"이라고 그대로 찍히던 문제를 막는다.
+
+    if val is None:
+
+        return default
+
+    try:
+
+        if pd.isna(val):
+
+            return default
+
+    except (TypeError, ValueError):
+
+        pass
+
+    return val
+
+
+def _shade_cell(
+    cell,
+    color_hex
+):
+
+    tc_pr = cell._tc.get_or_add_tcPr()
+
+    shd = OxmlElement("w:shd")
+
+    shd.set(qn("w:fill"), color_hex)
+
+    tc_pr.append(shd)
+
+
+def _set_korean_font(
+    doc
+):
+
+    style = doc.styles["Normal"]
+
+    style.font.name = "맑은 고딕"
+
+    style.font.size = Pt(10.5)
+
+    r_pr = style.element.get_or_add_rPr()
+
+    r_fonts = r_pr.find(qn("w:rFonts"))
+
+    if r_fonts is None:
+
+        r_fonts = OxmlElement("w:rFonts")
+
+        r_pr.append(r_fonts)
+
+    r_fonts.set(qn("w:eastAsia"), "맑은 고딕")
+
+
+def _add_styled_table(
+    doc,
+    headers,
+    rows
+):
+
+    table = doc.add_table(
+        rows=1,
+        cols=len(headers)
+    )
+
+    table.style = "Light Grid Accent 1"
+
+    hdr_cells = table.rows[0].cells
+
+    for j, h in enumerate(headers):
+
+        hdr_cells[j].text = str(h)
+
+        _shade_cell(
+            hdr_cells[j],
+            BRAND_HEADER_COLOR
+        )
+
+        for p in hdr_cells[j].paragraphs:
+
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            for run in p.runs:
+
+                run.font.color.rgb = RGBColor(
+                    0xFF, 0xFF, 0xFF
+                )
+
+                run.font.bold = True
+
+    for i, row in enumerate(rows):
+
+        cells = table.add_row().cells
+
+        for j, val in enumerate(row):
+
+            cells[j].text = str(val)
+
+            if i % 2 == 1:
+
+                _shade_cell(
+                    cells[j],
+                    BRAND_ZEBRA_COLOR
+                )
+
+    return table
+
+
+def _add_fig_to_doc(
+    doc,
+    fig,
+    width_inches=6.0,
+    caption=None
+):
+
+    buf = io.BytesIO()
+
+    fig.savefig(
+
+        buf,
+
+        format="png",
+
+        dpi=150,
+
+        bbox_inches="tight"
+
+    )
+
+    plt.close(fig)
+
+    buf.seek(0)
+
+    doc.add_picture(
+        buf,
+        width=Inches(width_inches)
+    )
+
+    if caption:
+
+        cap = doc.add_paragraph()
+
+        cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        run = cap.add_run(
+            caption
+        )
+
+        run.italic = True
+
+        run.font.size = Pt(9)
+
+        run.font.color.rgb = RGBColor(
+            0x66, 0x66, 0x66
+        )
+
+
+def add_page_number_field(
+    paragraph
+):
+
+    run = paragraph.add_run()
+
+    fld_begin = OxmlElement("w:fldChar")
+
+    fld_begin.set(qn("w:fldCharType"), "begin")
+
+    instr = OxmlElement("w:instrText")
+
+    instr.set(qn("xml:space"), "preserve")
+
+    instr.text = "PAGE"
+
+    fld_end = OxmlElement("w:fldChar")
+
+    fld_end.set(qn("w:fldCharType"), "end")
+
+    run._r.append(fld_begin)
+
+    run._r.append(instr)
+
+    run._r.append(fld_end)
+
+
+def add_report_header_footer(
+    doc,
+    doc_no
+):
+
+    section = doc.sections[0]
+
+    header_p = section.header.paragraphs[0]
+
+    header_p.text = (
+
+        "K-water tech 설비관리 통합 플랫폼"
+
+    )
+
+    header_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    for run in header_p.runs:
+
+        run.font.size = Pt(8)
+
+        run.font.color.rgb = RGBColor(
+            0x66, 0x66, 0x66
+        )
+
+    footer_p = section.footer.paragraphs[0]
+
+    footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    footer_run = footer_p.add_run(
+        f"{doc_no}   ·   "
+    )
+
+    footer_run.font.size = Pt(8)
+
+    footer_run.font.color.rgb = RGBColor(
+        0x66, 0x66, 0x66
+    )
+
+    add_page_number_field(
+        footer_p
+    )
+
+
+def add_table_of_contents(
+    doc
+):
+
+    # Word 자체 목차 필드를 삽입한다. 문서를 열면 Word가
+    # "필드 업데이트"를 묻거나, 설정에 따라 자동으로
+    # 목차를 채워준다. (LibreOffice 등에서는 안내 문구만
+    # 보일 수 있어, 우클릭 -> 필드 업데이트를 안내한다.)
+
+    doc.add_heading(
+        "목차",
+        level=1
+    )
+
+    paragraph = doc.add_paragraph()
+
+    run = paragraph.add_run()
+
+    fld_begin = OxmlElement("w:fldChar")
+
+    fld_begin.set(qn("w:fldCharType"), "begin")
+
+    instr = OxmlElement("w:instrText")
+
+    instr.set(qn("xml:space"), "preserve")
+
+    instr.text = 'TOC \\o "1-2" \\h \\z \\u'
+
+    fld_separate = OxmlElement("w:fldChar")
+
+    fld_separate.set(qn("w:fldCharType"), "separate")
+
+    fld_end = OxmlElement("w:fldChar")
+
+    fld_end.set(qn("w:fldCharType"), "end")
+
+    r_elem = run._r
+
+    r_elem.append(fld_begin)
+
+    r_elem.append(instr)
+
+    r_elem.append(fld_separate)
+
+    r_elem.append(fld_end)
+
+    hint_p = doc.add_paragraph()
+
+    hint_run = hint_p.add_run(
+
+        "※ 목차가 비어 보이면, 목차 위에서 마우스 오른쪽 버튼 → "
+        "'필드 업데이트'를 눌러주세요 (Word에서 자동 채워집니다)."
+
+    )
+
+    hint_run.italic = True
+
+    hint_run.font.size = Pt(8)
+
+    hint_run.font.color.rgb = RGBColor(
+        0x99, 0x99, 0x99
+    )
+
+    # Word가 문서를 열 때 필드를 자동으로 갱신하도록 설정.
+
+    settings_elem = doc.settings.element
+
+    update_fields = OxmlElement("w:updateFields")
+
+    update_fields.set(qn("w:val"), "true")
+
+    settings_elem.append(
+        update_fields
+    )
+
+
+def get_month_latest_record(
+    df_history,
+    equip,
+    month_label
+):
+
+    if (
+
+        df_history.empty
+
+        or
+        "설비명" not in df_history.columns
+
+    ):
+
+        return None
+
+    rows = df_history[
+
+        (df_history["설비명"] == equip)
+
+        &
+        (
+
+            df_history["점검일"].astype(str).str.startswith(
+                month_label
+            )
+
+        )
+
+    ]
+
+    if rows.empty:
+
+        return None
+
+    return rows.sort_values("점검일").iloc[-1]
+
+
+def get_previous_month_label(
+    month_label
+):
+
+    year, month = [
+        int(x)
+        for x in month_label.split("-")
+    ]
+
+    if month == 1:
+
+        return f"{year - 1}-12"
+
+    return f"{year}-{month - 1:02d}"
+
+
+def generate_executive_summary(
+    pump,
+    result,
+    vib_values
+):
+
+    lines = []
+
+    grade_text = get_grade_text(
+        result["등급"]
+    )
+
+    lines.append(
+
+        f"본 설비({pump['equip']})는 {result['점수']}점"
+        f"({result['등급']}등급)으로 판정되어 "
+        f"'{grade_text}' 상태입니다."
+
+    )
+
+    if len(vib_values) >= 2:
+
+        diff = vib_values[-1] - vib_values[-2]
+
+        if diff > 0.3:
+
+            lines.append(
+
+                f"진동값이 직전 시점 대비 {diff:+.1f} mm/s "
+                f"상승하는 추세를 보이고 있어 지속적인 관찰이 필요합니다."
+
+            )
+
+        elif diff < -0.3:
+
+            lines.append(
+
+                f"진동값이 직전 시점 대비 {diff:+.1f} mm/s "
+                f"개선되는 추세를 보이고 있습니다."
+
+            )
+
+        else:
+
+            lines.append(
+
+                "진동값은 직전 시점과 비교해 큰 변화 없이 "
+                "안정적인 수준을 유지하고 있습니다."
+
+            )
+
+    if result["상태"] == "정비검토":
+
+        lines.append(
+
+            "현재 정비검토 등급으로 판정되어 "
+            "조속한 정밀점검 및 정비 조치가 필요한 상태입니다."
+
+        )
+
+    elif result["상태"] == "관찰":
+
+        lines.append(
+
+            "현재 관찰 등급으로 판정되어 "
+            "다음 정기점검 시 추이를 중점적으로 확인할 필요가 있습니다."
+
+        )
+
+    else:
+
+        lines.append(
+
+            "현재 정상 범위에서 안정적으로 운전되고 있습니다."
+
+        )
+
+    return " ".join(
+        lines
+    )
+
+
+def generate_action_items(
+    pump,
+    result
+):
+
+    items = []
+
+    if result["등급"] in ["D", "E"]:
+
+        items.append(
+
+            "종합등급이 D등급 이하로 판정되어 "
+            "조속한 정밀진단 및 정비계획 수립이 필요합니다."
+
+        )
+
+    if result["진동"] >= 7.1:
+
+        items.append(
+
+            "진동이 주의 기준(7.1 mm/s)을 초과하여 "
+            "베어링·축정렬 상태에 대한 정밀점검이 필요합니다."
+
+        )
+
+    elif result["진동"] >= 4.5:
+
+        items.append(
+
+            "진동이 관찰 기준(4.5 mm/s)을 초과하여 "
+            "다음 점검 시 원인 분석이 권장됩니다."
+
+        )
+
+    if result["효율"] < 80:
+
+        items.append(
+
+            "효율이 80% 미만으로 저하되어 "
+            "내부 마모(링간극·축슬리브 등) 점검이 권장됩니다."
+
+        )
+
+    if result["온도"] >= 55:
+
+        items.append(
+
+            "온도가 주의 기준(55°C)을 초과하여 "
+            "냉각·윤활 상태 점검이 필요합니다."
+
+        )
+
+    remaining = result.get(
+        "다음오버홀까지남은시간"
+    )
+
+    if remaining is not None and remaining <= 1000:
+
+        items.append(
+
+            f"다음 오버홀 예정시점까지 {remaining:,}시간 남아 "
+            f"오버홀 일정을 사전에 계획할 것을 권장합니다."
+
+        )
+
+    if not items:
+
+        items.append(
+
+            "현재 특별한 조치가 필요한 사항은 없으며, "
+            "정기 점검 주기를 유지하시기 바랍니다."
+
+        )
+
+    return items
+
+
+def build_pump_monthly_report_docx(
+    pump,
+    result,
+    month_label,
+    df_history,
+    all_pumps
+):
+
+    doc = Document()
+
+    _set_korean_font(
+        doc
+    )
+
+    equip_no = (
+
+        all_pumps.index(pump) + 1
+
+        if pump in all_pumps
+
+        else 0
+
+    )
+
+    doc_no = (
+
+        f"KWT-{month_label.replace('-', '')}"
+        f"-{equip_no:03d}"
+
+    )
+
+    add_report_header_footer(
+
+        doc,
+
+        doc_no
+
+    )
+
+    # ---------------- 표지 ----------------
+
+    logo_path = find_logo_file()
+
+    if logo_path:
+
+        try:
+
+            logo_p = doc.add_paragraph()
+
+            logo_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            logo_p.add_run().add_picture(
+
+                logo_path,
+
+                width=Inches(1.6)
+
+            )
+
+        except Exception:
+
+            pass
+
+    title = doc.add_heading(
+        "월간 설비 진단 보고서",
+        level=0
+    )
+
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    subtitle_p = doc.add_paragraph()
+
+    subtitle_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    subtitle_run = subtitle_p.add_run(
+
+        f"{pump['equip']}  ·  {month_label}"
+
+    )
+
+    subtitle_run.font.size = Pt(16)
+
+    subtitle_run.bold = True
+
+    doc.add_paragraph()
+
+    # QR코드 삽입 (인쇄본에서도 스캔하면 실시간 화면으로 연결)
+
+    try:
+
+        qr_buf = build_report_qr_image_bytes(
+
+            pump,
+
+            all_pumps
+
+        )
+
+        qr_p = doc.add_paragraph()
+
+        qr_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        qr_p.add_run().add_picture(
+
+            qr_buf,
+
+            width=Inches(1.2)
+
+        )
+
+        qr_cap = doc.add_paragraph()
+
+        qr_cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        qr_cap_run = qr_cap.add_run(
+
+            "스캔하면 이 설비의 실시간 화면으로 연결됩니다"
+
+        )
+
+        qr_cap_run.italic = True
+
+        qr_cap_run.font.size = Pt(8)
+
+        qr_cap_run.font.color.rgb = RGBColor(
+            0x99, 0x99, 0x99
+        )
+
+    except Exception:
+
+        pass
+
+    _add_styled_table(
+
+        doc,
+
+        ["항목", "내용"],
+
+        [
+            ["문서번호", doc_no],
+            ["사업장", pump["site"]],
+            ["설비명", pump["equip"]],
+            ["보고월", month_label],
+            [
+                "작성자",
+                st.session_state.get(
+                    "user_name",
+                    ""
+                )
+            ],
+            [
+                "작성일",
+                datetime.now().strftime("%Y-%m-%d")
+            ]
+        ]
+
+    )
+
+    doc.add_page_break()
+
+    # ---------------- 목차 ----------------
+
+    add_table_of_contents(
+        doc
+    )
+
+    doc.add_page_break()
+
+    # ---------------- 0. 종합 소견 ----------------
+
+    doc.add_heading(
+        "종합 소견",
+        level=1
+    )
+
+    month_history = pd.DataFrame()
+
+    if (
+
+        not df_history.empty
+
+        and
+        "설비명" in df_history.columns
+
+    ):
+
+        pump_hist = df_history[
+
+            df_history["설비명"] == pump["equip"]
+
+        ].copy()
+
+        if not pump_hist.empty:
+
+            month_history = pump_hist[
+
+                pump_hist["점검일"].astype(str).str.startswith(
+                    month_label
+                )
+
+            ]
+
+    data_note = check_data_sufficiency(
+
+        result,
+
+        month_history
+
+    )
+
+    if data_note:
+
+        note_p = doc.add_paragraph()
+
+        note_run = note_p.add_run(
+            data_note
+        )
+
+        note_run.italic = True
+
+        note_run.font.size = Pt(9)
+
+        note_run.font.color.rgb = RGBColor(
+            0xB0, 0x60, 0x00
+        )
+
+        note_p.paragraph_format.space_after = Pt(8)
+
+    vib_dates, vib_values, _ = get_vibration_trend_data(
+
+        pump,
+
+        result,
+
+        df_history
+
+    )
+
+    summary_text = generate_executive_summary(
+
+        pump,
+
+        result,
+
+        vib_values
+
+    )
+
+    summary_p = doc.add_paragraph(
+        summary_text
+    )
+
+    summary_p.paragraph_format.space_after = Pt(12)
+
+    doc.add_page_break()
+
+    # 그림/표 번호 매기기용 카운터
+    # (사내 결재·회의에서 "표 2번 다시 보여주세요" 식으로
+    # 참조할 수 있도록 순번을 붙인다)
+
+    _report_counters = {"fig": 0, "table": 0}
+
+    def _next_num(kind):
+
+        _report_counters[kind] += 1
+
+        return _report_counters[kind]
+
+    def _add_table_caption(
+        text
+    ):
+
+        num = _next_num("table")
+
+        cap_p = doc.add_paragraph()
+
+        cap_run = cap_p.add_run(
+
+            f"표 {num}. {text}"
+
+        )
+
+        cap_run.bold = True
+
+        cap_run.font.size = Pt(9.5)
+
+        return num
+
+    # ---------------- 1. 설비 스펙 ----------------
+
+    doc.add_heading(
+        "1. 설비 스펙",
+        level=1
+    )
+
+    _add_table_caption(
+        "설비 스펙"
+    )
+
+    _add_styled_table(
+
+        doc,
+
+        ["항목", "값"],
+
+        [
+            ["사업장", pump["site"]],
+            ["설비명", pump["equip"]],
+            ["제조사", pump["maker"]],
+            ["모델명", pump["model"]],
+            ["정격출력(HP)", pump["hp"]],
+            ["정격양정(m)", pump["head"]],
+            ["정격유량(m³/h)", pump["flow"]],
+            ["회전수(RPM)", pump["rpm"]],
+            ["준공일", pump["build_date"]],
+            ["누적 운전시간(h)", f'{pump["op_hours"]:,}'],
+            [
+                "기준진동(mm/s)",
+                pump.get("기준진동") or "공통기준 적용"
+            ],
+            [
+                "기준효율(%)",
+                pump.get("기준효율") or "공통기준 적용"
+            ]
+        ]
+
+    )
+
+    # ---------------- 2. 펌프 점수 및 현재 상태 ----------------
+
+    doc.add_heading(
+        "2. 펌프 점수 및 현재 상태",
+        level=1
+    )
+
+    status_p = doc.add_paragraph()
+
+    status_run = status_p.add_run(
+
+        f"CBM Score {result['점수']}점 · "
+        f"{result['등급']}등급 · "
+        f"상태 : {result['상태']}"
+
+    )
+
+    status_run.bold = True
+
+    status_run.font.size = Pt(13)
+
+    if result.get("다음오버홀까지남은시간") is not None:
+
+        doc.add_paragraph(
+
+            f"다음 오버홀 예정까지 약 "
+            f"{result['다음오버홀까지남은시간']:,}시간 남음 "
+            f"(기준 {OVERHAUL_INTERVAL_HOURS:,}시간 주기)"
+
+        )
+
+    gauge_fig = build_score_gauge_fig(
+        pump,
+        result
+    )
+
+    _add_fig_to_doc(
+
+        doc,
+
+        gauge_fig,
+
+        width_inches=6.0,
+
+        caption=f"그림 {_next_num('fig')}. CBM Score 게이지 (구간별 등급 기준)"
+
+    )
+
+    # ---------------- 2-1. 전월 대비 변화 ----------------
+
+    doc.add_heading(
+
+        "전월 대비 변화",
+
+        level=2
+
+    )
+
+    prev_month_label = get_previous_month_label(
+        month_label
+    )
+
+    this_month_rec = get_month_latest_record(
+
+        df_history,
+
+        pump["equip"],
+
+        month_label
+
+    )
+
+    prev_month_rec = get_month_latest_record(
+
+        df_history,
+
+        pump["equip"],
+
+        prev_month_label
+
+    )
+
+    if this_month_rec is not None and prev_month_rec is not None:
+
+        def _diff_row(
+            label,
+            col,
+            unit
+        ):
+
+            cur = this_month_rec.get(col)
+
+            prev = prev_month_rec.get(col)
+
+            if pd.isna(cur) or pd.isna(prev):
+
+                return [label, "-", "-", "-"]
+
+            cur = float(cur)
+
+            prev = float(prev)
+
+            return [
+
+                label,
+
+                f"{prev:.1f}{unit}",
+
+                f"{cur:.1f}{unit}",
+
+                f"{cur - prev:+.1f}{unit}"
+
+            ]
+
+        _add_table_caption(
+            "전월 대비 변화"
+        )
+
+        _add_styled_table(
+
+            doc,
+
+            ["지표", f"{prev_month_label}", f"{month_label}", "변화"],
+
+            [
+                _diff_row("종합점수", "종합점수", "점"),
+                _diff_row("효율", "효율측정값(%)", "%"),
+                _diff_row("진동", "진동측정값(mm/s)", "mm/s"),
+                _diff_row("온도", "온도측정값(°C)", "°C")
+            ]
+
+        )
+
+    else:
+
+        doc.add_paragraph(
+
+            f"{prev_month_label} 또는 {month_label}에 "
+            "점검 이력이 없어 전월 대비 비교를 산출할 수 없습니다."
+
+        )
+
+    # ---------------- 3. 점검 이력 ----------------
+
+    doc.add_heading(
+        "3. 점검 이력",
+        level=1
+    )
+
+    # (month_history는 종합소견 섹션에서 이미 계산해뒀다)
+
+    if not month_history.empty:
+
+        rows = []
+
+        for _, r in month_history.iterrows():
+
+            rows.append(
+
+                [
+                    _clean_cell_value(r.get("점검일")),
+                    _clean_cell_value(r.get("점검자")),
+                    _clean_cell_value(r.get("종합점수")),
+                    _clean_cell_value(r.get("최종등급")),
+                    _clean_cell_value(r.get("효율측정값(%)")),
+                    _clean_cell_value(r.get("진동측정값(mm/s)")),
+                    _clean_cell_value(r.get("온도측정값(°C)"))
+                ]
+
+            )
+
+        _add_table_caption(
+            f"{month_label} 점검 이력"
+        )
+
+        _add_styled_table(
+
+            doc,
+
+            [
+                "점검일", "점검자", "종합점수", "등급",
+                "효율(%)", "진동(mm/s)", "온도(°C)"
+            ],
+
+            rows
+
+        )
+
+    else:
+
+        doc.add_paragraph(
+
+            f"{month_label}에 저장된 점검 이력이 없습니다."
+
+        )
+
+    # ---------------- 4. 오버홀 내역 ----------------
+
+    doc.add_heading(
+        "4. 오버홀 내역",
+        level=1
+    )
+
+    df_overhaul_all = read_excel(
+        OVERHAUL_DB_PATH,
+        "오버홀이력"
+    )
+
+    month_overhaul = pd.DataFrame()
+
+    if (
+
+        not df_overhaul_all.empty
+
+        and
+        "설비명" in df_overhaul_all.columns
+
+    ):
+
+        pump_overhaul = df_overhaul_all[
+
+            df_overhaul_all["설비명"] == pump["equip"]
+
+        ].copy()
+
+        if not pump_overhaul.empty:
+
+            month_overhaul = pump_overhaul[
+
+                pump_overhaul["작업일자"].astype(str).str.startswith(
+                    month_label
+                )
+
+            ]
+
+    if not month_overhaul.empty:
+
+        rows = []
+
+        for _, r in month_overhaul.iterrows():
+
+            rows.append(
+
+                [
+                    _clean_cell_value(r.get("작업일자")),
+                    _clean_cell_value(r.get("공정단계")),
+                    _clean_cell_value(r.get("작업자")),
+                    str(_clean_cell_value(r.get("작업내용")))[:60]
+                ]
+
+            )
+
+        _add_table_caption(
+            f"{month_label} 오버홀 내역"
+        )
+
+        _add_styled_table(
+
+            doc,
+
+            ["작업일자", "공정단계", "작업자", "작업내용"],
+
+            rows
+
+        )
+
+        # 오버홀 작업사진 첨부
+
+        photo_rows = month_overhaul[
+
+            month_overhaul["사진파일명"].astype(str) != ""
+
+        ] if "사진파일명" in month_overhaul.columns else pd.DataFrame()
+
+        for _, prow in photo_rows.iterrows():
+
+            photo_path = os.path.join(
+
+                PHOTO_DIR,
+
+                str(prow["사진파일명"])
+
+            )
+
+            if os.path.exists(photo_path):
+
+                try:
+
+                    doc.add_picture(
+
+                        photo_path,
+
+                        width=Inches(5.0)
+
+                    )
+
+                    cap = doc.add_paragraph()
+
+                    cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+                    cap_run = cap.add_run(
+
+                        f"{prow.get('작업일자', '')} 작업사진"
+
+                    )
+
+                    cap_run.italic = True
+
+                    cap_run.font.size = Pt(9)
+
+                    cap_run.font.color.rgb = RGBColor(
+                        0x66, 0x66, 0x66
+                    )
+
+                except Exception:
+
+                    pass
+
+    else:
+
+        doc.add_paragraph(
+
+            f"{month_label}에 저장된 오버홀·작업 이력이 없습니다."
+
+        )
+
+    # ---------------- 5. 정비 권고사항 ----------------
+
+    doc.add_heading(
+        "5. 정비 권고사항",
+        level=1
+    )
+
+    for item in generate_action_items(
+        pump,
+        result
+    ):
+
+        bullet_p = doc.add_paragraph(
+
+            item,
+
+            style="List Bullet"
+
+        )
+
+    # ---------------- 6. 등급 판정 기준 ----------------
+
+    doc.add_heading(
+        "6. 등급 판정 기준",
+        level=1
+    )
+
+    _add_table_caption(
+        "등급 판정 기준"
+    )
+
+    _add_styled_table(
+
+        doc,
+
+        ["등급", "종합점수 기준", "판정"],
+
+        [
+            ["A", "90점 이상", get_grade_text("A")],
+            ["B", "80점 이상 ~ 90점 미만", get_grade_text("B")],
+            ["C", "70점 이상 ~ 80점 미만", get_grade_text("C")],
+            ["D", "60점 이상 ~ 70점 미만", get_grade_text("D")],
+            ["E", "60점 미만", get_grade_text("E")]
+        ]
+
+    )
+
+    doc.add_paragraph(
+
+        "진동 판정구간은 ISO 10816-3 Class II"
+        "(15~300kW, 강성 지지) 권고 기준을 참고했습니다. "
+        "17개 세부 진단항목의 배점·기준은 정밀진단 화면의 "
+        "각 항목별 판정기준을 따릅니다."
+
+    )
+
+    # ---------------- 6. 추세 그래프 ----------------
+
+    doc.add_heading(
+        "7. 추세 그래프",
+        level=1
+    )
+
+    vib_fig = build_vibration_trend_fig(
+
+        pump,
+
+        result,
+
+        df_history=df_history,
+
+        figsize=(7, 3.2)
+
+    )
+
+    _add_fig_to_doc(
+        doc,
+        vib_fig,
+        caption=f"그림 {_next_num('fig')}. 진동 추세"
+    )
+
+    eff_fig = build_efficiency_trend_fig(
+
+        pump,
+
+        result,
+
+        df_history=df_history,
+
+        figsize=(7, 3.2)
+
+    )
+
+    _add_fig_to_doc(
+        doc,
+        eff_fig,
+        caption=f"그림 {_next_num('fig')}. 효율 추세"
+    )
+
+    temp_fig = build_temperature_trend_fig(
+
+        pump,
+
+        result,
+
+        df_history=df_history,
+
+        figsize=(7, 3.2)
+
+    )
+
+    _add_fig_to_doc(
+        doc,
+        temp_fig,
+        caption=f"그림 {_next_num('fig')}. 온도 추세"
+    )
+
+    hours_fig = build_op_hours_trend_fig(
+
+        pump,
+
+        figsize=(7, 3.2)
+
+    )
+
+    _add_fig_to_doc(
+        doc,
+        hours_fig,
+        caption=f"그림 {_next_num('fig')}. 누적 운전시간 추세 (추정치)"
+    )
+
+    compare_fig = build_fleet_compare_fig(
+
+        pump,
+
+        result,
+
+        all_pumps,
+
+        df_history,
+
+        figsize=(7.5, 2.8)
+
+    )
+
+    _add_fig_to_doc(
+        doc,
+        compare_fig,
+        caption=f"그림 {_next_num('fig')}. {pump['equip']} vs 전체 {len(all_pumps)}대 평균 비교"
+    )
+
+    # ---------------- 8. 부록: 용어 설명 ----------------
+
+    doc.add_page_break()
+
+    doc.add_heading(
+
+        "8. 부록 : 용어 설명",
+
+        level=1
+
+    )
+
+    for term, desc in GLOSSARY.items():
+
+        term_p = doc.add_paragraph()
+
+        term_run = term_p.add_run(
+            term
+        )
+
+        term_run.bold = True
+
+        desc_p = doc.add_paragraph(
+            desc
+        )
+
+        desc_p.paragraph_format.space_after = Pt(8)
+
+    buffer = io.BytesIO()
+
+    doc.save(
+        buffer
+    )
+
+    return buffer.getvalue()
 
 
 # ============================================================
@@ -2196,8 +3935,17 @@ def trigger_browser_download(
 #
 # 모든 메뉴 하단에 "엑셀로 저장" 버튼을 놓고, 누르면
 # 바로 저장하지 않고 예/아니오를 묻는 팝업(st.dialog)을
-# 띄운다. "예"를 누르면 그 자리에서 바로 예쁘게 서식이 적용된
-# 엑셀 파일이 만들어지고 브라우저 다운로드가 즉시 시작된다.
+# 띄운다.
+#
+# "예" 버튼 자체가 실제 st.download_button이다. (처음엔
+# 숨겨진 링크를 자바스크립트로 자동 클릭시키는 방식을 썼는데,
+# Streamlit 컴포넌트는 sandbox가 걸린 iframe 안에서 렌더링되어
+# 브라우저가 다운로드를 막아버리는 경우가 있어 실제로 저장이
+# 안 되는 문제가 있었다. st.download_button은 Streamlit이
+# 공식적으로 지원하는 방식이라 브라우저·환경에 관계없이
+# 확실하게 동작한다. 예를 누르는 즉시 파일을 미리 만들어
+# "예" 버튼 자체에 담아두는 방식으로, 클릭 한 번에 바로
+# 다운로드되도록 했다.)
 # ============================================================
 
 EXCEL_MIME = (
@@ -2218,36 +3966,45 @@ def confirm_excel_export_dialog(
         "현재 화면의 데이터를 엑셀 파일로 저장하시겠습니까?"
     )
 
+    cache_key = f"_dialog_excel_bytes_{page_key}"
+
+    if cache_key not in st.session_state:
+
+        sheets = build_df_fn()
+
+        st.session_state[cache_key] = build_pretty_excel_bytes(
+
+            sheets,
+
+            title
+
+        )
+
     c1, c2 = st.columns(2)
 
     with c1:
 
-        if st.button(
+        clicked_yes = st.download_button(
+
             "예",
+
+            data=st.session_state[cache_key],
+
+            file_name=filename,
+
+            mime=EXCEL_MIME,
+
             key=f"confirm_yes_{page_key}",
+
             type="primary",
+
             use_container_width=True
-        ):
 
-            df = build_df_fn()
+        )
 
-            excel_bytes = build_pretty_excel_bytes(
+        if clicked_yes:
 
-                df,
-
-                title
-
-            )
-
-            trigger_browser_download(
-
-                excel_bytes,
-
-                filename,
-
-                EXCEL_MIME
-
-            )
+            del st.session_state[cache_key]
 
             st.session_state[
                 f"_export_done_{page_key}"
@@ -2269,6 +4026,10 @@ def confirm_excel_export_dialog(
             key=f"confirm_no_{page_key}",
             use_container_width=True
         ):
+
+            if cache_key in st.session_state:
+
+                del st.session_state[cache_key]
 
             st.session_state[
                 f"_show_export_confirm_{page_key}"
@@ -3374,72 +5135,11 @@ def build_vibration_trend_fig(
     figsize=(9, 4)
 ):
 
-    real_dates, real_values = (
-
-        get_real_history_series(
-            df_history,
-            pump,
-            "진동측정값(mm/s)"
-        )
-
-        if df_history is not None
-
-        else ([], [])
-
+    months, vibration, use_real = get_vibration_trend_data(
+        pump,
+        result,
+        df_history
     )
-
-    use_real = len(real_values) >= 2
-
-    if use_real:
-
-        months = real_dates
-
-        vibration = real_values
-
-    else:
-
-        months = [
-
-            "2025.01",
-            "2025.06",
-            "2025.12",
-            "2026.03",
-            "2026.08",
-            "2026.12"
-
-        ]
-
-    base = result["진동"]
-
-    if not use_real:
-
-        vibration = [
-
-            max(
-                1.2,
-                base - 2.5
-            ),
-
-            max(
-                1.4,
-                base - 2
-            ),
-
-            max(
-                1.6,
-                base - 1.4
-            ),
-
-            max(
-                1.8,
-                base - 0.8
-            ),
-
-            base,
-
-            base + 1.2
-
-        ]
 
     fig, ax = plt.subplots(
         figsize=figsize
@@ -3572,14 +5272,64 @@ TREND_MONTHS = [
 ]
 
 
-def build_efficiency_trend_fig(
+# ============================================================
+# 11-0-2. 화면 그래프와 엑셀 그래프가 같은 숫자를 쓰도록
+# 데이터 생성 부분만 뽑아낸 함수들.
+#
+# 엑셀로 내보낼 때도 화면에 보이는 것과 똑같은 추세 그래프가
+# 나오게 하려면, 화면(matplotlib)과 엑셀(openpyxl)이 서로
+# 다른 계산식을 쓰면 안 된다. 이 함수들이 "진짜 데이터"를
+# 만들고, 화면 차트 함수와 엑셀 내보내기 양쪽에서 그대로
+# 가져다 쓴다.
+# ============================================================
+
+def get_vibration_trend_data(
     pump,
     result,
-    df_history=None,
-    figsize=(6.2, 3.4)
+    df_history=None
 ):
 
-    # 효율은 막대그래프로 표현
+    real_dates, real_values = (
+
+        get_real_history_series(
+            df_history,
+            pump,
+            "진동측정값(mm/s)"
+        )
+
+        if df_history is not None
+
+        else ([], [])
+
+    )
+
+    use_real = len(real_values) >= 2
+
+    if use_real:
+
+        return real_dates, real_values, True
+
+    base = result["진동"]
+
+    values = [
+
+        max(1.2, base - 2.5),
+        max(1.4, base - 2),
+        max(1.6, base - 1.4),
+        max(1.8, base - 0.8),
+        base,
+        base + 1.2
+
+    ]
+
+    return TREND_MONTHS, values, False
+
+
+def get_efficiency_trend_data(
+    pump,
+    result,
+    df_history=None
+):
 
     real_dates, real_values = (
 
@@ -3597,33 +5347,223 @@ def build_efficiency_trend_fig(
 
     use_real = len(real_values) >= 2
 
+    if use_real:
+
+        return real_dates, real_values, True
+
     base = result["효율"]
+
+    values = [
+
+        min(100, base + 8),
+        min(100, base + 6),
+        min(100, base + 4),
+        min(100, base + 2),
+        base,
+        max(0, base - 3)
+
+    ]
+
+    return TREND_MONTHS, values, False
+
+
+def get_temperature_trend_data(
+    pump,
+    result,
+    df_history=None
+):
+
+    real_dates, real_values = (
+
+        get_real_history_series(
+            df_history,
+            pump,
+            "온도측정값(°C)"
+        )
+
+        if df_history is not None
+
+        else ([], [])
+
+    )
+
+    use_real = len(real_values) >= 2
 
     if use_real:
 
-        months_e = real_dates
+        return real_dates, real_values, True
 
-        values = real_values
+    base = result["온도"]
 
-    else:
+    values = [
 
-        months_e = TREND_MONTHS
+        max(35, base - 6),
+        max(37, base - 4.5),
+        max(39, base - 3),
+        max(40, base - 1.5),
+        base,
+        base + 2
 
-        values = [
+    ]
 
-            min(100, base + 8),
+    return TREND_MONTHS, values, False
 
-            min(100, base + 6),
 
-            min(100, base + 4),
+def get_op_hours_trend_data(
+    pump
+):
 
-            min(100, base + 2),
+    current_hours = pump["op_hours"]
 
-            base,
+    values = [
 
-            max(0, base - 3)
+        max(0, current_hours - 5000),
+        max(0, current_hours - 4000),
+        max(0, current_hours - 3000),
+        max(0, current_hours - 2000),
+        max(0, current_hours - 1000),
+        current_hours
 
-        ]
+    ]
+
+    return TREND_MONTHS, values, False
+
+
+def build_equipment_export_sheets(
+    pump,
+    result,
+    df_history
+):
+
+    # 설비관리/QR포털/AI이상징후 페이지처럼 화면에 여러
+    # 추세 그래프가 있는 페이지를 엑셀로 내보낼 때 쓰는
+    # 공용 함수. 화면과 같은 데이터로 시트별 그래프를 만든다.
+
+    summary_df = pd.DataFrame(
+
+        [
+
+            ["사업장", pump["site"]],
+            ["설비명", pump["equip"]],
+            ["제조사", pump["maker"]],
+            ["모델명", pump["model"]],
+            ["운전시간(h)", pump["op_hours"]],
+            ["CBM Score", result["점수"]],
+            ["등급", result["등급"]],
+            ["상태", result["상태"]],
+            ["효율(%)", result["효율"]],
+            ["진동(mm/s)", result["진동"]],
+            ["온도(°C)", result["온도"]]
+
+        ],
+
+        columns=["항목", "값"]
+
+    )
+
+    vib_dates, vib_values, vib_real = get_vibration_trend_data(
+        pump, result, df_history
+    )
+
+    eff_dates, eff_values, eff_real = get_efficiency_trend_data(
+        pump, result, df_history
+    )
+
+    temp_dates, temp_values, temp_real = get_temperature_trend_data(
+        pump, result, df_history
+    )
+
+    hour_dates, hour_values, _ = get_op_hours_trend_data(
+        pump
+    )
+
+    vib_df = pd.DataFrame(
+        {
+            "시점": vib_dates,
+            "진동(mm/s)": vib_values
+        }
+    )
+
+    eff_df = pd.DataFrame(
+        {
+            "시점": eff_dates,
+            "효율(%)": eff_values
+        }
+    )
+
+    temp_df = pd.DataFrame(
+        {
+            "시점": temp_dates,
+            "온도(°C)": temp_values
+        }
+    )
+
+    hour_df = pd.DataFrame(
+        {
+            "시점": hour_dates,
+            "누적운전시간(h)": hour_values
+        }
+    )
+
+    real_tag = lambda is_real: (
+
+        "실측" if is_real else "예시데이터"
+
+    )
+
+    return [
+
+        {
+            "name": "요약정보",
+            "df": summary_df,
+            "chart": None
+        },
+
+        {
+            "name": "진동추세",
+            "df": vib_df,
+            "chart": "line",
+            "title": f"{pump['equip']} 진동 추세 ({real_tag(vib_real)})"
+        },
+
+        {
+            "name": "효율추세",
+            "df": eff_df,
+            "chart": "bar",
+            "title": f"{pump['equip']} 효율 추세 ({real_tag(eff_real)})"
+        },
+
+        {
+            "name": "온도추세",
+            "df": temp_df,
+            "chart": "line",
+            "title": f"{pump['equip']} 온도 추세 ({real_tag(temp_real)})"
+        },
+
+        {
+            "name": "운전시간추세",
+            "df": hour_df,
+            "chart": "line",
+            "title": f"{pump['equip']} 누적 운전시간 추세 (추정치)"
+        }
+
+    ]
+
+
+def build_efficiency_trend_fig(
+    pump,
+    result,
+    df_history=None,
+    figsize=(6.2, 3.4)
+):
+
+    # 효율은 막대그래프로 표현
+
+    months_e, values, use_real = get_efficiency_trend_data(
+        pump,
+        result,
+        df_history
+    )
 
     colors = [
 
@@ -3707,49 +5647,11 @@ def build_temperature_trend_fig(
 
     # 온도는 영역(면적)그래프로 표현
 
-    real_dates, real_values = (
-
-        get_real_history_series(
-            df_history,
-            pump,
-            "온도측정값(°C)"
-        )
-
-        if df_history is not None
-
-        else ([], [])
-
+    months_t, values, use_real = get_temperature_trend_data(
+        pump,
+        result,
+        df_history
     )
-
-    use_real = len(real_values) >= 2
-
-    base = result["온도"]
-
-    if use_real:
-
-        months_t = real_dates
-
-        values = real_values
-
-    else:
-
-        months_t = TREND_MONTHS
-
-        values = [
-
-            max(35, base - 6),
-
-            max(37, base - 4.5),
-
-            max(39, base - 3),
-
-            max(40, base - 1.5),
-
-            base,
-
-            base + 2
-
-        ]
 
     fig, ax = plt.subplots(
         figsize=figsize
@@ -3820,6 +5722,206 @@ def build_temperature_trend_fig(
     ax.legend()
 
     return fig
+
+
+@st.cache_data(show_spinner=False)
+def build_status_donut_fig(
+    normal,
+    watch,
+    repair,
+    figsize=(4, 4)
+):
+
+    # 홈 화면 상단의 정상/관찰/정비검토 비율 도넛차트
+
+    labels = []
+
+    sizes = []
+
+    colors = []
+
+    for label, value, color in (
+
+        (f"정상 {normal}대", normal, "#087f5b"),
+        (f"관찰 {watch}대", watch, "#a16207"),
+        (f"정비검토 {repair}대", repair, "#c62828")
+
+    ):
+
+        if value > 0:
+
+            labels.append(label)
+
+            sizes.append(value)
+
+            colors.append(color)
+
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+
+    if sizes:
+
+        ax.pie(
+
+            sizes,
+
+            colors=colors,
+
+            startangle=90,
+
+            wedgeprops=dict(
+                width=0.38,
+                edgecolor="white"
+            )
+
+        )
+
+        ax.text(
+
+            0,
+
+            0,
+
+            f"{normal + watch + repair}대",
+
+            ha="center",
+
+            va="center",
+
+            fontsize=15,
+
+            fontweight="bold",
+
+            color="#0f3552"
+
+        )
+
+        ax.legend(
+
+            labels,
+
+            loc="lower center",
+
+            bbox_to_anchor=(0.5, -0.18),
+
+            ncol=1,
+
+            fontsize=9,
+
+            frameon=False
+
+        )
+
+    else:
+
+        ax.text(
+            0.5,
+            0.5,
+            "데이터 없음",
+            ha="center"
+        )
+
+    ax.set_aspect(
+        "equal"
+    )
+
+    return fig
+
+
+def build_svg_sparkline(
+    values,
+    color="#087ea4",
+    width=90,
+    height=26,
+    tooltip=None
+):
+
+    # matplotlib 없이 순수 SVG로 만드는 미니 스파크라인.
+    # 카드 10개마다 matplotlib을 새로 그리면 느려지므로,
+    # 가벼운 인라인 SVG로 대체했다.
+    #
+    # <title> 요소를 넣어두면 마우스를 올렸을 때 브라우저가
+    # 기본 툴팁으로 실제 수치를 보여준다 (별도 JS 없이 가능).
+
+    if not values or len(values) < 2:
+
+        return ""
+
+    vmin = min(values)
+
+    vmax = max(values)
+
+    rng = (vmax - vmin) or 1
+
+    step = width / (len(values) - 1)
+
+    points = []
+
+    for i, v in enumerate(values):
+
+        x = i * step
+
+        y = height - ((v - vmin) / rng) * (height - 4) - 2
+
+        points.append(
+            f"{x:.1f},{y:.1f}"
+        )
+
+    points_str = " ".join(
+        points
+    )
+
+    title_elem = (
+
+        f"<title>{tooltip}</title>"
+
+        if tooltip
+
+        else ""
+
+    )
+
+    return (
+
+        f'<svg width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" '
+        f'xmlns="http://www.w3.org/2000/svg">'
+        f'<polyline points="{points_str}" fill="none" '
+        f'stroke="{color}" stroke-width="2" '
+        f'stroke-linecap="round" stroke-linejoin="round">'
+        f'{title_elem}'
+        f'</polyline>'
+        f'</svg>'
+
+    )
+
+
+def grade_bar_color(
+    score
+):
+
+    # 게이지바 색상을 등급(A~E) 5단계 기준과 통일한다.
+    # (예전에는 80/60 기준 3단계뿐이라, 74점과 65점이
+    #  똑같은 노란색으로 보여 등급 차이가 안 느껴졌다)
+
+    if score >= 90:
+
+        return "#087f5b"
+
+    if score >= 80:
+
+        return "#2f9e44"
+
+    if score >= 70:
+
+        return "#f08c00"
+
+    if score >= 60:
+
+        return "#e8590c"
+
+    return "#c62828"
 
 
 def build_score_gauge_fig(
@@ -4029,23 +6131,9 @@ def build_op_hours_trend_fig(
 
     # 누적 운전시간은 영역(면적)그래프로 표현
 
-    current_hours = pump["op_hours"]
-
-    values = [
-
-        max(0, current_hours - 5000),
-
-        max(0, current_hours - 4000),
-
-        max(0, current_hours - 3000),
-
-        max(0, current_hours - 2000),
-
-        max(0, current_hours - 1000),
-
-        current_hours
-
-    ]
+    _, values, _ = get_op_hours_trend_data(
+        pump
+    )
 
     fig, ax = plt.subplots(
         figsize=figsize
@@ -4170,7 +6258,7 @@ def is_read_only():
     return st.session_state.read_only
 
 
-if not st.session_state.authenticated:
+if LOGIN_GATE_ENABLED and not st.session_state.authenticated:
 
     st.markdown(
         """
@@ -4588,6 +6676,56 @@ if st.session_state.page == "홈":
 
 if st.session_state.page == "홈":
 
+    _hour = datetime.now().hour
+
+    if _hour < 12:
+
+        _greeting = "좋은 아침입니다"
+
+    elif _hour < 18:
+
+        _greeting = "안녕하세요"
+
+    else:
+
+        _greeting = "수고 많으셨습니다"
+
+    # 세션 안에서 홈 화면을 여러 번 오갈 때마다 큼직한 인사말이
+    # 계속 반복되면 지루하므로, 이번 세션 첫 방문에만 크게
+    # 보여주고 그 다음부터는 작게 줄인다.
+
+    if not st.session_state.get("_home_greeted_once"):
+
+        st.session_state._home_greeted_once = True
+
+        st.markdown(
+
+            f"""
+            <div class="greeting-banner">
+
+            <div style="font-size:1.25rem; font-weight:800;">
+            {_greeting}, {st.session_state.get('user_name', '')}님 👋
+            </div>
+
+            <div style="font-size:0.85rem; opacity:0.9; margin-top:4px;">
+            오늘도 설비 현황을 한눈에 확인해보세요.
+            </div>
+
+            </div>
+            """,
+
+            unsafe_allow_html=True
+
+        )
+
+    else:
+
+        st.caption(
+
+            f"{_greeting}, {st.session_state.get('user_name', '')}님 👋"
+
+        )
+
     st.markdown(
         """
         <div class="section-title">
@@ -4602,6 +6740,87 @@ if st.session_state.page == "홈":
         unsafe_allow_html=True
     )
 
+    # ---------------- 데이터 최신성 표시 ----------------
+    #
+    # "이 화면이 언제 기준 데이터인지"를 보여줘서
+    # 실시간으로 갱신되는 데이터라는 신뢰를 준다.
+
+    _mtimes = []
+
+    for _path in (DB_FILE_PATH, OVERHAUL_DB_PATH):
+
+        if os.path.exists(_path):
+
+            _mtimes.append(
+                os.path.getmtime(_path)
+            )
+
+    if _mtimes:
+
+        _last_update = datetime.fromtimestamp(
+
+            max(_mtimes)
+
+        ).strftime("%Y-%m-%d %H:%M")
+
+        st.caption(
+
+            f"🕒 데이터 최종 갱신 : {_last_update}"
+
+        )
+
+    # ---------------- 바로가기 버튼 ----------------
+
+    qc1, qc2, qc3 = st.columns(3)
+
+    with qc1:
+
+        st.button(
+
+            "🔍 정밀진단 시작하기",
+
+            key="home_quick_diag",
+
+            use_container_width=True,
+
+            on_click=go_to_page,
+
+            args=("진단",)
+
+        )
+
+    with qc2:
+
+        st.button(
+
+            "📝 월간 보고서 만들기",
+
+            key="home_quick_report",
+
+            use_container_width=True,
+
+            on_click=go_to_page,
+
+            args=("보고서",)
+
+        )
+
+    with qc3:
+
+        st.button(
+
+            "📱 QR 포털 열기",
+
+            key="home_quick_qr",
+
+            use_container_width=True,
+
+            on_click=go_to_page,
+
+            args=("QR",)
+
+        )
+
     total = len(
         ALL_PUMPS
     )
@@ -4610,11 +6829,17 @@ if st.session_state.page == "홈":
     watch = 0
     repair = 0
 
+    _all_results = []
+
     for pump in ALL_PUMPS:
 
         result = pump_status(
             pump,
             df_history
+        )
+
+        _all_results.append(
+            (pump, result)
         )
 
         if result["상태"] == "정상":
@@ -4628,6 +6853,15 @@ if st.session_state.page == "홈":
         else:
 
             repair += 1
+
+    if repair > 0:
+
+        st.error(
+
+            f"🚨 정비검토 필요 설비가 {repair}대 있습니다. "
+            "CBM 정비판단 메뉴에서 우선순위를 확인하세요."
+
+        )
 
     st.markdown(
         f"""
@@ -4668,6 +6902,123 @@ if st.session_state.page == "홈":
         unsafe_allow_html=True
     )
 
+    # ---------------- 상태 비율 도넛 + 이달의 하이라이트 ----------------
+
+    donut_col, highlight_col = st.columns(
+        [1, 1.3]
+    )
+
+    with donut_col:
+
+        st.markdown(
+            """
+            <div class="platform-card">
+            <div class="card-title">📊 설비 상태 비율</div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.pyplot(
+
+            build_status_donut_fig(
+                normal,
+                watch,
+                repair
+            )
+
+        )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True
+        )
+
+    with highlight_col:
+
+        st.markdown(
+            """
+            <div class="platform-card">
+            <div class="card-title">📍 현재 하이라이트</div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        best_pump, best_result = max(
+
+            _all_results,
+
+            key=lambda pr: pr[1]["점수"]
+
+        )
+
+        worst_pump, worst_result = min(
+
+            _all_results,
+
+            key=lambda pr: pr[1]["점수"]
+
+        )
+
+        st.markdown(
+
+            f"""
+            <span class="highlight-pill" style="
+            background:#e7f8f1; color:#087f5b;">
+            🏆 최우수 · {best_pump['equip']} ({best_result['점수']}점)
+            </span>
+
+            <span class="highlight-pill" style="
+            background:#fff0f0; color:#c62828;">
+            ⚠️ 최우선 관리 · {worst_pump['equip']} ({worst_result['점수']}점)
+            </span>
+            """,
+
+            unsafe_allow_html=True
+
+        )
+
+        st.caption(
+
+            "※ 현재 시점 CBM Score 기준입니다 "
+            "(이번 달 진단 여부와 무관)"
+
+        )
+
+        st.write("")
+
+        _next_due = [
+
+            (p, r["다음오버홀까지남은시간"])
+
+            for p, r in _all_results
+
+            if r.get("다음오버홀까지남은시간") is not None
+
+        ]
+
+        if _next_due:
+
+            _soonest_pump, _soonest_hours = min(
+
+                _next_due,
+
+                key=lambda x: x[1]
+
+            )
+
+            st.caption(
+
+                f"🔧 오버홀이 가장 임박한 설비 : "
+                f"{_soonest_pump['equip']} "
+                f"(약 {_soonest_hours:,}시간 남음)"
+
+            )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True
+        )
+
     col1, col2 = st.columns(
         [1.45, 1]
     )
@@ -4687,14 +7038,64 @@ if st.session_state.page == "홈":
             unsafe_allow_html=True
         )
 
+        home_search = st.text_input(
+
+            "🔎 설비명 검색",
+
+            key="home_equip_search",
+
+            placeholder="예: 가압펌프 #3"
+
+        )
+
         rows = []
 
-        for pump in ALL_PUMPS:
+        card_html_parts = []
 
-            result = pump_status(
-                pump,
-                df_history
+        status_color_map = {
+
+            "정상": ("#087f5b", "#e7f8f1"),
+
+            "관찰": ("#a16207", "#fff7df"),
+
+            "정비검토": ("#c62828", "#fff0f0")
+
+        }
+
+        # 8. 카드 정렬 순서: 급한 것부터 보이도록
+        # 정비검토 -> 관찰 -> 정상 순, 같은 상태 안에서는
+        # 점수가 낮은(더 안 좋은) 순서로. 오른쪽 CBM 순위표와
+        # 같은 "급한 순" 기준으로 통일했다.
+
+        status_priority = {
+
+            "정비검토": 0,
+
+            "관찰": 1,
+
+            "정상": 2
+
+        }
+
+        sorted_results = sorted(
+
+            _all_results,
+
+            key=lambda pr: (
+
+                status_priority.get(pr[1]["상태"], 9),
+
+                pr[1]["점수"]
+
             )
+
+        )
+
+        # 검색어로 걸러진 설비명 목록 (CBM 순위표에도 동일하게 적용)
+
+        home_search_matched_names = set()
+
+        for pump, result in sorted_results:
 
             rows.append(
 
@@ -4710,11 +7111,126 @@ if st.session_state.page == "홈":
 
             )
 
-        st.dataframe(
-            pd.DataFrame(rows),
-            use_container_width=True,
-            hide_index=True
-        )
+            if (
+
+                home_search
+
+                and
+                home_search.strip().lower() not in pump["equip"].lower()
+
+            ):
+
+                continue
+
+            home_search_matched_names.add(
+                pump["equip"]
+            )
+
+            text_color, bg_color = status_color_map.get(
+
+                result["상태"],
+                ("#64748b", "#f1f5f9")
+
+            )
+
+            # 6. 게이지바 색상을 등급 5단계 기준과 통일
+
+            gauge_color = grade_bar_color(
+                result["점수"]
+            )
+
+            _, vib_values, _ = get_vibration_trend_data(
+
+                pump,
+
+                result,
+
+                df_history
+
+            )
+
+            # 7. 스파크라인에 마우스를 올리면 실제 수치가
+            # 툴팁으로 보이도록 <title>을 넣는다.
+
+            spark_tooltip = (
+
+                "진동 추세(mm/s): "
+                +
+                " → ".join(
+                    f"{v:.1f}" for v in vib_values
+                )
+
+            )
+
+            spark_svg = build_svg_sparkline(
+
+                vib_values,
+
+                color=gauge_color,
+
+                tooltip=spark_tooltip
+
+            )
+
+            card_html_parts.append(
+
+                f"""
+                <div class="equip-card" style="
+                border-left:4px solid {text_color};">
+
+                    <div class="equip-card-title">
+                    {pump['equip']}
+                    </div>
+
+                    <span style="
+                    background:{bg_color}; color:{text_color};
+                    border-radius:999px; padding:2px 9px;
+                    font-size:0.68rem; font-weight:800;">
+                    {result['상태']} · {result['등급']}등급
+                    </span>
+
+                    <div class="cbm-bar-track">
+                        <div class="cbm-bar-fill" style="
+                        width:{result['점수']}%;
+                        background:{gauge_color};"></div>
+                    </div>
+
+                    <div class="equip-card-meta">
+                        <span>CBM {result['점수']}점</span>
+                        <span>효율 {result['효율']:.1f}%</span>
+                    </div>
+
+                    <div style="margin-top:6px;">
+                    {spark_svg}
+                    <span style="
+                    font-size:0.68rem; color:#94a3b8;
+                    margin-left:4px;">진동 추세</span>
+                    </div>
+
+                </div>
+                """
+
+            )
+
+        if card_html_parts:
+
+            st.markdown(
+
+                f"""
+                <div class="equip-card-grid">
+                {''.join(card_html_parts)}
+                </div>
+                """,
+
+                unsafe_allow_html=True
+
+            )
+
+        else:
+
+            st.info(
+                "검색 결과가 없습니다."
+            )
 
         st.markdown(
             "</div>",
@@ -4737,12 +7253,11 @@ if st.session_state.page == "홈":
 
         ranking = []
 
-        for pump in ALL_PUMPS:
+        for pump, result in _all_results:
 
-            result = pump_status(
-                pump,
-                df_history
-            )
+            if pump["equip"] not in home_search_matched_names:
+
+                continue
 
             ranking.append(
 
@@ -4760,24 +7275,218 @@ if st.session_state.page == "홈":
             key=lambda x: x[1]
         )
 
-        ranking_df = pd.DataFrame(
+        if ranking:
 
-            ranking[:5],
+            ranking_df = pd.DataFrame(
 
-            columns=[
-                "설비",
-                "CBM Score",
-                "등급",
-                "운전시간"
-            ]
+                ranking[:5],
+
+                columns=[
+                    "설비",
+                    "CBM Score",
+                    "등급",
+                    "운전시간"
+                ]
+
+            )
+
+            st.dataframe(
+                ranking_df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        else:
+
+            st.info(
+                "검색 결과가 없습니다."
+            )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True
+        )
+
+    # ---------------- 최근 활동 피드 + 임박한 오버홀 ----------------
+
+    col3, col4 = st.columns(
+        [1.2, 1]
+    )
+
+    with col3:
+
+        st.markdown(
+            """
+            <div class="platform-card">
+
+            <div class="card-title">
+            🕒 최근 활동
+            </div>
+
+            """,
+            unsafe_allow_html=True
+        )
+
+        activities = []
+
+        # 진단·오버홀 이력이 계속 쌓여도 홈 화면이 느려지지
+        # 않도록, 정렬 전에 미리 최근 30건만 잘라서 순회한다.
+        # (점검일/작업일자는 날짜순으로 계속 append되므로
+        #  tail이 곧 최근 기록이다)
+
+        if (
+
+            not df_history.empty
+
+            and
+            "설비명" in df_history.columns
+
+        ):
+
+            for _, r in df_history.tail(30).iterrows():
+
+                activities.append(
+
+                    {
+                        "일자": str(r.get("점검일", "")),
+                        "내용": (
+
+                            f"{r.get('설비명', '')} 정밀진단 저장 · "
+                            f"{_clean_cell_value(r.get('최종등급'), '-')}등급"
+
+                        )
+                    }
+
+                )
+
+        df_overhaul_home = read_excel(
+
+            OVERHAUL_DB_PATH,
+
+            "오버홀이력"
 
         )
 
-        st.dataframe(
-            ranking_df,
-            use_container_width=True,
-            hide_index=True
+        if (
+
+            not df_overhaul_home.empty
+
+            and
+            "설비명" in df_overhaul_home.columns
+
+        ):
+
+            for _, r in df_overhaul_home.tail(30).iterrows():
+
+                activities.append(
+
+                    {
+                        "일자": str(r.get("작업일자", "")),
+                        "내용": (
+
+                            f"{r.get('설비명', '')} "
+                            f"{_clean_cell_value(r.get('공정단계'), '작업')} 기록됨"
+
+                        )
+                    }
+
+                )
+
+        activities = sorted(
+
+            activities,
+
+            key=lambda x: x["일자"],
+
+            reverse=True
+
+        )[:8]
+
+        if activities:
+
+            for act in activities:
+
+                st.markdown(
+
+                    f"<div style='font-size:0.85rem; padding:4px 0; "
+                    f"border-bottom:1px solid #eef2f5;'>"
+                    f"<b>{act['일자']}</b> · {act['내용']}</div>",
+
+                    unsafe_allow_html=True
+
+                )
+
+        else:
+
+            st.info(
+                "아직 기록된 활동이 없습니다."
+            )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True
         )
+
+    with col4:
+
+        st.markdown(
+            """
+            <div class="platform-card">
+
+            <div class="card-title">
+            🔧 오버홀 임박 설비
+            </div>
+
+            """,
+            unsafe_allow_html=True
+        )
+
+        overhaul_soon = []
+
+        for pump, result in _all_results:
+
+            remaining = result.get(
+                "다음오버홀까지남은시간"
+            )
+
+            if remaining is not None:
+
+                overhaul_soon.append(
+
+                    {
+                        "설비": pump["equip"],
+                        "남은시간(h)": remaining
+                    }
+
+                )
+
+        overhaul_soon = sorted(
+
+            overhaul_soon,
+
+            key=lambda x: x["남은시간(h)"]
+
+        )[:5]
+
+        if overhaul_soon:
+
+            st.dataframe(
+
+                pd.DataFrame(
+                    overhaul_soon
+                ),
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+        else:
+
+            st.info(
+                "표시할 설비가 없습니다."
+            )
 
         st.markdown(
             "</div>",
@@ -5205,24 +7914,13 @@ elif st.session_state.page == "설비":
 
         f"{pump['equip']}_설비정보.xlsx",
 
-        lambda: pd.DataFrame(
+        lambda: build_equipment_export_sheets(
 
-            [
+            pump,
 
-                ["사업장", pump["site"]],
-                ["설비명", pump["equip"]],
-                ["제조사", pump["maker"]],
-                ["모델명", pump["model"]],
-                ["운전시간(h)", pump["op_hours"]],
-                ["CBM Score", result["점수"]],
-                ["등급", result["등급"]],
-                ["효율(%)", result["효율"]],
-                ["진동(mm/s)", result["진동"]],
-                ["온도(°C)", result["온도"]]
+            result,
 
-            ],
-
-            columns=["항목", "값"]
+            df_history
 
         )
 
@@ -5775,33 +8473,43 @@ elif st.session_state.page == "QR":
 
             )
 
+    def _build_qr_export_sheets():
+
+        sheets = build_equipment_export_sheets(
+
+            pump,
+
+            result,
+
+            df_history
+
+        )
+
+        qr_id_row = pd.DataFrame(
+
+            [["QR ID", qr_id]],
+
+            columns=["항목", "값"]
+
+        )
+
+        sheets[0]["df"] = pd.concat(
+
+            [qr_id_row, sheets[0]["df"]],
+
+            ignore_index=True
+
+        )
+
+        return sheets
+
     render_excel_export_section(
 
         f"qr_{pump['equip']}",
 
         f"{pump['equip']}_QR정보.xlsx",
 
-        lambda: pd.DataFrame(
-
-            [
-
-                ["QR ID", qr_id],
-                ["사업장", pump["site"]],
-                ["설비명", pump["equip"]],
-                ["제조사", pump["maker"]],
-                ["모델명", pump["model"]],
-                ["운전시간(h)", pump["op_hours"]],
-                ["효율(%)", result["효율"]],
-                ["진동(mm/s)", result["진동"]],
-                ["온도(°C)", result["온도"]],
-                ["CBM Score", result["점수"]],
-                ["상태", result["상태"]]
-
-            ],
-
-            columns=["항목", "값"]
-
-        )
+        _build_qr_export_sheets
 
     )
 
@@ -6792,7 +9500,38 @@ elif st.session_state.page == "CBM":
 
         "CBM_정비우선순위.xlsx",
 
-        lambda: df_rank
+        lambda: [
+
+            {
+                "name": "정비우선순위",
+                "df": df_rank,
+                "chart": "auto"
+            },
+
+            {
+                "name": "설비별비교",
+                "df": pd.DataFrame(
+
+                    {
+                        "지표": ["효율(%)", "진동(mm/s)", "CBM Score"],
+                        compare_target: [
+                            compare_row["효율"],
+                            compare_row["진동"],
+                            compare_row["CBM Score"]
+                        ],
+                        "전체평균": [
+                            round(fleet_avg_eff, 1),
+                            round(fleet_avg_vib, 1),
+                            round(fleet_avg_score, 1)
+                        ]
+                    }
+
+                ),
+                "chart": "auto",
+                "title": f"{compare_target} vs 전체 {len(ranking)}대 평균"
+            }
+
+        ]
 
     )
 
@@ -7273,21 +10012,13 @@ elif st.session_state.page == "AI":
 
         f"{pump['equip']}_AI이상징후.xlsx",
 
-        lambda: pd.DataFrame(
+        lambda: build_equipment_export_sheets(
 
-            [
+            pump,
 
-                ["설비명", pump["equip"]],
-                ["CBM Score", result["점수"]],
-                ["등급", result["등급"]],
-                ["효율(%)", result["효율"]],
-                ["진동(mm/s)", result["진동"]],
-                ["온도(°C)", result["온도"]],
-                ["다음오버홀까지(h)", result.get("다음오버홀까지남은시간")]
+            result,
 
-            ],
-
-            columns=["항목", "값"]
+            df_history
 
         )
 
@@ -7898,121 +10629,284 @@ elif st.session_state.page == "보고서":
     st.markdown(
         """
         <div class="section-title">
-        📄 진단 보고서
+        📄 설비별 월간 보고서
         </div>
 
         <div class="section-caption">
-        축적된 진단 및 정비 데이터를 기반으로
-        사업소·지자체 제출용 보고서 자료를 구성합니다.
+        설비 하나를 골라 그 달의 점검·오버홀 이력, 점수, 추세 그래프까지
+        담은 Word 월간 보고서를 만듭니다.
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    site = st.selectbox(
-        "대상 사업장",
+    report_pump_name = st.selectbox(
+
+        "설비 선택",
+
         [
-            "밀양정수장",
-            "밀양시 상하수도사업소",
-            "창원특례시",
-            "김해시"
-        ]
+            p["equip"]
+            for p in ALL_PUMPS
+        ],
+
+        key="report_pump_select"
+
     )
 
-    pump_count = st.number_input(
-        "진단 설비 수",
-        min_value=1,
-        value=10
+    report_pump = next(
+
+        p for p in ALL_PUMPS
+
+        if p["equip"] == report_pump_name
+
     )
 
-    priority = st.selectbox(
-        "최우선 정비 대상",
-        [
-            "가압펌프 #2",
-            "가압펌프 #3",
-            "가압펌프 #5"
-        ]
+    today = datetime.now()
+
+    rc1, rc2 = st.columns(2)
+
+    report_year = rc1.selectbox(
+
+        "보고 연도",
+
+        list(range(today.year - 2, today.year + 1)),
+
+        index=2,
+
+        key="report_year_select"
+
+    )
+
+    report_month = rc2.selectbox(
+
+        "보고 월",
+
+        list(range(1, 13)),
+
+        index=today.month - 1,
+
+        key="report_month_select"
+
+    )
+
+    month_label = f"{report_year}-{report_month:02d}"
+
+    report_result = pump_status(
+        report_pump,
+        df_history
     )
 
     st.markdown(
+
         f"""
         <div class="platform-card">
 
         <div class="card-title">
-        보고서 미리보기
+        보고서 미리보기 — {report_pump['equip']} · {month_label}
         </div>
 
-        <b>사업장</b> : {site}<br>
-        <b>진단설비</b> : {pump_count}대<br>
-        <b>최우선 정비대상</b> : {priority}<br>
-        <b>진단방식</b> : QR 기반 설비정보 + 정밀상태진단 + CBM<br>
-        <b>정비방식</b> : 상태기반 정비(CBM)<br>
-        <b>효과검증</b> : 오버홀 전후 데이터 비교
+        <b>사업장</b> : {report_pump['site']}<br>
+        <b>CBM Score</b> : {report_result['점수']}점 ({report_result['등급']}등급)<br>
+        <b>상태</b> : {report_result['상태']}<br>
+        <b>구성</b> : 표지(문서번호) · 종합소견 · 설비스펙 · 펌프점수(전월비교) ·
+        점검이력 · 오버홀내역(작업사진) · 정비권고사항 · 등급판정기준 ·
+        추세그래프(진동·효율·온도·운전시간·설비비교) · 용어부록
 
         </div>
         """,
+
         unsafe_allow_html=True
-    )
-
-    report_text = f"""
-K-water tech 설비관리 진단보고서
-
-사업장 : {site}
-
-진단설비 : {pump_count}대
-
-최우선 정비대상 : {priority}
-
-진단체계 :
-QR 기반 설비정보 관리
-+
-17개 핵심 정밀진단
-+
-CBM 상태평가
-+
-정비 우선순위 산정
-+
-오버홀 효과검증
-
-본 시스템은 운전시간만을 기준으로 하는
-기존 TBM 방식에서 벗어나 설비의 실제 상태를
-기반으로 정비시점을 판단하는 것을 목적으로 한다.
-"""
-
-    st.download_button(
-
-        "📥 보고서 자료 다운로드",
-
-        data=report_text,
-
-        file_name=
-        f"설비진단보고서_{site}.txt",
-
-        mime="text/plain",
-
-        type="primary"
 
     )
+
+    if st.button(
+
+        "📝 Word 월간 보고서 생성",
+
+        type="primary",
+
+        use_container_width=True,
+
+        key="generate_word_report_btn"
+
+    ):
+
+        with st.spinner(
+            "보고서를 만드는 중입니다..."
+        ):
+
+            docx_bytes = build_pump_monthly_report_docx(
+
+                report_pump,
+
+                report_result,
+
+                month_label,
+
+                df_history,
+
+                ALL_PUMPS
+
+            )
+
+        st.session_state[
+            "_word_report_bytes"
+        ] = docx_bytes
+
+        st.session_state[
+            "_word_report_filename"
+        ] = f"{report_pump['equip']}_{month_label}_월간보고서.docx"
+
+    if "_word_report_bytes" in st.session_state:
+
+        st.download_button(
+
+            "⬇️ Word 보고서 다운로드",
+
+            data=st.session_state["_word_report_bytes"],
+
+            file_name=st.session_state["_word_report_filename"],
+
+            mime=(
+                "application/vnd.openxmlformats-"
+                "officedocument.wordprocessingml.document"
+            ),
+
+            type="primary",
+
+            use_container_width=True,
+
+            key="download_word_report_btn"
+
+        )
+
+    st.write("---")
+
+    st.markdown(
+        "##### 📦 전체 설비 일괄 생성"
+    )
+
+    st.caption(
+
+        f"{month_label} 기준으로 등록된 설비 {len(ALL_PUMPS)}대의 "
+        "월간 보고서를 한 번에 만들어 zip으로 받습니다. "
+        "설비 수가 많으면 시간이 다소 걸릴 수 있습니다."
+
+    )
+
+    if st.button(
+
+        "📦 전체 설비 일괄 생성 (zip)",
+
+        use_container_width=True,
+
+        key="generate_all_reports_btn"
+
+    ):
+
+        with st.spinner(
+
+            f"{len(ALL_PUMPS)}대 설비 보고서를 만드는 중입니다..."
+
+        ):
+
+            zip_buffer = io.BytesIO()
+
+            with zipfile.ZipFile(
+
+                zip_buffer,
+
+                "w",
+
+                zipfile.ZIP_DEFLATED
+
+            ) as zf:
+
+                progress = st.progress(
+                    0.0
+                )
+
+                for i, one_pump in enumerate(
+                    ALL_PUMPS
+                ):
+
+                    one_result = pump_status(
+
+                        one_pump,
+
+                        df_history
+
+                    )
+
+                    one_bytes = build_pump_monthly_report_docx(
+
+                        one_pump,
+
+                        one_result,
+
+                        month_label,
+
+                        df_history,
+
+                        ALL_PUMPS
+
+                    )
+
+                    zf.writestr(
+
+                        f"{one_pump['equip']}_{month_label}_월간보고서.docx",
+
+                        one_bytes
+
+                    )
+
+                    progress.progress(
+
+                        (i + 1) / len(ALL_PUMPS)
+
+                    )
+
+        st.session_state[
+            "_all_reports_zip_bytes"
+        ] = zip_buffer.getvalue()
+
+        st.session_state[
+            "_all_reports_zip_filename"
+        ] = f"전체설비_{month_label}_월간보고서.zip"
+
+    if "_all_reports_zip_bytes" in st.session_state:
+
+        st.download_button(
+
+            "⬇️ 전체 보고서 zip 다운로드",
+
+            data=st.session_state["_all_reports_zip_bytes"],
+
+            file_name=st.session_state["_all_reports_zip_filename"],
+
+            mime="application/zip",
+
+            type="primary",
+
+            use_container_width=True,
+
+            key="download_all_reports_zip_btn"
+
+        )
 
     render_excel_export_section(
 
-        f"report_{site}",
+        f"report_{report_pump['equip']}_{month_label}",
 
-        f"진단보고서_{site}.xlsx",
+        f"{report_pump['equip']}_{month_label}_보고서데이터.xlsx",
 
-        lambda: pd.DataFrame(
+        lambda: build_equipment_export_sheets(
 
-            [
+            report_pump,
 
-                ["사업장", site],
-                ["진단설비 수", pump_count],
-                ["최우선 정비대상", priority],
-                ["진단방식", "QR 기반 설비정보 + 정밀상태진단 + CBM"],
-                ["정비방식", "상태기반 정비(CBM)"]
+            report_result,
 
-            ],
-
-            columns=["항목", "값"]
+            df_history
 
         )
 

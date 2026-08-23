@@ -1,8 +1,8 @@
 streamlit
+pandas
+numpy
 openpyxl
 matplotlib
-numpy
-pillow
-qrcode
 qrcode[pil]
 filelock
+python-docx
