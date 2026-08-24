@@ -7178,6 +7178,27 @@ def get_vib_judgement(value):
     return "D"
 
 
+def format_vib_month_label(
+
+    month_str,
+    prev_year
+
+):
+
+    # 이미지의 그래프처럼 "25.08월, 09월, 10월... 26.01월, 02월"
+    # 식으로 연도가 바뀔 때만 앞에 연도를 붙인다.
+
+    year, month = month_str.split("-")
+
+    year_short = year[2:]
+
+    if year_short != prev_year:
+
+        return f"{year_short}.{month}월", year_short
+
+    return f"{month}월", year_short
+
+
 def build_vibration_trend_chart_fig(
 
     equip_name,
@@ -7186,10 +7207,10 @@ def build_vibration_trend_chart_fig(
 
 ):
 
-    # 보내주신 "펌프모터진동 그래프" 엑셀처럼, 표만 있는 게
-    # 아니라 실제 그래프도 같이 보여준다. trend_rows는 이미
-    # [월, 모터반부하V, 모터반부하H, 모터부하V, 모터부하H,
-    #  펌프반부하V, 펌프반부하H, 펌프부하V, 펌프부하H] 순서로
+    # 보내주신 "펌프모터진동 그래프 SHEET" 이미지와 동일하게
+    # 재현한다. trend_rows는 [월, 모터반부하V, 모터반부하H,
+    # 모터반부하축, 모터부하V, 모터부하H, 펌프반부하V,
+    # 펌프반부하H, 펌프반부하축, 펌프부하V, 펌프부하H] 순서로
     # 붙임3 표를 만들 때 쓴 것과 동일한 데이터를 재사용한다.
 
     if not trend_rows:
@@ -7198,10 +7219,10 @@ def build_vibration_trend_chart_fig(
 
     series_names = [
 
-        "모터 반부하V", "모터 반부하H",
-        "모터 부하V", "모터 부하H",
-        "펌프 반부하V", "펌프 반부하H",
-        "펌프 부하V", "펌프 부하H"
+        "모터 반부하 수직", "모터 반부하 수평", "모터 반부하 축",
+        "모터 부하 수직", "모터 부하 수평",
+        "펌프 반부하 수직", "펌프 반부하 수평", "펌프 반부하 축",
+        "펌프 부하 수직", "펌프 부하 수평"
 
     ]
 
@@ -7240,37 +7261,41 @@ def build_vibration_trend_chart_fig(
 
             marker="o",
 
-            linewidth=1.6,
+            markersize=3,
+
+            linewidth=1.4,
 
             label=name
 
         )
 
-    ax.axhline(
-
-        VIB_JUDGE_GOOD,
-
-        linestyle="--",
-
-        color="#2f9e44",
-
-        linewidth=1,
-
-        label=f"양호기준({VIB_JUDGE_GOOD})"
-
-    )
+    # 이미지와 동일하게 양호(3.2)=파랑, 보통(5.1)=초록
 
     ax.axhline(
 
         VIB_JUDGE_FAIR,
 
-        linestyle=":",
+        linestyle="-",
 
-        color="#e8590c",
+        color="#2f9e44",
 
-        linewidth=1,
+        linewidth=1.6,
 
-        label=f"보통기준({VIB_JUDGE_FAIR})"
+        label=f"보통({VIB_JUDGE_FAIR})"
+
+    )
+
+    ax.axhline(
+
+        VIB_JUDGE_GOOD,
+
+        linestyle="-",
+
+        color="#1c7ed6",
+
+        linewidth=1.6,
+
+        label=f"양호({VIB_JUDGE_GOOD})"
 
     )
 
@@ -7278,17 +7303,15 @@ def build_vibration_trend_chart_fig(
         "진동값 (mm/s, rms)"
     )
 
-    ax.set_title(
-        f"{equip_name} 진동 추세"
-    )
-
     ax.legend(
 
-        loc="upper left",
+        loc="upper center",
 
-        bbox_to_anchor=(1.01, 1.0),
+        bbox_to_anchor=(0.5, -0.18),
 
-        fontsize=8
+        ncol=4,
+
+        fontsize=7.5
 
     )
 
@@ -7944,9 +7967,67 @@ def build_vibration_monthly_report_docx(
 
                 continue
 
-            doc.add_heading(
-                f"{pump['equip']} ({pump['site']})",
-                level=2
+            # ---- "펌프,모터 진동측정 SHEET" 형식의 정보 박스 ----
+            # (로고 + 제목 + 기기명/설치장소/점검일자/측정장비)
+
+            sheet_logo_path = find_logo_file()
+
+            if sheet_logo_path:
+
+                try:
+
+                    logo_p2 = doc.add_paragraph()
+
+                    logo_p2.add_run().add_picture(
+
+                        sheet_logo_path,
+
+                        width=Inches(1.0)
+
+                    )
+
+                except Exception:
+
+                    pass
+
+            sheet_title_p = doc.add_paragraph()
+
+            sheet_title_run = sheet_title_p.add_run(
+
+                "펌프, 모터 진동측정 SHEET"
+
+            )
+
+            sheet_title_run.bold = True
+
+            sheet_title_run.font.size = Pt(14)
+
+            start_y, start_m = months_avail[0].split("-")
+
+            end_y, end_m = months_avail[-1].split("-")
+
+            period_text = (
+
+                f"{start_y}년 {int(start_m)}월 ~ "
+                f"{end_y}년 {int(end_m)}월"
+
+            )
+
+            _add_styled_table(
+
+                doc,
+
+                ["기기명", "설치장소", "점검일자", "측정장비"],
+
+                [
+                    [
+                        pump["equip"],
+                        pump["site"],
+                        period_text,
+                        "진동계"
+                    ]
+                ]
+
             )
 
             trend_rows = []
@@ -7989,13 +8070,57 @@ def build_vibration_monthly_report_docx(
                         m,
                         _mv("모터", "반부하", "수직"),
                         _mv("모터", "반부하", "수평"),
+                        _mv("모터", "반부하", "축"),
                         _mv("모터", "부하", "수직"),
                         _mv("모터", "부하", "수평"),
                         _mv("펌프", "반부하", "수직"),
                         _mv("펌프", "반부하", "수평"),
+                        _mv("펌프", "반부하", "축"),
                         _mv("펌프", "부하", "수직"),
                         _mv("펌프", "부하", "수평")
                     ]
+
+                )
+
+            # 그래프를 표보다 먼저 (이미지와 동일한 순서)
+
+            month_display_labels = []
+
+            _prev_year = ""
+
+            for m in months_avail:
+
+                disp, _prev_year = format_vib_month_label(
+
+                    m,
+
+                    _prev_year
+
+                )
+
+                month_display_labels.append(
+                    disp
+                )
+
+            trend_fig = build_vibration_trend_chart_fig(
+
+                pump["equip"],
+
+                month_display_labels,
+
+                trend_rows
+
+            )
+
+            if trend_fig is not None:
+
+                _add_fig_to_doc(
+
+                    doc,
+
+                    trend_fig,
+
+                    width_inches=6.3
 
                 )
 
@@ -8005,9 +8130,9 @@ def build_vibration_monthly_report_docx(
 
                 [
                     "월별",
-                    "모터 반부하V", "모터 반부하H",
+                    "모터 반부하V", "모터 반부하H", "모터 반부하축",
                     "모터 부하V", "모터 부하H",
-                    "펌프 반부하V", "펌프 반부하H",
+                    "펌프 반부하V", "펌프 반부하H", "펌프 반부하축",
                     "펌프 부하V", "펌프 부하H"
                 ],
 
@@ -8023,32 +8148,7 @@ def build_vibration_monthly_report_docx(
 
             )
 
-            # 표만으로는 추세가 한눈에 안 들어와서, 보내주신
-            # "진동 그래프" 엑셀처럼 실제 그래프도 같이 넣는다.
-
-            trend_fig = build_vibration_trend_chart_fig(
-
-                pump["equip"],
-
-                months_avail,
-
-                trend_rows
-
-            )
-
-            if trend_fig is not None:
-
-                _add_fig_to_doc(
-
-                    doc,
-
-                    trend_fig,
-
-                    width_inches=6.3,
-
-                    caption=f"{pump['equip']} 진동 추세 그래프"
-
-                )
+            doc.add_page_break()
 
     else:
 
