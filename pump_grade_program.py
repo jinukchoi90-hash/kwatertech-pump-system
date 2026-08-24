@@ -5439,6 +5439,51 @@ def delete_equipment(equip_name):
 # 억지로 채워넣지 않는다.
 # ============================================================
 
+def anonymize_name(name):
+
+    # 정밀진단·오버홀 이력에 실제 담당자 실명이 그대로
+    # 노출되던 문제. "최진욱"(이 앱 관리자)만 예외로 두고,
+    # 나머지는 성만 남기고 나머지 글자를 ○로 가린다.
+    # "김광일 외02명"처럼 뒤에 붙는 표현은 그대로 유지한다.
+
+    if not name:
+
+        return name
+
+    name = str(name).strip()
+
+    m = re.match(
+        r"^([가-힣]+)(.*)$",
+        name
+    )
+
+    if not m:
+
+        return name
+
+    korean_part = m.group(1)
+
+    rest = m.group(2)
+
+    if korean_part == "최진욱":
+
+        return name
+
+    if len(korean_part) <= 1:
+
+        return name
+
+    masked = (
+
+        korean_part[0]
+        +
+        "○" * (len(korean_part) - 1)
+
+    )
+
+    return masked + rest
+
+
 def parse_equipment_import_excel(df1):
 
     site_pattern = re.compile(
@@ -5581,15 +5626,21 @@ def parse_overhaul_import_excel(
                 str(r["평가코드내역"])
             )
 
+        vib_value = None
+
         if pd.notna(r.get("측정값")):
 
-            unit = r.get("단위", "")
+            # 확인 결과 이 mm 측정값은 진동 측정값이다.
+            # 문장 안에 묻어두지 않고 전후진동 컬럼에
+            # 직접 넣어서 나중에 데이터로 활용할 수 있게 한다.
 
-            unit = str(unit) if pd.notna(unit) else ""
+            vib_value = float(
+                r["측정값"]
+            )
 
             parts.append(
 
-                f"측정값 {r['측정값']}{unit}"
+                f"진동 측정값 {vib_value}mm/s"
 
             )
 
@@ -5601,6 +5652,16 @@ def parse_overhaul_import_excel(
 
         content = " · ".join(
             parts
+        )
+
+        raw_worker = (
+
+            str(r.get("측정인", ""))
+
+            if pd.notna(r.get("측정인"))
+
+            else ""
+
         )
 
         overhaul_rows.append(
@@ -5618,16 +5679,11 @@ def parse_overhaul_import_excel(
                     else ""
 
                 ),
-                "작업자": (
-
-                    str(r.get("측정인", ""))
-
-                    if pd.notna(r.get("측정인"))
-
-                    else ""
-
+                "작업자": anonymize_name(
+                    raw_worker
                 ),
-                "작업내용": content
+                "작업내용": content,
+                "전후진동": vib_value
             }
 
         )
@@ -5714,7 +5770,7 @@ def bulk_append_overhaul(overhaul_rows):
                 row["작업내용"],
                 "",
                 "",
-                ""
+                row.get("전후진동", "")
             ]
 
         )
@@ -5728,6 +5784,938 @@ def bulk_append_overhaul(overhaul_rows):
         f"{len(overhaul_rows)}건 추가"
 
     )
+
+
+# ============================================================
+# 10-3. 통합 업로드 양식 (설비정보 + 정밀진단 + 오버홀이력)
+#
+# 엑셀 파일 하나만 채워서 올리면 설비등록 · QR생성(자동) ·
+# 정밀진단 저장 · 오버홀이력까지 한 번에 반영되도록 만든
+# 사용자 작성용 양식이다.
+# ============================================================
+
+DIAG_TEMPLATE_QUAL_ITEMS = [
+
+    ("임펠러손상등급", "임펠러 손상/침식"),
+    ("임펠러밸런싱등급", "임펠러 동적 밸런싱"),
+    ("NPSH등급", "NPSH 여유율/캐비테이션"),
+    ("코팅상태등급", "내부 코팅 상태"),
+    ("비금속웨어링등급", "비금속 웨어링 개선"),
+    ("베어링결함등급", "베어링 결함 진동"),
+    ("주파수성분등급", "주파수 성분 결함"),
+    ("softfoot등급", "Soft Foot 및 배관 응력"),
+    ("소모품이력등급", "주요 소모품 교체이력")
+
+]
+
+
+def _style_template_header(ws, headers):
+
+    header_fill = PatternFill(
+        "solid",
+        fgColor=BRAND_HEADER_COLOR
+    )
+
+    header_font = Font(
+        bold=True,
+        color="FFFFFF"
+    )
+
+    for j, h in enumerate(headers, start=1):
+
+        c = ws.cell(
+            row=1,
+            column=j,
+            value=h
+        )
+
+        c.font = header_font
+
+        c.fill = header_fill
+
+        c.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True
+        )
+
+        ws.column_dimensions[
+
+            get_column_letter(j)
+
+        ].width = max(
+            len(h) + 4,
+            12
+        )
+
+    ws.freeze_panes = "A2"
+
+
+def build_unified_import_template_bytes():
+
+    wb = Workbook()
+
+    wb.remove(
+        wb.active
+    )
+
+    example_fill = PatternFill(
+        "solid",
+        fgColor="FFF9DB"
+    )
+
+    # ---- 시트1. 설비정보 ----
+
+    ws1 = wb.create_sheet(
+        "설비정보"
+    )
+
+    headers1 = [
+        "사업장", "설비명", "제조사", "모델명",
+        "정격출력(HP)", "정격양정(m)", "정격유량(m3/h)",
+        "회전수(RPM)", "준공일", "누적운전시간(h)",
+        "기준진동(mm/s)", "기준효율(%)"
+    ]
+
+    _style_template_header(
+        ws1,
+        headers1
+    )
+
+    example1 = [
+        "부곡가압장", "원심펌프 #1 (33003471)", "효성펌프", "DHP-1",
+        160, 47, 1250, 1780, "2018-01-15", 10200, 4.5, 90
+    ]
+
+    for j, v in enumerate(example1, start=1):
+
+        c = ws1.cell(
+            row=2,
+            column=j,
+            value=v
+        )
+
+        c.fill = example_fill
+
+    # ---- 시트2. 정밀진단 ----
+
+    ws2 = wb.create_sheet(
+        "정밀진단"
+    )
+
+    headers2 = (
+
+        ["설비명(설비정보 시트와 동일해야 함)", "점검일(YYYY-MM-DD)", "점검자"]
+
+        +
+        ["효율유지율(%)", "양정유량도달률(%)", "BEP적정성(%)"]
+
+        +
+        ["링간극(mm)", "축슬리브마모(mm)"]
+
+        +
+        [label for _, label in [
+            ("", "임펠러손상등급(A~E)"),
+            ("", "임펠러밸런싱등급(A~E)"),
+            ("", "NPSH등급(A~E)"),
+            ("", "코팅상태등급(A~E)"),
+            ("", "비금속웨어링등급(A~E)")
+        ]]
+
+        +
+        ["펌프부하진동(mm/s)", "펌프반부하진동(mm/s)",
+         "모터부하진동(mm/s)", "모터반부하진동(mm/s)"]
+
+        +
+        ["베어링결함등급(A~E)", "주파수성분등급(A~E)"]
+
+        +
+        ["센터링(mm)"]
+
+        +
+        ["softfoot등급(A~E)"]
+
+        +
+        ["오버홀주기(누적운전시간h)"]
+
+        +
+        ["소모품이력등급(A~E)"]
+
+        +
+        ["측정온도(°C)", "측정전류(A)"]
+
+    )
+
+    _style_template_header(
+        ws2,
+        headers2
+    )
+
+    example2 = [
+        "원심펌프 #1 (33003471)", "2026-08-23", "홍길동",
+        95.0, 96.0, 100.0,
+        1.2, 0.8,
+        "A", "A", "A", "A", "A",
+        2.0, 1.5, 2.2, 1.8,
+        "A", "A",
+        0.05,
+        "A",
+        8000,
+        "A",
+        45.0, 30.0
+    ]
+
+    for j, v in enumerate(example2, start=1):
+
+        c = ws2.cell(
+            row=2,
+            column=j,
+            value=v
+        )
+
+        c.fill = example_fill
+
+    # ---- 시트3. 오버홀이력 ----
+
+    ws3 = wb.create_sheet(
+        "오버홀이력"
+    )
+
+    headers3 = [
+        "작업일자(YYYY-MM-DD)", "설비명(설비정보 시트와 동일해야 함)",
+        "공정단계", "작업자", "작업내용", "진동측정값(mm/s, 선택)"
+    ]
+
+    _style_template_header(
+        ws3,
+        headers3
+    )
+
+    example3 = [
+        "2026-08-23", "원심펌프 #1 (33003471)",
+        "펌프모터 OVERHAUL", "홍길동", "축슬리브 교체 · 센터링 완료", 1.0
+    ]
+
+    for j, v in enumerate(example3, start=1):
+
+        c = ws3.cell(
+            row=2,
+            column=j,
+            value=v
+        )
+
+        c.fill = example_fill
+
+    # ---- 시트0. 작성안내 (맨 앞에 오도록 마지막에 삽입) ----
+
+    ws0 = wb.create_sheet(
+        "작성안내",
+        0
+    )
+
+    guide_lines = [
+
+        "① 이 파일 하나만 업로드하면 설비등록·QR생성·정밀진단·"
+        "오버홀이력이 한 번에 반영됩니다.",
+
+        "② 노란색으로 칠해진 2행은 작성 예시입니다. "
+        "실제 데이터를 2행부터 이어서 입력하고, 예시행은 지우거나 "
+        "덮어써도 됩니다.",
+
+        "③ '설비명'은 세 시트 모두에서 반드시 똑같은 문자열이어야 "
+        "매칭됩니다 (예: '원심펌프 #1 (33003471)').",
+
+        "④ 값을 모르는 칸은 비워두세요. 빈칸은 억지로 채우지 않고 "
+        "그대로 반영됩니다.",
+
+        "⑤ 등급 칸(A~E)은 정밀진단 화면에서 사람이 직접 판정하는 "
+        "항목입니다. 대문자 A/B/C/D/E 중 하나로만 입력하세요.",
+
+        "⑥ 진동은 '펌프 부하/반부하'·'모터 부하/반부하' 4개 값을 "
+        "각각 입력하면, 그중 가장 큰 값(worst case)을 종합 진동값으로 "
+        "사용해 등급을 계산합니다.",
+
+        "⑦ '정밀진단' 시트만 있고 '설비정보' 시트가 비어있어도 "
+        "괜찮습니다 (이미 등록된 설비에 진단결과만 추가하는 경우).",
+
+        "⑧ 오버홀이력의 작업자 이름은 업로드 시 자동으로 "
+        "이니셜 처리됩니다 (예: 홍길동 → 홍○○)."
+
+    ]
+
+    for i, line in enumerate(guide_lines, start=1):
+
+        p = ws0.cell(
+            row=i,
+            column=1,
+            value=line
+        )
+
+        p.alignment = Alignment(
+            wrap_text=True,
+            vertical="top"
+        )
+
+        p.font = Font(
+            size=11
+        )
+
+    ws0.column_dimensions["A"].width = 100
+
+    for i in range(
+        1,
+        len(guide_lines) + 1
+    ):
+
+        ws0.row_dimensions[i].height = 32
+
+    buffer = io.BytesIO()
+
+    wb.save(
+        buffer
+    )
+
+    return buffer.getvalue()
+
+
+def upsert_equipment_rows(equip_rows):
+
+    # 기존 설비는 그대로 두고, 새 설비명만 추가한다.
+    # (통합 업로드는 반복해서 여러 번 올릴 걸 가정하므로,
+    #  이전 것을 지우는 "전체 교체"가 아니라 "이미 있으면
+    #  건너뛰고 없으면 추가"로 동작한다.)
+
+    existing_names = {
+
+        p["equip"]
+
+        for p in get_all_pumps()
+
+    }
+
+    added = 0
+
+    for row in equip_rows:
+
+        if row["equip"] in existing_names:
+
+            continue
+
+        add_equipment(
+            row
+        )
+
+        added += 1
+
+    return added
+
+
+def parse_unified_import_workbook(file_bytes):
+
+    xl = pd.ExcelFile(
+        io.BytesIO(file_bytes)
+    )
+
+    result = {
+
+        "equip_rows": [],
+        "diag_rows": [],
+        "overhaul_rows": [],
+        "diag_skipped": [],
+        "overhaul_skipped": 0
+
+    }
+
+    # ---- 설비정보 ----
+
+    if "설비정보" in xl.sheet_names:
+
+        df_eq = xl.parse(
+            "설비정보"
+        )
+
+        for _, r in df_eq.iterrows():
+
+            equip_name = r.get("설비명")
+
+            if pd.isna(equip_name) or not str(equip_name).strip():
+
+                continue
+
+            def _num_or_zero(val):
+
+                return (
+
+                    float(val)
+
+                    if pd.notna(val)
+
+                    else 0
+
+                )
+
+            result["equip_rows"].append(
+
+                {
+                    "site": (
+
+                        str(r.get("사업장", ""))
+
+                        if pd.notna(r.get("사업장"))
+
+                        else ""
+
+                    ),
+                    "equip": str(equip_name).strip(),
+                    "maker": (
+
+                        str(r.get("제조사", ""))
+
+                        if pd.notna(r.get("제조사"))
+
+                        else ""
+
+                    ),
+                    "model": (
+
+                        str(r.get("모델명", ""))
+
+                        if pd.notna(r.get("모델명"))
+
+                        else ""
+
+                    ),
+                    "hp": _num_or_zero(
+                        r.get("정격출력(HP)")
+                    ),
+                    "head": _num_or_zero(
+                        r.get("정격양정(m)")
+                    ),
+                    "flow": _num_or_zero(
+                        r.get("정격유량(m3/h)")
+                    ),
+                    "rpm": _num_or_zero(
+                        r.get("회전수(RPM)")
+                    ),
+                    "build_date": (
+
+                        str(r.get("준공일", ""))
+
+                        if pd.notna(r.get("준공일"))
+
+                        else ""
+
+                    ),
+                    "op_hours": _num_or_zero(
+                        r.get("누적운전시간(h)")
+                    ),
+                    "기준진동": (
+
+                        float(r.get("기준진동(mm/s)"))
+
+                        if pd.notna(r.get("기준진동(mm/s)"))
+
+                        else None
+
+                    ),
+                    "기준효율": (
+
+                        float(r.get("기준효율(%)"))
+
+                        if pd.notna(r.get("기준효율(%)"))
+
+                        else None
+
+                    )
+                }
+
+            )
+
+    # 설비명 -> pump dict 매핑 (정밀진단/오버홀에서 참조)
+
+    all_pumps_by_name = {
+
+        p["equip"]: p
+
+        for p in get_all_pumps()
+
+    }
+
+    for row in result["equip_rows"]:
+
+        all_pumps_by_name.setdefault(
+
+            row["equip"],
+
+            {
+                "site": row["site"],
+                "equip": row["equip"],
+                "maker": row["maker"],
+                "model": row["model"],
+                "hp": row["hp"],
+                "head": row["head"],
+                "build_date": row["build_date"]
+            }
+
+        )
+
+    # ---- 정밀진단 ----
+
+    diag_col = "설비명(설비정보 시트와 동일해야 함)"
+
+    if "정밀진단" in xl.sheet_names:
+
+        df_diag = xl.parse(
+            "정밀진단"
+        )
+
+        for _, r in df_diag.iterrows():
+
+            equip_name = r.get(diag_col)
+
+            if pd.isna(equip_name) or not str(equip_name).strip():
+
+                continue
+
+            equip_name = str(equip_name).strip()
+
+            pump = all_pumps_by_name.get(
+                equip_name
+            )
+
+            if pump is None:
+
+                result["diag_skipped"].append(
+
+                    f"{equip_name} (설비정보에 없음)"
+
+                )
+
+                continue
+
+            def _f(colname, default=None):
+
+                v = r.get(colname)
+
+                return (
+
+                    float(v)
+
+                    if pd.notna(v)
+
+                    else default
+
+                )
+
+            def _grade(colname, default="B"):
+
+                v = r.get(colname)
+
+                if pd.isna(v):
+
+                    return default
+
+                v = str(v).strip().upper()
+
+                return v if v in ("A", "B", "C", "D", "E") else default
+
+            eff_val = _f(
+                "효율유지율(%)",
+                None
+            )
+
+            reach_val = _f(
+                "양정유량도달률(%)",
+                None
+            )
+
+            bep_val = _f(
+                "BEP적정성(%)",
+                None
+            )
+
+            ring_val = _f(
+                "링간극(mm)",
+                None
+            )
+
+            sleeve_val = _f(
+                "축슬리브마모(mm)",
+                None
+            )
+
+            vib_candidates = [
+
+                v for v in [
+
+                    _f("펌프부하진동(mm/s)"),
+                    _f("펌프반부하진동(mm/s)"),
+                    _f("모터부하진동(mm/s)"),
+                    _f("모터반부하진동(mm/s)")
+
+                ]
+
+                if v is not None
+
+            ]
+
+            vib_val = (
+
+                max(vib_candidates)
+
+                if vib_candidates
+
+                else None
+
+            )
+
+            align_val = _f(
+                "센터링(mm)",
+                None
+            )
+
+            overhaul_hours_val = _f(
+                "오버홀주기(누적운전시간h)",
+                None
+            )
+
+            temp_val = _f(
+                "측정온도(°C)",
+                45.0
+            )
+
+            current_val = _f(
+                "측정전류(A)",
+                None
+            )
+
+            grade_by_item_name = {}
+
+            if eff_val is not None:
+                grade_by_item_name["펌프 효율 유지율 (%)"] = calc_eff(eff_val)
+
+            if reach_val is not None:
+                grade_by_item_name["설계 양정/유량 도달률 (%)"] = calc_reach(reach_val)
+
+            if bep_val is not None:
+                grade_by_item_name["BEP 운전점 적정성 (%)"] = calc_bep(bep_val)
+
+            if ring_val is not None:
+                grade_by_item_name["임펠러/케이싱 링 간극"] = calc_ring_gap(ring_val)
+
+            if sleeve_val is not None:
+                grade_by_item_name["축슬리브 마모"] = calc_sleeve(sleeve_val)
+
+            if vib_val is not None:
+
+                effective_vib_fn = get_effective_auto_fn(
+
+                    "Overall 진동 (mm/s)",
+
+                    calc_vib,
+
+                    pump
+
+                )
+
+                grade_by_item_name["Overall 진동 (mm/s)"] = effective_vib_fn(
+                    vib_val
+                )
+
+            if align_val is not None:
+                grade_by_item_name["펌프-모터 센터링"] = calc_align(align_val)
+
+            if overhaul_hours_val is not None:
+                grade_by_item_name["오버홀 주기"] = calc_overhaul(overhaul_hours_val)
+
+            qual_col_lookup = {
+
+                "임펠러손상등급": "임펠러손상등급(A~E)",
+                "임펠러밸런싱등급": "임펠러밸런싱등급(A~E)",
+                "NPSH등급": "NPSH등급(A~E)",
+                "코팅상태등급": "코팅상태등급(A~E)",
+                "비금속웨어링등급": "비금속웨어링등급(A~E)",
+                "베어링결함등급": "베어링결함등급(A~E)",
+                "주파수성분등급": "주파수성분등급(A~E)",
+                "softfoot등급": "softfoot등급(A~E)",
+                "소모품이력등급": "소모품이력등급(A~E)"
+
+            }
+
+            for col_key, item_name in DIAG_TEMPLATE_QUAL_ITEMS:
+
+                grade_by_item_name[item_name] = _grade(
+
+                    qual_col_lookup[col_key]
+
+                )
+
+            details_grades = []
+
+            total_score = 0
+
+            for item in EVAL_ITEMS:
+
+                name = item[1]
+
+                grade = grade_by_item_name.get(
+                    name,
+                    "B"
+                )
+
+                score = item[5].get(
+                    grade,
+                    0
+                )
+
+                details_grades.append(
+                    grade
+                )
+
+                total_score += score
+
+            total_score = round(
+                total_score,
+                2
+            )
+
+            final_grade = get_final_grade(
+                total_score
+            )
+
+            checker = (
+
+                str(r.get("점검자", ""))
+
+                if pd.notna(r.get("점검자"))
+
+                else ""
+
+            )
+
+            checker = anonymize_name(
+                checker
+            )
+
+            raw_date = r.get("점검일(YYYY-MM-DD)")
+
+            try:
+
+                if pd.isna(raw_date):
+
+                    check_date = datetime.now().strftime("%Y-%m-%d")
+
+                elif isinstance(raw_date, datetime):
+
+                    check_date = raw_date.strftime("%Y-%m-%d")
+
+                else:
+
+                    check_date = str(raw_date).strip()[:10]
+
+            except Exception:
+
+                check_date = datetime.now().strftime("%Y-%m-%d")
+
+            db_row = (
+
+                [
+                    check_date,
+                    pump.get("site", ""),
+                    equip_name,
+                    pump.get("maker", ""),
+                    pump.get("model", ""),
+                    pump.get("hp", ""),
+                    pump.get("head", ""),
+                    pump.get("build_date", ""),
+                    checker,
+                    total_score,
+                    final_grade
+                ]
+
+                +
+                details_grades
+
+                +
+                [
+
+                    eff_val if eff_val is not None else "",
+                    vib_val if vib_val is not None else "",
+                    temp_val if temp_val is not None else "",
+                    current_val if current_val is not None else ""
+
+                ]
+
+            )
+
+            result["diag_rows"].append(
+                db_row
+            )
+
+    # ---- 오버홀이력 ----
+
+    if "오버홀이력" in xl.sheet_names:
+
+        df_oh = xl.parse(
+            "오버홀이력"
+        )
+
+        for _, r in df_oh.iterrows():
+
+            equip_name = r.get(
+
+                "설비명(설비정보 시트와 동일해야 함)"
+
+            )
+
+            if pd.isna(equip_name) or not str(equip_name).strip():
+
+                result["overhaul_skipped"] += 1
+
+                continue
+
+            equip_name = str(equip_name).strip()
+
+            pump = all_pumps_by_name.get(
+                equip_name
+            )
+
+            if pump is None:
+
+                result["overhaul_skipped"] += 1
+
+                continue
+
+            raw_date = r.get(
+                "작업일자(YYYY-MM-DD)"
+            )
+
+            try:
+
+                if pd.isna(raw_date):
+
+                    work_date = datetime.now().strftime("%Y-%m-%d")
+
+                elif isinstance(raw_date, datetime):
+
+                    work_date = raw_date.strftime("%Y-%m-%d")
+
+                else:
+
+                    work_date = str(raw_date).strip()[:10]
+
+            except Exception:
+
+                work_date = datetime.now().strftime("%Y-%m-%d")
+
+            worker = (
+
+                str(r.get("작업자", ""))
+
+                if pd.notna(r.get("작업자"))
+
+                else ""
+
+            )
+
+            worker = anonymize_name(
+                worker
+            )
+
+            vib_note = r.get(
+                "진동측정값(mm/s, 선택)"
+            )
+
+            vib_note = (
+
+                float(vib_note)
+
+                if pd.notna(vib_note)
+
+                else ""
+
+            )
+
+            result["overhaul_rows"].append(
+
+                [
+                    work_date,
+                    pump.get("site", ""),
+                    equip_name,
+                    (
+
+                        str(r.get("공정단계", ""))
+
+                        if pd.notna(r.get("공정단계"))
+
+                        else ""
+
+                    ),
+                    worker,
+                    (
+
+                        str(r.get("작업내용", ""))
+
+                        if pd.notna(r.get("작업내용"))
+
+                        else ""
+
+                    ),
+                    "",
+                    "",
+                    vib_note
+                ]
+
+            )
+
+    return result
+
+
+def apply_unified_import(parsed):
+
+    added_equip = upsert_equipment_rows(
+
+        parsed["equip_rows"]
+
+    )
+
+    for db_row in parsed["diag_rows"]:
+
+        safe_append_row(
+
+            DB_FILE_PATH,
+
+            "진단이력",
+
+            db_row
+
+        )
+
+    for db_row in parsed["overhaul_rows"]:
+
+        safe_append_row(
+
+            OVERHAUL_DB_PATH,
+
+            "오버홀이력",
+
+            db_row
+
+        )
+
+    log_audit(
+
+        "통합 엑셀 업로드",
+
+        "전체",
+
+        f"설비 {added_equip}건 추가, "
+        f"정밀진단 {len(parsed['diag_rows'])}건, "
+        f"오버홀 {len(parsed['overhaul_rows'])}건"
+
+    )
+
+    return added_equip
 
 
 # ============================================================
@@ -12826,6 +13814,273 @@ elif st.session_state.page == "백업":
         st.caption(
             "아직 기록된 감사 로그가 없습니다."
         )
+
+    st.markdown(
+        "### 🧾 통합 업로드 양식 (설비+정밀진단+오버홀 한번에)"
+    )
+
+    st.caption(
+
+        "엑셀 파일 하나에 설비정보·정밀진단·오버홀이력을 "
+        "전부 담아서 한 번에 올리는 양식입니다. "
+        "빈 양식을 받아서 채운 뒤 그대로 다시 올리시면 됩니다."
+
+    )
+
+    template_bytes = build_unified_import_template_bytes()
+
+    st.download_button(
+
+        "📄 통합 업로드 양식 다운로드",
+
+        data=template_bytes,
+
+        file_name="통합업로드_양식.xlsx",
+
+        mime=(
+            "application/vnd.openxmlformats-"
+            "officedocument.spreadsheetml.sheet"
+        ),
+
+        use_container_width=True,
+
+        key="download_unified_template_btn"
+
+    )
+
+    unified_file = st.file_uploader(
+
+        "작성한 통합 양식 업로드",
+
+        type=["xlsx"],
+
+        key="unified_import_uploader"
+
+    )
+
+    if unified_file is not None:
+
+        try:
+
+            _parsed = parse_unified_import_workbook(
+
+                unified_file.getvalue()
+
+            )
+
+            st.success(
+
+                f"설비 {len(_parsed['equip_rows'])}건 · "
+                f"정밀진단 {len(_parsed['diag_rows'])}건 · "
+                f"오버홀 {len(_parsed['overhaul_rows'])}건을 "
+                "확인했습니다."
+
+            )
+
+            if _parsed["diag_skipped"]:
+
+                st.warning(
+
+                    "정밀진단 시트에서 설비정보와 매칭 안 되어 "
+                    "제외된 항목: "
+                    +
+                    ", ".join(_parsed["diag_skipped"])
+
+                )
+
+            if _parsed["overhaul_skipped"]:
+
+                st.warning(
+
+                    f"오버홀이력 시트에서 {_parsed['overhaul_skipped']}건이 "
+                    "설비 매칭 실패 또는 필수값 누락으로 제외되었습니다."
+
+                )
+
+            if _parsed["equip_rows"]:
+
+                with st.expander(
+                    f"설비정보 미리보기 ({len(_parsed['equip_rows'])}건)"
+                ):
+
+                    st.dataframe(
+
+                        pd.DataFrame(_parsed["equip_rows"]),
+
+                        use_container_width=True,
+
+                        hide_index=True
+
+                    )
+
+            if _parsed["diag_rows"]:
+
+                with st.expander(
+                    f"정밀진단 미리보기 ({len(_parsed['diag_rows'])}건)"
+                ):
+
+                    _diag_preview_cols = (
+
+                        ["점검일","사업장","설비명","제조사","모델명",
+                         "마력","양정","준공일","점검자","종합점수","최종등급"]
+
+                        +
+                        [item[1] for item in EVAL_ITEMS]
+
+                        +
+                        ["효율측정값(%)","진동측정값(mm/s)",
+                         "온도측정값(°C)","전류측정값(A)"]
+
+                    )
+
+                    st.dataframe(
+
+                        pd.DataFrame(
+                            _parsed["diag_rows"],
+                            columns=_diag_preview_cols
+                        ),
+
+                        use_container_width=True,
+
+                        hide_index=True
+
+                    )
+
+            if _parsed["overhaul_rows"]:
+
+                with st.expander(
+                    f"오버홀이력 미리보기 ({len(_parsed['overhaul_rows'])}건)"
+                ):
+
+                    st.dataframe(
+
+                        pd.DataFrame(
+
+                            _parsed["overhaul_rows"],
+
+                            columns=[
+                                "작업일자","사업장","설비명","공정단계",
+                                "작업자","작업내용","사진파일명",
+                                "전후효율","전후진동"
+                            ]
+
+                        ),
+
+                        use_container_width=True,
+
+                        hide_index=True
+
+                    )
+
+            if is_read_only():
+
+                st.info(
+                    "🔒 보기 전용 모드에서는 반영할 수 없습니다."
+                )
+
+            elif st.button(
+
+                "📥 통합 업로드 반영하기",
+
+                type="primary",
+
+                use_container_width=True,
+
+                key="unified_import_open_btn"
+
+            ):
+
+                st.session_state["_show_unified_import_confirm"] = True
+
+            if st.session_state.get("_show_unified_import_confirm"):
+
+                @st.dialog("통합 업로드 반영 확인")
+                def _confirm_unified_import():
+
+                    st.write(
+
+                        f"설비 {len(_parsed['equip_rows'])}건, "
+                        f"정밀진단 {len(_parsed['diag_rows'])}건, "
+                        f"오버홀 {len(_parsed['overhaul_rows'])}건을 "
+                        "반영하시겠습니까?"
+
+                    )
+
+                    st.caption(
+
+                        "이미 등록된 설비명은 건드리지 않고, "
+                        "새로운 설비명만 추가됩니다. "
+                        "정밀진단·오버홀은 항상 새 기록으로 "
+                        "추가됩니다(기존 이력은 지워지지 않습니다)."
+
+                    )
+
+                    uc1, uc2 = st.columns(2)
+
+                    with uc1:
+
+                        if st.button(
+
+                            "예, 반영합니다",
+
+                            type="primary",
+
+                            use_container_width=True,
+
+                            key="unified_import_confirm_yes"
+
+                        ):
+
+                            apply_unified_import(
+                                _parsed
+                            )
+
+                            st.session_state[
+                                "_show_unified_import_confirm"
+                            ] = False
+
+                            st.session_state[
+                                "_unified_import_done"
+                            ] = True
+
+                            st.rerun()
+
+                    with uc2:
+
+                        if st.button(
+
+                            "아니오",
+
+                            use_container_width=True,
+
+                            key="unified_import_confirm_no"
+
+                        ):
+
+                            st.session_state[
+                                "_show_unified_import_confirm"
+                            ] = False
+
+                            st.rerun()
+
+                _confirm_unified_import()
+
+            if st.session_state.get("_unified_import_done"):
+
+                st.success(
+
+                    "통합 업로드가 반영되었습니다. "
+                    "메뉴를 다시 열면 확인할 수 있습니다."
+
+                )
+
+        except Exception as e:
+
+            st.error(
+
+                f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
+
+            )
 
     st.markdown(
         "### 📥 실제 설비 데이터 일괄 업로드"
