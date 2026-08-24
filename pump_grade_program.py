@@ -32,6 +32,7 @@ import qrcode
 import base64
 import glob
 import zipfile
+import re
 from filelock import FileLock
 
 from docx import Document
@@ -5430,6 +5431,306 @@ def delete_equipment(equip_name):
 
 
 # ============================================================
+# 10-2. 실제 회사 데이터(엑셀) 일괄 업로드
+#
+# 사업소에서 받은 "설비 기본정보" 엑셀과 "오버홀 실적" 엑셀을
+# 그대로 올리면 설비마스터·오버홀이력·QR까지 한 번에 채워진다.
+# 원본 파일에 없는 값(제조사·모델·정격출력 등)은 빈칸으로 두고
+# 억지로 채워넣지 않는다.
+# ============================================================
+
+def parse_equipment_import_excel(df1):
+
+    site_pattern = re.compile(
+        r'^(.*?)\s*가압펌프동'
+    )
+
+    equip_rows = []
+
+    equip_label_by_no = {}
+
+    site_by_no = {}
+
+    for _, r in df1.iterrows():
+
+        equip_no = r.get("설비번호")
+
+        if pd.isna(equip_no):
+
+            continue
+
+        equip_no = int(equip_no)
+
+        m = site_pattern.match(
+
+            str(r.get("기능위치내역", ""))
+
+        )
+
+        site_name = (
+
+            m.group(1)
+
+            if m
+
+            else str(r.get("기능위치내역", "")).strip()
+
+        )
+
+        equip_desc = str(
+
+            r.get("설비내역", "")
+
+        ).replace(",", "").strip()
+
+        equip_desc = re.sub(
+            r"\s+",
+            " ",
+            equip_desc
+        )
+
+        equip_label = f"{equip_desc} ({equip_no})"
+
+        equip_label_by_no[equip_no] = equip_label
+
+        site_by_no[equip_no] = site_name
+
+        equip_rows.append(
+
+            {
+                "site": site_name,
+                "equip": equip_label,
+                "maker": "",
+                "model": "",
+                "hp": 0,
+                "head": 0,
+                "flow": 0,
+                "rpm": 0,
+                "build_date": "",
+                "op_hours": 0,
+                "기준진동": None,
+                "기준효율": None
+            }
+
+        )
+
+    return equip_rows, equip_label_by_no, site_by_no
+
+
+def parse_overhaul_import_excel(
+
+    df2,
+
+    equip_label_by_no,
+
+    site_by_no
+
+):
+
+    overhaul_rows = []
+
+    skipped = 0
+
+    for _, r in df2.iterrows():
+
+        eq_no = r.get("설비")
+
+        if pd.isna(eq_no):
+
+            skipped += 1
+
+            continue
+
+        eq_no = int(eq_no)
+
+        if eq_no not in equip_label_by_no:
+
+            skipped += 1
+
+            continue
+
+        raw_date = r.get("측정일자")
+
+        if pd.isna(raw_date):
+
+            skipped += 1
+
+            continue
+
+        try:
+
+            work_date = datetime.strptime(
+
+                str(int(raw_date)),
+
+                "%Y%m%d"
+
+            ).strftime("%Y-%m-%d")
+
+        except Exception:
+
+            skipped += 1
+
+            continue
+
+        parts = []
+
+        if pd.notna(r.get("평가코드내역")):
+
+            parts.append(
+                str(r["평가코드내역"])
+            )
+
+        if pd.notna(r.get("측정값")):
+
+            unit = r.get("단위", "")
+
+            unit = str(unit) if pd.notna(unit) else ""
+
+            parts.append(
+
+                f"측정값 {r['측정값']}{unit}"
+
+            )
+
+        if pd.notna(r.get("오더내역")):
+
+            parts.append(
+                str(r["오더내역"])
+            )
+
+        content = " · ".join(
+            parts
+        )
+
+        overhaul_rows.append(
+
+            {
+                "작업일자": work_date,
+                "site": site_by_no[eq_no],
+                "equip": equip_label_by_no[eq_no],
+                "공정단계": (
+
+                    str(r.get("측정지점내역", ""))
+
+                    if pd.notna(r.get("측정지점내역"))
+
+                    else ""
+
+                ),
+                "작업자": (
+
+                    str(r.get("측정인", ""))
+
+                    if pd.notna(r.get("측정인"))
+
+                    else ""
+
+                ),
+                "작업내용": content
+            }
+
+        )
+
+    return overhaul_rows, skipped
+
+
+def replace_all_equipment(new_equip_rows):
+
+    # 기존 설비마스터를 전부 지우고(헤더는 유지) 새 목록으로
+    # 통째로 교체한다.
+
+    with get_lock(EQUIP_DB_PATH):
+
+        wb = load_workbook(
+            EQUIP_DB_PATH
+        )
+
+        ws = wb["설비마스터"]
+
+        max_row = ws.max_row
+
+        if max_row > 1:
+
+            ws.delete_rows(
+                2,
+                max_row - 1
+            )
+
+        for row in new_equip_rows:
+
+            ws.append(
+
+                [
+                    row["site"],
+                    row["equip"],
+                    row["maker"],
+                    row["model"],
+                    row["hp"],
+                    row["head"],
+                    row["flow"],
+                    row["rpm"],
+                    row["build_date"],
+                    row["op_hours"],
+                    row.get("기준진동"),
+                    row.get("기준효율")
+                ]
+
+            )
+
+        wb.save(
+            EQUIP_DB_PATH
+        )
+
+        wb.close()
+
+    log_audit(
+
+        "설비 일괄 교체",
+
+        "전체",
+
+        f"{len(new_equip_rows)}건으로 교체"
+
+    )
+
+
+def bulk_append_overhaul(overhaul_rows):
+
+    for row in overhaul_rows:
+
+        safe_append_row(
+
+            OVERHAUL_DB_PATH,
+
+            "오버홀이력",
+
+            [
+                row["작업일자"],
+                row["site"],
+                row["equip"],
+                row["공정단계"],
+                row["작업자"],
+                row["작업내용"],
+                "",
+                "",
+                ""
+            ]
+
+        )
+
+    log_audit(
+
+        "오버홀 일괄 업로드",
+
+        "전체",
+
+        f"{len(overhaul_rows)}건 추가"
+
+    )
+
+
+# ============================================================
 # 12. QR 비용 계산
 # ============================================================
 
@@ -7481,23 +7782,18 @@ if st.session_state.get("_last_rendered_page") != _current_page:
 
         scrollAppToTop();
 
-        var _scrollFightCount = 0;
+        // 예전에는 100ms마다 3초 동안(총 30번) 계속 스크롤을
+        // 강제로 위로 되돌렸는데, 그 3초 사이에 사용자가
+        // 손으로 아래로 내리면 다음 반복에서 또 위로
+        // 끌어올려져서 스크롤을 아예 못 하는 문제가 있었다.
+        // 이제는 초기 렌더링 타이밍만 짧게 커버하도록
+        // 아주 잠깐(최대 0.3초) 동안 몇 번만 시도하고 멈춘다.
 
-        var _scrollFightTimer = setInterval(function () {{
+        setTimeout(scrollAppToTop, 60);
 
-            scrollAppToTop();
+        setTimeout(scrollAppToTop, 150);
 
-            _scrollFightCount += 1;
-
-            if (_scrollFightCount > 30) {{
-
-                clearInterval(_scrollFightTimer);
-
-                console.log("DEBUG 스크롤 재설정 반복 종료");
-
-            }}
-
-        }}, 100);
+        setTimeout(scrollAppToTop, 300);
         </script>
         """,
 
@@ -12530,6 +12826,241 @@ elif st.session_state.page == "백업":
         st.caption(
             "아직 기록된 감사 로그가 없습니다."
         )
+
+    st.markdown(
+        "### 📥 실제 설비 데이터 일괄 업로드"
+    )
+
+    st.caption(
+
+        "사업소에서 받은 '설비 기본정보' 엑셀과 '오버홀 실적' "
+        "엑셀을 그대로 올리면 설비마스터와 오버홀이력이 한 번에 "
+        "채워집니다. 원본에 없는 값(제조사·모델·정격출력 등)은 "
+        "억지로 채우지 않고 빈칸으로 둡니다. "
+        "⚠️ 기존에 등록된 설비 목록은 전부 지워지고 "
+        "새로 올리는 목록으로 교체됩니다."
+
+    )
+
+    bulk_c1, bulk_c2 = st.columns(2)
+
+    equip_excel_file = bulk_c1.file_uploader(
+
+        "설비 기본정보 엑셀",
+
+        type=["xlsx"],
+
+        key="bulk_equip_excel"
+
+    )
+
+    overhaul_excel_file = bulk_c2.file_uploader(
+
+        "오버홀 실적 엑셀",
+
+        type=["xlsx"],
+
+        key="bulk_overhaul_excel"
+
+    )
+
+    if equip_excel_file is not None:
+
+        try:
+
+            _df1 = pd.read_excel(equip_excel_file)
+
+            _equip_rows, _equip_map, _site_map = parse_equipment_import_excel(
+                _df1
+            )
+
+            st.success(
+
+                f"설비 {len(_equip_rows)}건을 확인했습니다."
+
+            )
+
+            with st.expander(
+
+                f"설비 미리보기 ({len(_equip_rows)}건)"
+
+            ):
+
+                st.dataframe(
+
+                    pd.DataFrame(_equip_rows),
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+            _overhaul_rows = []
+
+            if overhaul_excel_file is not None:
+
+                _df2 = pd.read_excel(
+                    overhaul_excel_file
+                )
+
+                _overhaul_rows, _skipped = parse_overhaul_import_excel(
+
+                    _df2,
+
+                    _equip_map,
+
+                    _site_map
+
+                )
+
+                st.success(
+
+                    f"오버홀 실적 {len(_overhaul_rows)}건을 "
+                    f"확인했습니다"
+                    +
+                    (
+                        f" ({_skipped}건은 설비 매칭 실패 또는 "
+                        f"날짜 오류로 제외)"
+
+                        if _skipped
+
+                        else ""
+                    )
+
+                )
+
+                with st.expander(
+
+                    f"오버홀 실적 미리보기 ({len(_overhaul_rows)}건)"
+
+                ):
+
+                    st.dataframe(
+
+                        pd.DataFrame(_overhaul_rows),
+
+                        use_container_width=True,
+
+                        hide_index=True
+
+                    )
+
+            if is_read_only():
+
+                st.info(
+                    "🔒 보기 전용 모드에서는 반영할 수 없습니다."
+                )
+
+            elif st.button(
+
+                "📥 일괄 업로드 확인 팝업 열기",
+
+                type="primary",
+
+                use_container_width=True,
+
+                key="bulk_import_open_btn"
+
+            ):
+
+                st.session_state["_show_bulk_import_confirm"] = True
+
+            if st.session_state.get("_show_bulk_import_confirm"):
+
+                @st.dialog("일괄 업로드 확인")
+                def _confirm_bulk_import():
+
+                    st.write(
+
+                        f"설비 {len(_equip_rows)}건으로 "
+                        "**기존 설비 목록을 전부 교체**하고, "
+                        f"오버홀 실적 {len(_overhaul_rows)}건을 "
+                        "추가하시겠습니까?"
+
+                    )
+
+                    st.warning(
+
+                        "기존에 등록돼 있던 설비는 삭제되고 "
+                        "새 목록으로 바뀝니다. 기존 오버홀·"
+                        "정밀진단 이력은 그대로 남지만, "
+                        "삭제된 설비 이름과 연결이 끊깁니다."
+
+                    )
+
+                    dc1, dc2 = st.columns(2)
+
+                    with dc1:
+
+                        if st.button(
+
+                            "예, 진행합니다",
+
+                            type="primary",
+
+                            use_container_width=True,
+
+                            key="bulk_import_confirm_yes"
+
+                        ):
+
+                            replace_all_equipment(
+                                _equip_rows
+                            )
+
+                            if _overhaul_rows:
+
+                                bulk_append_overhaul(
+                                    _overhaul_rows
+                                )
+
+                            st.session_state[
+                                "_show_bulk_import_confirm"
+                            ] = False
+
+                            st.session_state[
+                                "_bulk_import_done"
+                            ] = True
+
+                            st.rerun()
+
+                    with dc2:
+
+                        if st.button(
+
+                            "아니오",
+
+                            use_container_width=True,
+
+                            key="bulk_import_confirm_no"
+
+                        ):
+
+                            st.session_state[
+                                "_show_bulk_import_confirm"
+                            ] = False
+
+                            st.rerun()
+
+                _confirm_bulk_import()
+
+            if st.session_state.get("_bulk_import_done"):
+
+                st.success(
+
+                    "설비 목록과 오버홀 실적이 반영되었습니다. "
+                    "메뉴를 다시 열면 확인할 수 있습니다."
+
+                )
+
+        except Exception as e:
+
+            st.error(
+
+                f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
+
+            )
 
     st.markdown(
         "### ⚙️ 설비 마스터 관리"
