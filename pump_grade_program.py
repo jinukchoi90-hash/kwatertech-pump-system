@@ -10,7 +10,7 @@ import os
 import io
 import urllib.request
 import urllib.parse
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import random
 import math
 
@@ -1145,6 +1145,52 @@ button[data-baseweb="tab"] {
    깔끔하게 나오도록 한다.
 ======================================================== */
 
+/* ========================================================
+   사이드바 열기 버튼 확대
+
+   모바일에서 사이드바를 접었을 때 다시 여는 ">" 버튼이
+   너무 작아서 누르기 어렵다는 피드백. 아이콘 자체와
+   터치 영역을 눈에 띄게 키운다.
+======================================================== */
+
+button[data-testid="stExpandSidebarButton"],
+button[data-testid="stSidebarCollapsedControl"],
+div[data-testid="stSidebarCollapsedControl"] button {
+
+    width: 52px !important;
+
+    height: 52px !important;
+
+    background: #087ea4 !important;
+
+    border-radius: 12px !important;
+
+    box-shadow: 0 4px 12px rgba(8, 126, 164, 0.35) !important;
+
+    position: fixed !important;
+
+    top: 10px !important;
+
+    left: 10px !important;
+
+    z-index: 999999 !important;
+
+}
+
+button[data-testid="stExpandSidebarButton"] svg,
+button[data-testid="stSidebarCollapsedControl"] svg,
+div[data-testid="stSidebarCollapsedControl"] svg {
+
+    width: 28px !important;
+
+    height: 28px !important;
+
+    color: white !important;
+
+    fill: white !important;
+
+}
+
 @media print {
 
     section[data-testid="stSidebar"],
@@ -1985,7 +2031,566 @@ def estimate_next_overhaul(op_hours):
     return next_due_hours, remaining_hours
 
 
+def estimate_next_overhaul_advanced(
+
+    pump,
+    current_op_hours,
+    df_overhaul,
+    df_vib
+
+):
+
+    # 기존 estimate_next_overhaul()은 "남은 시간"만 알려줘서
+    # 실제 달력 날짜로 와닿지 않았다. 여기서는:
+    # 1) 준공일 대비 실제 평균 가동률로 잔여시간을 날짜로 환산
+    # 2) 오버홀이력에 실제 기록이 있으면 그 날짜를 기준으로
+    #    "보통 2년 주기" 관행을 반영해 앵커로 삼음
+    # 3) 최근 진동 추세가 뚜렷이 나빠지고 있으면 예정일을 앞당김
+    # 세 가지를 종합해서 달력 날짜 하나로 정리한다.
+
+    today = datetime.now().date()
+
+    basis = []
+
+    daily_rate = 24.0
+
+    try:
+
+        build_date = datetime.strptime(
+
+            str(pump.get("build_date", ""))[:10],
+
+            "%Y-%m-%d"
+
+        ).date()
+
+        days_since_build = (
+            today - build_date
+        ).days
+
+        if (
+
+            days_since_build > 0
+
+            and current_op_hours
+
+        ):
+
+            daily_rate = (
+
+                current_op_hours / days_since_build
+
+            )
+
+    except Exception:
+
+        pass
+
+    _, remaining_hours = estimate_next_overhaul(
+        current_op_hours
+    )
+
+    if (
+
+        remaining_hours is None
+
+        or daily_rate <= 0
+
+    ):
+
+        return None, "예측 불가 (운전시간 정보 부족)", False
+
+    remaining_days = remaining_hours / daily_rate
+
+    est_date = today + timedelta(
+        days=remaining_days
+    )
+
+    basis.append(
+
+        f"누적운전시간 기준 (일평균 {daily_rate:.1f}h 가동 가정)"
+
+    )
+
+    if (
+
+        df_overhaul is not None
+
+        and not df_overhaul.empty
+
+        and "설비명" in df_overhaul.columns
+
+    ):
+
+        equip_hist = df_overhaul[
+
+            df_overhaul["설비명"] == pump["equip"]
+
+        ].copy()
+
+        if not equip_hist.empty:
+
+            equip_hist["_date"] = pd.to_datetime(
+
+                equip_hist["작업일자"],
+                errors="coerce"
+
+            )
+
+            equip_hist = equip_hist.dropna(
+                subset=["_date"]
+            )
+
+            if not equip_hist.empty:
+
+                last_overhaul_date = equip_hist[
+
+                    "_date"
+
+                ].max().date()
+
+                history_based_date = (
+
+                    last_overhaul_date
+
+                    +
+                    timedelta(days=730)
+
+                )
+
+                if history_based_date < est_date:
+
+                    est_date = history_based_date
+
+                    basis = [
+
+                        f"최근 오버홀일({last_overhaul_date}) "
+                        "기준 2년 주기"
+
+                    ]
+
+                else:
+
+                    basis.append(
+
+                        f"최근 오버홀일({last_overhaul_date}) "
+                        "기준 2년 주기와 비교 검토됨"
+
+                    )
+
+    vib_adjusted = False
+
+    if (
+
+        df_vib is not None
+
+        and not df_vib.empty
+
+        and "설비명" in df_vib.columns
+
+    ):
+
+        equip_vib = df_vib[
+
+            df_vib["설비명"] == pump["equip"]
+
+        ].copy()
+
+        if not equip_vib.empty:
+
+            equip_vib["_month"] = equip_vib[
+
+                "측정일자"
+
+            ].astype(str).str[:7]
+
+            monthly_max = equip_vib.groupby(
+
+                "_month"
+
+            )["측정값"].max().sort_index()
+
+            if len(monthly_max) >= 4:
+
+                recent2 = monthly_max.iloc[-2:].mean()
+
+                prev2 = monthly_max.iloc[-4:-2].mean()
+
+                if (
+
+                    prev2 > 0
+
+                    and recent2 > prev2 * 1.15
+
+                ):
+
+                    days_left = (
+
+                        est_date - today
+
+                    ).days
+
+                    if days_left > 0:
+
+                        est_date = today + timedelta(
+
+                            days=int(days_left * 0.8)
+
+                        )
+
+                        vib_adjusted = True
+
+                        basis.append(
+
+                            "최근 진동값 상승추세 감지 → "
+                            "예정일 앞당김"
+
+                        )
+
+    return est_date, " · ".join(basis), vib_adjusted
+
+
+def build_overhaul_ics_bytes(schedule_rows):
+
+    # schedule_rows: [(설비명, 사업장, 날짜, 근거설명), ...]
+    # 구글캘린더·아웃룩 등에 그대로 가져올 수 있는 표준 .ics 포맷.
+
+    lines = [
+
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Kwatertech//OverhaulSchedule//KO"
+
+    ]
+
+    for equip, site, date_obj, basis in schedule_rows:
+
+        dt_str = date_obj.strftime("%Y%m%d")
+
+        uid = (
+
+            f"{equip}-{dt_str}@kwatertech"
+
+        ).replace(" ", "_").replace("(", "").replace(")", "")
+
+        lines += [
+
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTART;VALUE=DATE:{dt_str}",
+            f"DTEND;VALUE=DATE:{dt_str}",
+            f"SUMMARY:{equip} 오버홀 예정 ({site})",
+            f"DESCRIPTION:{basis}",
+            "END:VEVENT"
+
+        ]
+
+    lines.append("END:VCALENDAR")
+
+    return "\r\n".join(lines).encode("utf-8")
+
+
+def build_equipment_timeline(
+
+    pump,
+    df_history,
+    df_overhaul,
+    df_vib
+
+):
+
+    # 정밀진단·오버홀·진동측정 이력이 메뉴마다 따로 흩어져
+    # 있어서, "이 설비한테 언제 무슨 일이 있었는지"를 한눈에
+    # 보기 어려웠다. 세 이력을 시간순으로 합쳐서 하나의
+    # 스트림으로 만든다.
+
+    events = []
+
+    if (
+
+        df_history is not None
+
+        and not df_history.empty
+
+        and "설비명" in df_history.columns
+
+    ):
+
+        for _, r in df_history[
+
+            df_history["설비명"] == pump["equip"]
+
+        ].iterrows():
+
+            events.append(
+
+                {
+                    "date": str(r.get("점검일", "")),
+                    "type": "정밀진단",
+                    "icon": "🔍",
+                    "desc": (
+
+                        f"{r.get('최종등급', '-')}등급 "
+                        f"({r.get('종합점수', '-')}점)"
+
+                    )
+                }
+
+            )
+
+    if (
+
+        df_overhaul is not None
+
+        and not df_overhaul.empty
+
+        and "설비명" in df_overhaul.columns
+
+    ):
+
+        for _, r in df_overhaul[
+
+            df_overhaul["설비명"] == pump["equip"]
+
+        ].iterrows():
+
+            events.append(
+
+                {
+                    "date": str(r.get("작업일자", "")),
+                    "type": "오버홀",
+                    "icon": "🛠️",
+                    "desc": (
+
+                        f"{r.get('공정단계', '작업')} · "
+                        f"{r.get('작업자', '')}"
+
+                    )
+                }
+
+            )
+
+    if (
+
+        df_vib is not None
+
+        and not df_vib.empty
+
+        and "설비명" in df_vib.columns
+
+    ):
+
+        equip_vib = df_vib[
+
+            df_vib["설비명"] == pump["equip"]
+
+        ].copy()
+
+        if not equip_vib.empty:
+
+            equip_vib["_month"] = equip_vib[
+
+                "측정일자"
+
+            ].astype(str).str[:7]
+
+            for month, g in equip_vib.groupby("_month"):
+
+                events.append(
+
+                    {
+                        "date": f"{month}-01",
+                        "type": "진동측정",
+                        "icon": "📈",
+                        "desc": (
+
+                            f"최대 {g['측정값'].max():.1f} mm/s "
+                            f"({len(g)}건 측정)"
+
+                        )
+                    }
+
+                )
+
+    events.sort(
+
+        key=lambda e: e["date"],
+
+        reverse=True
+
+    )
+
+    return events
+
+
 # ============================================================
+# 10-6. 소모품 재고관리
+#
+# 그랜드패킹·베어링·축슬리브 같은 소모품 교체이력을 지금까지
+# 오버홀 작업내용에 텍스트로만 남겼는데, 실제 재고수량까지
+# 관리하면 "다음 오버홀 예정은 있는데 재고가 부족하다" 같은
+# 걸 미리 알 수 있다.
+# ============================================================
+
+CONSUMABLES_DB_PATH = "Pump_Consumables_DB.xlsx"
+
+
+def ensure_consumables_db_exists():
+
+    ensure_excel_file(
+
+        CONSUMABLES_DB_PATH,
+
+        "소모품재고",
+
+        [
+            "소모품명",
+            "규격",
+            "현재고",
+            "안전재고",
+            "최근입고일",
+            "비고"
+        ]
+
+    )
+
+
+def get_consumables():
+
+    return read_excel(
+
+        CONSUMABLES_DB_PATH,
+
+        "소모품재고"
+
+    )
+
+
+def add_consumable(row):
+
+    safe_append_row(
+
+        CONSUMABLES_DB_PATH,
+
+        "소모품재고",
+
+        [
+            row["소모품명"],
+            row["규격"],
+            row["현재고"],
+            row["안전재고"],
+            row["최근입고일"],
+            row.get("비고", "")
+        ]
+
+    )
+
+    log_audit(
+
+        "소모품 등록",
+
+        row["소모품명"],
+
+        f"현재고={row['현재고']}, 안전재고={row['안전재고']}"
+
+    )
+
+
+def update_consumable_stock(name, new_qty, note=""):
+
+    with get_lock(CONSUMABLES_DB_PATH):
+
+        wb = load_workbook(
+            CONSUMABLES_DB_PATH
+        )
+
+        ws = wb["소모품재고"]
+
+        for r in ws.iter_rows(min_row=2):
+
+            if r[0].value == name:
+
+                r[2].value = new_qty
+
+                if note:
+
+                    r[4].value = note
+
+                break
+
+        wb.save(
+            CONSUMABLES_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+    log_audit(
+
+        "소모품 재고 변경",
+
+        name,
+
+        f"현재고 → {new_qty}"
+
+    )
+
+
+def delete_consumable(name):
+
+    with get_lock(CONSUMABLES_DB_PATH):
+
+        wb = load_workbook(
+            CONSUMABLES_DB_PATH
+        )
+
+        ws = wb["소모품재고"]
+
+        for r in ws.iter_rows(min_row=2):
+
+            if r[0].value == name:
+
+                ws.delete_rows(r[0].row)
+
+                break
+
+        wb.save(
+            CONSUMABLES_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+    log_audit(
+
+        "소모품 삭제",
+
+        name
+
+    )
+
+
+def get_low_stock_consumables():
+
+    df = get_consumables()
+
+    if df.empty:
+
+        return df
+
+    return df[
+
+        pd.to_numeric(df["현재고"], errors="coerce").fillna(0)
+
+        <
+
+        pd.to_numeric(df["안전재고"], errors="coerce").fillna(0)
+
+    ]
+
+
 # 7-3. 배점 합계 자동 검증
 #
 # 17개 항목의 가중치 합, 그리고 4개 분야(CATEGORIES) 배점 합이
@@ -3154,6 +3759,70 @@ def find_logo_file():
             return matches[0]
 
     return None
+
+
+def get_logo_base64_html(
+
+    max_height_px=40
+
+):
+
+    # 사이드바·홈 히어로 배너처럼 화면(HTML) 안에 로고를 넣는
+    # 자리에서 쓴다. Streamlit의 markdown은 로컬 파일 경로를
+    # <img src="...">로 바로 못 읽으므로 base64로 인라인 삽입한다.
+    # 로고 파일이 없으면 빈 문자열을 돌려주고, 호출부에서
+    # 기존 이모지/아이콘으로 대체하면 된다.
+
+    logo_path = find_logo_file()
+
+    if not logo_path:
+
+        return ""
+
+    try:
+
+        with open(
+
+            logo_path,
+
+            "rb"
+
+        ) as f:
+
+            b64 = base64.b64encode(
+
+                f.read()
+
+            ).decode("utf-8")
+
+        ext = logo_path.rsplit(
+
+            ".",
+            1
+
+        )[-1].lower()
+
+        mime = (
+
+            "image/png"
+
+            if ext == "png"
+
+            else "image/jpeg"
+
+        )
+
+        return (
+
+            f'<img src="data:{mime};base64,{b64}" '
+            f'style="max-height:{max_height_px}px; '
+            f'width:auto;" />'
+
+        )
+
+    except Exception:
+
+        return ""
 
 
 def build_report_qr_image_bytes(
@@ -5089,6 +5758,8 @@ ensure_db_exists()
 
 ensure_audit_log_exists()
 
+ensure_consumables_db_exists()
+
 
 
 # ============================================================
@@ -5557,6 +6228,34 @@ def delete_sample_default_equipment():
 # 원본 파일에 없는 값(제조사·모델·정격출력 등)은 빈칸으로 두고
 # 억지로 채워넣지 않는다.
 # ============================================================
+
+def track_recent_view(equip_name):
+
+    # 홈 화면 "최근 본 설비"에 쓸 방문 기록. 세션 동안만
+    # 유지되는 간단한 목록이라 별도 DB 없이 session_state로
+    # 처리한다. 이미 있던 항목이면 맨 앞으로 올리고, 최대
+    # 5개까지만 남긴다.
+
+    recent = st.session_state.get(
+        "_recent_viewed",
+        []
+    )
+
+    recent = [
+
+        e for e in recent
+
+        if e != equip_name
+
+    ]
+
+    recent.insert(
+        0,
+        equip_name
+    )
+
+    st.session_state["_recent_viewed"] = recent[:5]
+
 
 def anonymize_name(name):
 
@@ -10258,30 +10957,37 @@ def go_to_page(
 
     st.session_state.page = page_key
 
+    st.query_params["page"] = page_key
+
+    if "equip" in st.query_params:
+
+        del st.query_params["equip"]
+
 
 with st.sidebar:
 
 
+    _sidebar_logo_html = get_logo_base64_html(
+        max_height_px=40
+    )
+
     st.markdown(
-        """
+        f"""
         <div style="
         text-align:center;
         padding:8px 0 18px 0;
         ">
             <div style="
-            font-size:2rem;
+            background:white; border-radius:10px;
+            display:inline-block; padding:8px 14px;
             ">
-            💧
-            </div>
-            <div style="
-            font-size:1.05rem;
-            font-weight:800;
-            ">
-            K-water tech
+            {_sidebar_logo_html if _sidebar_logo_html else '<span style="font-size:2rem;">💧</span>'}
             </div>
             <div style="
             font-size:0.72rem;
             opacity:0.7;
+            margin-top:6px;
+            color:white;
             ">
             설비관리 통합 플랫폼
             </div>
@@ -10489,6 +11195,14 @@ _current_label = MENU_LABEL_BY_KEY.get(
     "🏠 설비관리 홈"
 )
 
+# Streamlit 자체 query_params 동기화 메커니즘을 매 렌더링마다
+# 그대로 이용한다. 이건 내가 만든 JS 타이밍과 무관하게
+# Streamlit이 직접 관리하는 안정적인 경로라서, 주소창의
+# page 값이 항상 지금 보고 있는 페이지와 일치하도록
+# 보장해준다 (뒤로가기 시 이 값을 기준으로 페이지를 되돌림).
+
+st.query_params["page"] = _current_page
+
 # ------------------------------------------------------------
 # 메뉴를 눌러서 페이지가 실제로 바뀐 경우에만, 스크롤을
 # 맨 위로 되돌린다. (같은 페이지 안에서 체크박스·입력창 같은
@@ -10542,6 +11256,28 @@ if st.session_state.get("_last_rendered_page") != _current_page:
         setTimeout(scrollAppToTop, 150);
 
         setTimeout(scrollAppToTop, 300);
+
+        // Streamlit은 st.query_params가 바뀌면 자체적으로
+        // 이미 브라우저 히스토리에 기록을 남긴다(확인 완료).
+        // 그래서 여기서 따로 pushState를 또 하지 않는다.
+        //
+        // 뒤로가기를 누르면 브라우저가 이전 URL로 이동하는데,
+        // Streamlit은 그 URL 변화를 스스로 감지해 다시 그리지
+        // 않으므로, 우리가 강제로 새로고침해서 그 시점의
+        // query_params를 다시 읽게 만든다.
+        //
+        // (페이지 전환마다 리스너를 다시 등록한다. 중복 등록돼도
+        //  reload를 여러 번 트리거하는 것뿐이라 무해하고,
+        //  최초 1회 등록이 어떤 이유로 실패해도 다음 페이지
+        //  전환 때 다시 시도되어 결국 붙게 된다.)
+
+        window.parent.addEventListener("popstate", function (event) {{
+
+            console.log("DEBUG popstate 감지, 새로고침");
+
+            window.parent.location.reload();
+
+        }});
         </script>
         """,
 
@@ -10561,9 +11297,17 @@ def _on_top_nav_change():
         f"top_nav_{_current_page}"
     ]
 
-    st.session_state.page = MENU_KEY_BY_LABEL[
+    new_page = MENU_KEY_BY_LABEL[
         chosen_label
     ]
+
+    st.session_state.page = new_page
+
+    st.query_params["page"] = new_page
+
+    if "equip" in st.query_params:
+
+        del st.query_params["equip"]
 
 
 st.selectbox(
@@ -10617,32 +11361,22 @@ if st.session_state.page == "홈":
     # 크게 보여주고 그 다음부터 작게 줄였는데, 그러면
     # "히어로 배너가 안 보인다"고 느끼기 쉬웠다)
 
+    _hero_logo_html = get_logo_base64_html(
+        max_height_px=44
+    )
+
     st.markdown(
 
         f"""
         <div class="hero-banner">
         <div class="hero-inner">
 
-            <svg width="58" height="58" viewBox="0 0 58 58"
-                 xmlns="http://www.w3.org/2000/svg">
-                <path d="M6 20 A 24 24 0 0 1 52 20"
-                      stroke="url(#heroArc)" stroke-width="5"
-                      fill="none" stroke-linecap="round"/>
-                <path d="M29 24
-                         C 29 24, 16 40, 16 47
-                         C 16 53.5, 21.5 58, 29 58
-                         C 36.5 58, 42 53.5, 42 47
-                         C 42 40, 29 24, 29 24 Z"
-                      fill="white" opacity="0.95"/>
-                <defs>
-                    <linearGradient id="heroArc"
-                        x1="0" y1="0" x2="58" y2="0">
-                        <stop offset="0%" stop-color="#ffd166"/>
-                        <stop offset="55%" stop-color="#67e8f9"/>
-                        <stop offset="100%" stop-color="#67e8f9"/>
-                    </linearGradient>
-                </defs>
-            </svg>
+            <div style="
+            background:white; border-radius:12px;
+            padding:8px 14px; display:flex;
+            align-items:center; flex-shrink:0;">
+            {_hero_logo_html if _hero_logo_html else '<span style="font-size:2rem;">💧</span>'}
+            </div>
 
             <div>
                 <div class="hero-title">
@@ -10904,49 +11638,126 @@ if st.session_state.page == "홈":
 
         st.error(
 
-            f"🚨 정비검토 필요 설비가 {repair}대 있습니다. "
-            "CBM 정비판단 메뉴에서 우선순위를 확인하세요."
+            f"🚨 정비검토 필요 설비가 {repair}대 있습니다."
 
         )
 
-    st.markdown(
-        f"""
-        <div class="kpi-grid">
+        if st.button(
 
-            <div class="kpi-card">
-                <div class="kpi-label">관리 설비</div>
-                <div class="kpi-value">{total}대</div>
-                <div class="kpi-sub">등록 설비</div>
-            </div>
+            "→ CBM 정비판단에서 확인하기",
 
-            <div class="kpi-card">
-                <div class="kpi-label">정상</div>
-                <div class="kpi-value">{normal}대</div>
-                <div class="kpi-sub">정상 운전</div>
-            </div>
+            key="home_repair_alert_goto_cbm",
 
-            <div class="kpi-card">
-                <div class="kpi-label">관찰</div>
-                <div class="kpi-value">{watch}대</div>
-                <div class="kpi-sub">추이관리</div>
-            </div>
+            use_container_width=True
 
-            <div class="kpi-card">
-                <div class="kpi-label">정비 검토</div>
-                <div class="kpi-value">{repair}대</div>
-                <div class="kpi-sub">CBM 우선관리</div>
-            </div>
+        ):
 
-            <div class="kpi-card">
-                <div class="kpi-label">QR 관리</div>
-                <div class="kpi-value">{total}개</div>
-                <div class="kpi-sub">설비별 1개 기준</div>
-            </div>
+            st.session_state["_cbm_status_filter"] = "정비검토"
 
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            st.session_state.page = "CBM"
+
+            st.query_params["page"] = "CBM"
+
+            st.rerun()
+
+    _recent_viewed = [
+
+        e for e in st.session_state.get("_recent_viewed", [])
+
+        if e in {p["equip"] for p in ALL_PUMPS}
+
+    ]
+
+    if _recent_viewed:
+
+        st.markdown(
+            "##### 🕘 최근 본 설비"
+        )
+
+        recent_cols = st.columns(
+            min(len(_recent_viewed), 3)
+        )
+
+        for rcol, equip_name in zip(
+
+            recent_cols,
+
+            _recent_viewed[:3]
+
+        ):
+
+            with rcol:
+
+                if st.button(
+
+                    equip_name,
+
+                    key=f"recent_goto_{equip_name}",
+
+                    use_container_width=True
+
+                ):
+
+                    st.session_state.page = "QR"
+
+                    st.query_params["page"] = "QR"
+
+                    st.query_params["equip"] = equip_name
+
+                    st.rerun()
+
+    kpi_defs = [
+
+        ("관리 설비", f"{total}대", "등록 설비", "설비", None),
+        ("정상", f"{normal}대", "정상 운전", "CBM", "정상"),
+        ("관찰", f"{watch}대", "추이관리", "CBM", "관찰"),
+        ("정비 검토", f"{repair}대", "CBM 우선관리", "CBM", "정비검토"),
+        ("QR 관리", f"{total}개", "설비별 1개 기준", "QR", None)
+
+    ]
+
+    kpi_cols = st.columns(5)
+
+    for kcol, (label, value, sub, target_page, status_filter) in zip(
+
+        kpi_cols,
+        kpi_defs
+
+    ):
+
+        with kcol:
+
+            st.markdown(
+
+                f"""
+                <div class="kpi-card">
+                    <div class="kpi-label">{label}</div>
+                    <div class="kpi-value">{value}</div>
+                    <div class="kpi-sub">{sub}</div>
+                </div>
+                """,
+
+                unsafe_allow_html=True
+
+            )
+
+            if st.button(
+
+                "바로가기",
+
+                key=f"kpi_goto_{label}",
+
+                use_container_width=True
+
+            ):
+
+                st.session_state["_cbm_status_filter"] = status_filter
+
+                st.session_state.page = target_page
+
+                st.query_params["page"] = target_page
+
+                st.rerun()
 
     # ---------------- 상태 비율 도넛 + 이달의 하이라이트 ----------------
 
@@ -11154,7 +11965,7 @@ if st.session_state.page == "홈":
 
         rows = []
 
-        card_html_parts = []
+        rendered_card_count = 0
 
         status_color_map = {
 
@@ -11287,7 +12098,7 @@ if st.session_state.page == "홈":
 
             )
 
-            card_html_parts.append(
+            st.markdown(
 
                 f"""
                 <div class="equip-card" style="
@@ -11323,34 +12134,41 @@ if st.session_state.page == "홈":
                     </div>
 
                 </div>
-                """
-
-            )
-
-        if card_html_parts:
-
-            st.markdown(
-
-                f"""
-                <div class="equip-card-grid">
-                {''.join(card_html_parts)}
-                </div>
                 """,
 
                 unsafe_allow_html=True
 
             )
 
-        else:
+            # 카드 자체는 그림(HTML)이라 눌러도 반응이 없었다.
+            # 카드 바로 밑에 진짜 버튼을 붙여서, 누르면 그
+            # 설비를 선택한 채로 QR 포털로 이동한다.
+
+            if st.button(
+
+                f"🔍 {pump['equip']} 상세보기 →",
+
+                key=f"card_goto_{pump['equip']}",
+
+                use_container_width=True
+
+            ):
+
+                st.session_state.page = "QR"
+
+                st.query_params["page"] = "QR"
+
+                st.query_params["equip"] = pump["equip"]
+
+                st.rerun()
+
+            rendered_card_count += 1
+
+        if rendered_card_count == 0:
 
             st.info(
                 "검색 결과가 없습니다."
             )
-
-        st.markdown(
-            "</div>",
-            unsafe_allow_html=True
-        )
 
     with col2:
 
@@ -11706,6 +12524,10 @@ elif st.session_state.page == "설비":
         if p["equip"] == selected
     )
 
+    track_recent_view(
+        pump["equip"]
+    )
+
     result = pump_status(
         pump,
         df_history
@@ -12059,6 +12881,24 @@ elif st.session_state.page == "설비":
 
 elif st.session_state.page == "QR":
 
+    if st.button(
+
+        "← 홈으로",
+
+        key="qr_back_to_home_btn"
+
+    ):
+
+        st.session_state.page = "홈"
+
+        st.query_params["page"] = "홈"
+
+        if "equip" in st.query_params:
+
+            del st.query_params["equip"]
+
+        st.rerun()
+
     st.markdown(
         """
         <div class="section-title">
@@ -12117,6 +12957,10 @@ elif st.session_state.page == "QR":
     pump = next(
         p for p in ALL_PUMPS
         if p["equip"] == selected
+    )
+
+    track_recent_view(
+        pump["equip"]
     )
 
     result = pump_status(
@@ -12400,6 +13244,98 @@ elif st.session_state.page == "QR":
             )
 
     with t3:
+
+        st.markdown(
+            "##### 🕘 통합 타임라인"
+        )
+
+        st.caption(
+
+            "정밀진단·오버홀·진동측정 이력을 시간순으로 "
+            "한 화면에서 봅니다."
+
+        )
+
+        _timeline_events = build_equipment_timeline(
+
+            pump,
+
+            df_history,
+
+            read_excel(OVERHAUL_DB_PATH, "오버홀이력"),
+
+            read_excel(VIBRATION_DB_PATH, "진동측정이력")
+
+        )
+
+        if _timeline_events:
+
+            _timeline_color = {
+
+                "정밀진단": "#087ea4",
+                "오버홀": "#e8590c",
+                "진동측정": "#2f9e44"
+
+            }
+
+            _timeline_html_parts = []
+
+            for ev in _timeline_events[:20]:
+
+                _c = _timeline_color.get(
+
+                    ev["type"],
+                    "#64748b"
+
+                )
+
+                _timeline_html_parts.append(
+
+                    f"""
+                    <div style="
+                    display:flex; gap:10px;
+                    padding:6px 0;
+                    border-left:3px solid {_c};
+                    padding-left:12px; margin-bottom:6px;">
+                        <div style="font-size:1.1rem;">
+                        {ev['icon']}
+                        </div>
+                        <div>
+                            <div style="
+                            font-size:0.78rem; color:#64748b;">
+                            {ev['date']} · {ev['type']}
+                            </div>
+                            <div style="font-size:0.9rem;">
+                            {ev['desc']}
+                            </div>
+                        </div>
+                    </div>
+                    """
+
+                )
+
+            st.markdown(
+
+                "".join(_timeline_html_parts),
+
+                unsafe_allow_html=True
+
+            )
+
+            if len(_timeline_events) > 20:
+
+                st.caption(
+
+                    f"최근 20건만 표시됩니다 "
+                    f"(전체 {len(_timeline_events)}건)."
+
+                )
+
+        else:
+
+            st.info(
+                "아직 기록된 이력이 없습니다."
+            )
 
         st.markdown(
             "##### 최근 정밀진단 이력"
@@ -12776,6 +13712,10 @@ elif st.session_state.page == "진단":
     pump = next(
         p for p in ALL_PUMPS
         if p["equip"] == selected
+    )
+
+    track_recent_view(
+        pump["equip"]
     )
 
     # ------------------------------------------------------
@@ -13588,6 +14528,44 @@ elif st.session_state.page == "CBM":
         ranking
     )
 
+    _status_options = ["전체", "정상", "관찰", "정비검토"]
+
+    _preset_status = st.session_state.get(
+        "_cbm_status_filter"
+    )
+
+    _status_default_index = (
+
+        _status_options.index(_preset_status)
+
+        if _preset_status in _status_options
+
+        else 0
+
+    )
+
+    cbm_status_filter = st.selectbox(
+
+        "정비판단 필터",
+
+        _status_options,
+
+        index=_status_default_index,
+
+        key="cbm_status_filter_select"
+
+    )
+
+    st.session_state["_cbm_status_filter"] = None
+
+    if cbm_status_filter != "전체":
+
+        df_rank = df_rank[
+
+            df_rank["정비판단"] == cbm_status_filter
+
+        ]
+
     st.dataframe(
         df_rank,
         use_container_width=True,
@@ -13838,6 +14816,185 @@ elif st.session_state.page == "오버홀":
 
         st.stop()
 
+    with st.expander(
+
+        "🗓️ 전체 설비 오버홀 예정 일정 (진동추세 반영)",
+
+        expanded=False
+
+    ):
+
+        st.caption(
+
+            "누적운전시간·준공일 기반 예상일에 실제 오버홀 "
+            "이력과 최근 진동 추세까지 반영해서 날짜를 다시 "
+            "계산합니다. 진동이 최근 뚜렷하게 오르는 추세면 "
+            "예정일을 앞당깁니다."
+
+        )
+
+        df_overhaul_all = read_excel(
+
+            OVERHAUL_DB_PATH,
+            "오버홀이력"
+
+        )
+
+        df_vib_all = read_excel(
+
+            VIBRATION_DB_PATH,
+            "진동측정이력"
+
+        )
+
+        schedule_rows = []
+
+        for p in ALL_PUMPS:
+
+            est_date, basis, vib_adj = estimate_next_overhaul_advanced(
+
+                p,
+
+                p.get("op_hours"),
+
+                df_overhaul_all,
+
+                df_vib_all
+
+            )
+
+            if est_date is not None:
+
+                schedule_rows.append(
+
+                    (p["equip"], p["site"], est_date, basis, vib_adj)
+
+                )
+
+        schedule_rows.sort(
+            key=lambda r: r[2]
+        )
+
+        if schedule_rows:
+
+            today_d = datetime.now().date()
+
+            table_rows = []
+
+            for equip, site, est_date, basis, vib_adj in schedule_rows:
+
+                d_left = (est_date - today_d).days
+
+                if d_left <= 90:
+
+                    urgency = "🔴 임박"
+
+                elif d_left <= 180:
+
+                    urgency = "🟡 관찰"
+
+                else:
+
+                    urgency = "🟢 여유"
+
+                table_rows.append(
+
+                    {
+                        "긴급도": urgency,
+                        "사업장": site,
+                        "설비명": equip,
+                        "예상일": est_date.strftime("%Y-%m-%d"),
+                        "남은일수": d_left,
+                        "진동추세 반영": "✓" if vib_adj else "",
+                        "산정 근거": basis
+                    }
+
+                )
+
+            st.dataframe(
+
+                pd.DataFrame(table_rows),
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+            ics_bytes = build_overhaul_ics_bytes(
+
+                [
+
+                    (equip, site, est_date, basis)
+
+                    for equip, site, est_date, basis, vib_adj
+
+                    in schedule_rows
+
+                ]
+
+            )
+
+            st.download_button(
+
+                "📅 캘린더 파일(.ics)로 내보내기",
+
+                data=ics_bytes,
+
+                file_name="오버홀_예정일정.ics",
+
+                mime="text/calendar",
+
+                use_container_width=True,
+
+                key="overhaul_ics_download_btn"
+
+            )
+
+            # 임박한 오버홀이 있는데 소모품 재고가 부족하면
+            # 미리 발주할 수 있게 교차로 경고해준다.
+
+            _imminent_count = sum(
+
+                1 for _, _, _est, _, _ in schedule_rows
+
+                if (_est - datetime.now().date()).days <= 90
+
+            )
+
+            if _imminent_count > 0:
+
+                _low_stock_oh = get_low_stock_consumables()
+
+                if not _low_stock_oh.empty:
+
+                    st.error(
+
+                        f"🔴 90일 이내 오버홀 예정이 "
+                        f"{_imminent_count}건 있는데, 재고가 "
+                        "부족한 소모품이 있습니다 — 미리 "
+                        "발주를 검토하세요: "
+                        +
+                        ", ".join(
+
+                            f"{r['소모품명']}(현재고 {r['현재고']}/"
+                            f"안전재고 {r['안전재고']})"
+
+                            for _, r in _low_stock_oh.iterrows()
+
+                        )
+
+                    )
+
+        else:
+
+            st.caption(
+
+                "예정일을 계산할 수 있는 설비가 없습니다 "
+                "(준공일·운전시간 정보 확인 필요)."
+
+            )
+
     selected = st.selectbox(
 
         "작업 대상",
@@ -13852,6 +15009,10 @@ elif st.session_state.page == "오버홀":
     pump = next(
         p for p in ALL_PUMPS
         if p["equip"] == selected
+    )
+
+    track_recent_view(
+        pump["equip"]
     )
 
     tab1, tab2, tab3 = st.tabs(
@@ -13869,6 +15030,37 @@ elif st.session_state.page == "오버홀":
         st.write(
             f"대상설비 : **{pump['equip']}**"
         )
+
+        _est_date, _basis, _vib_adj = estimate_next_overhaul_advanced(
+
+            pump,
+
+            pump.get("op_hours"),
+
+            read_excel(OVERHAUL_DB_PATH, "오버홀이력"),
+
+            read_excel(VIBRATION_DB_PATH, "진동측정이력")
+
+        )
+
+        if _est_date is not None:
+
+            _d_left = (
+                _est_date - datetime.now().date()
+            ).days
+
+            st.info(
+
+                f"🗓️ 예상 오버홀 시점 : **{_est_date}** "
+                f"(약 {_d_left}일 후)"
+                +
+                (" · ⚠️ 진동추세 반영으로 앞당겨짐" if _vib_adj else "")
+
+            )
+
+            st.caption(
+                f"산정 근거: {_basis}"
+            )
 
         steps = [
 
@@ -14110,6 +15302,10 @@ elif st.session_state.page == "AI":
     pump = next(
         p for p in ALL_PUMPS
         if p["equip"] == selected
+    )
+
+    track_recent_view(
+        pump["equip"]
     )
 
     result = pump_status(
@@ -16386,6 +17582,250 @@ elif st.session_state.page == "백업":
                 f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
 
             )
+
+    st.markdown(
+        "### 📦 소모품 재고관리"
+    )
+
+    st.caption(
+
+        "그랜드패킹·베어링·축슬리브 같은 소모품의 현재고를 "
+        "관리합니다. 안전재고보다 부족하면 경고가 뜹니다."
+
+    )
+
+    df_consumables = get_consumables()
+
+    if not df_consumables.empty:
+
+        st.dataframe(
+
+            df_consumables,
+
+            use_container_width=True,
+
+            hide_index=True
+
+        )
+
+        _low_stock = get_low_stock_consumables()
+
+        if not _low_stock.empty:
+
+            st.warning(
+
+                "🔴 안전재고 미달 소모품: "
+                +
+                ", ".join(
+
+                    f"{r['소모품명']}(현재고 {r['현재고']}/"
+                    f"안전재고 {r['안전재고']})"
+
+                    for _, r in _low_stock.iterrows()
+
+                )
+
+            )
+
+    else:
+
+        st.caption(
+            "등록된 소모품이 없습니다."
+        )
+
+    with st.expander(
+        "➕ 소모품 등록"
+    ):
+
+        cc1, cc2 = st.columns(2)
+
+        new_cons_name = cc1.text_input(
+
+            "소모품명",
+
+            key="new_cons_name"
+
+        )
+
+        new_cons_spec = cc2.text_input(
+
+            "규격",
+
+            key="new_cons_spec"
+
+        )
+
+        cc3, cc4 = st.columns(2)
+
+        new_cons_qty = cc3.number_input(
+
+            "현재고",
+
+            min_value=0,
+
+            step=1,
+
+            key="new_cons_qty"
+
+        )
+
+        new_cons_safety = cc4.number_input(
+
+            "안전재고",
+
+            min_value=0,
+
+            step=1,
+
+            key="new_cons_safety"
+
+        )
+
+        new_cons_date = st.text_input(
+
+            "최근입고일 (YYYY-MM-DD)",
+
+            value=datetime.now().strftime("%Y-%m-%d"),
+
+            key="new_cons_date"
+
+        )
+
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 등록할 수 없습니다."
+            )
+
+        elif st.button(
+
+            "소모품 등록",
+
+            key="add_consumable_btn"
+
+        ):
+
+            if not new_cons_name.strip():
+
+                st.error(
+                    "소모품명을 입력해주세요."
+                )
+
+            else:
+
+                add_consumable(
+
+                    {
+                        "소모품명": new_cons_name.strip(),
+                        "규격": new_cons_spec.strip(),
+                        "현재고": int(new_cons_qty),
+                        "안전재고": int(new_cons_safety),
+                        "최근입고일": new_cons_date
+                    }
+
+                )
+
+                st.success(
+
+                    f"{new_cons_name} 등록되었습니다."
+
+                )
+
+                st.rerun()
+
+    if not df_consumables.empty:
+
+        with st.expander(
+            "✏️ 재고 수량 변경 / 삭제"
+        ):
+
+            cons_names = df_consumables["소모품명"].tolist()
+
+            target_cons = st.selectbox(
+
+                "대상 소모품",
+
+                cons_names,
+
+                key="target_consumable_select"
+
+            )
+
+            target_row = df_consumables[
+
+                df_consumables["소모품명"] == target_cons
+
+            ].iloc[0]
+
+            new_qty_val = st.number_input(
+
+                "새 현재고",
+
+                min_value=0,
+
+                step=1,
+
+                value=int(target_row["현재고"]),
+
+                key="update_cons_qty"
+
+            )
+
+            uc1, uc2 = st.columns(2)
+
+            if is_read_only():
+
+                st.info(
+                    "🔒 보기 전용 모드에서는 변경할 수 없습니다."
+                )
+
+            else:
+
+                with uc1:
+
+                    if st.button(
+
+                        "재고 수량 저장",
+
+                        key="update_consumable_btn"
+
+                    ):
+
+                        update_consumable_stock(
+
+                            target_cons,
+
+                            int(new_qty_val),
+
+                            datetime.now().strftime("%Y-%m-%d")
+
+                        )
+
+                        st.success(
+                            "재고가 변경되었습니다."
+                        )
+
+                        st.rerun()
+
+                with uc2:
+
+                    if st.button(
+
+                        "🗑️ 이 소모품 삭제",
+
+                        key="delete_consumable_btn"
+
+                    ):
+
+                        delete_consumable(
+                            target_cons
+                        )
+
+                        st.success(
+                            "삭제되었습니다."
+                        )
+
+                        st.rerun()
 
     st.markdown(
         "### 📥 실제 설비 데이터 일괄 업로드"
