@@ -59,6 +59,7 @@ EQUIP_DB_PATH = "Pump_Equipment_DB.xlsx"
 
 LOGO_FILE_PATH = "Logo.png"
 SEED_FLAG_PATH = "seed_flag.txt"
+EQUIP_SEED_FLAG_PATH = "equip_seed_flag.txt"
 
 PHOTO_DIR = "overhaul_photos"
 CONFIG_DIR = "app_config"
@@ -2089,6 +2090,8 @@ KPI_DB_PATH = "Pump_KPI_DB.xlsx"
 EQUIP_DB_PATH = "Pump_Equipment_DB.xlsx"
 
 SEED_FLAG_PATH = "seed_flag.txt"
+
+EQUIP_SEED_FLAG_PATH = "equip_seed_flag.txt"
 
 
 
@@ -4806,6 +4809,13 @@ def safe_append_row(
 
         wb.close()
 
+    # 캐시된 read_excel() 결과가 mtime 기준이라, 같은 초 안에
+    # 여러 번 쓰기가 일어나면 mtime이 안 바뀌어서 옛날 데이터를
+    # 계속 돌려주는 문제가 있었다. 쓰기 직후엔 무조건
+    # 캐시를 비워서 다음 읽기가 최신 내용을 가져오게 한다.
+
+    _read_excel_cached.clear()
+
 
 def migrate_sheet_headers(
     path,
@@ -4862,6 +4872,8 @@ def migrate_sheet_headers(
             wb.save(
                 path
             )
+
+            _read_excel_cached.clear()
 
         wb.close()
 
@@ -5188,7 +5200,7 @@ read_errors = []
 
 
 @st.cache_data(show_spinner=False)
-def _read_excel_cached(path, sheet, mtime):
+def _read_excel_cached(path, sheet, mtime, size):
 
     return pd.read_excel(
         path,
@@ -5207,14 +5219,27 @@ def read_excel(
 
     try:
 
+        # mtime만 캐시 키로 쓰면, 짧은 시간 안에 여러 번 쓰기가
+        # 일어날 때(예: 설비 10개를 연달아 빠르게 삭제) 파일
+        # 시스템의 mtime 해상도(보통 1초 단위)에 걸려서 mtime이
+        # 그대로인 채로 내용만 바뀌는 경우가 있었다. 그러면
+        # 캐시 키가 안 바뀌어서 옛날 데이터를 계속 돌려주는
+        # 버그가 생긴다. 파일 크기도 같이 캐시 키에 넣으면
+        # 행이 추가/삭제될 때 크기가 달라지므로 훨씬 안전하다.
+
         mtime = os.path.getmtime(
+            path
+        )
+
+        size = os.path.getsize(
             path
         )
 
         return _read_excel_cached(
             path,
             sheet,
-            mtime
+            mtime,
+            size
         )
 
     except Exception as e:
@@ -5237,12 +5262,38 @@ def read_excel(
 
 def seed_equipment_if_empty():
 
+    # 예전엔 "설비마스터가 비어있으면 무조건 다시 채운다"는
+    # 로직이라, 사용자가 샘플(가짜) 설비를 일부러 다 지워도
+    # 다음 rerun 때 자동으로 부활하는 버그가 있었다.
+    # 진단이력 샘플 시딩(seed_sample_data)과 같은 방식으로
+    # "앱을 통틀어 딱 한 번만" 시딩하되, 서로 다른 시점에
+    # 실행되는 두 시딩 함수가 플래그를 공유하면 순서 문제가
+    # 생길 수 있어 설비마스터 전용 플래그를 따로 쓴다.
+
+    if os.path.exists(EQUIP_SEED_FLAG_PATH):
+
+        return
+
     df_equip = read_excel(
         EQUIP_DB_PATH,
         "설비마스터"
     )
 
     if not df_equip.empty:
+
+        with open(
+
+            EQUIP_SEED_FLAG_PATH,
+
+            "w",
+
+            encoding="utf-8"
+
+        ) as f:
+
+            f.write(
+                datetime.now().isoformat()
+            )
 
         return
 
@@ -5283,6 +5334,22 @@ def seed_equipment_if_empty():
 
         wb.close()
 
+    _read_excel_cached.clear()
+
+    with open(
+
+        EQUIP_SEED_FLAG_PATH,
+
+        "w",
+
+        encoding="utf-8"
+
+    ) as f:
+
+        f.write(
+            datetime.now().isoformat()
+        )
+
 
 seed_equipment_if_empty()
 
@@ -5296,9 +5363,14 @@ def get_all_pumps():
 
     if df_equip.empty:
 
-        return list(
-            DEFAULT_PUMPS
-        )
+        # 예전엔 여기서 DEFAULT_PUMPS(코드에 박힌 가짜 10대)를
+        # 그대로 돌려줬다. 그래서 사용자가 진짜로 설비를 전부
+        # 지워서 0대로 만들어도, 화면에는 계속 가짜 10대가
+        # 나타나는 버그가 있었다. 이제는 정직하게 빈 리스트를
+        # 돌려주고, 화면 쪽에서 "등록된 설비가 없습니다"를
+        # 보여주게 한다.
+
+        return []
 
     pumps = []
 
@@ -5421,6 +5493,8 @@ def delete_equipment(equip_name):
 
         wb.close()
 
+    _read_excel_cached.clear()
+
     log_audit(
 
         "설비 삭제",
@@ -5428,6 +5502,50 @@ def delete_equipment(equip_name):
         equip_name
 
     )
+
+
+def delete_sample_default_equipment():
+
+    # DEFAULT_PUMPS(코드에 예시로 박혀있던 가짜 10대)와
+    # 이름이 정확히 일치하는 설비만 골라 한 번에 지운다.
+    # 실제 데이터를 업로드해서 새로 등록한 설비는
+    # 이름이 다르므로 건드리지 않는다.
+
+    sample_names = {
+
+        p["equip"]
+
+        for p in DEFAULT_PUMPS
+
+    }
+
+    current_names = {
+
+        p["equip"]
+
+        for p in get_all_pumps()
+
+    }
+
+    to_delete = sample_names & current_names
+
+    for name in to_delete:
+
+        delete_equipment(
+            name
+        )
+
+    log_audit(
+
+        "샘플 설비 일괄 삭제",
+
+        "전체",
+
+        f"{len(to_delete)}건 삭제"
+
+    )
+
+    return len(to_delete)
 
 
 # ============================================================
@@ -5739,6 +5857,8 @@ def replace_all_equipment(new_equip_rows):
         )
 
         wb.close()
+
+    _read_excel_cached.clear()
 
     log_audit(
 
@@ -9229,76 +9349,84 @@ if st.session_state.page == "홈":
             unsafe_allow_html=True
         )
 
-        best_pump, best_result = max(
+        if not _all_results:
 
-            _all_results,
+            st.info(
+                "등록된 설비가 없습니다."
+            )
 
-            key=lambda pr: pr[1]["점수"]
+        else:
 
-        )
+            best_pump, best_result = max(
 
-        worst_pump, worst_result = min(
+                _all_results,
 
-            _all_results,
+                key=lambda pr: pr[1]["점수"]
 
-            key=lambda pr: pr[1]["점수"]
+            )
 
-        )
+            worst_pump, worst_result = min(
 
-        st.markdown(
+                _all_results,
 
-            f"""
-            <span class="highlight-pill" style="
-            background:#e7f8f1; color:#087f5b;">
-            🏆 최우수 · {best_pump['equip']} ({best_result['점수']}점)
-            </span>
+                key=lambda pr: pr[1]["점수"]
 
-            <span class="highlight-pill" style="
-            background:#fff0f0; color:#c62828;">
-            ⚠️ 최우선 관리 · {worst_pump['equip']} ({worst_result['점수']}점)
-            </span>
-            """,
+            )
 
-            unsafe_allow_html=True
+            st.markdown(
 
-        )
+                f"""
+                <span class="highlight-pill" style="
+                background:#e7f8f1; color:#087f5b;">
+                🏆 최우수 · {best_pump['equip']} ({best_result['점수']}점)
+                </span>
 
-        st.caption(
+                <span class="highlight-pill" style="
+                background:#fff0f0; color:#c62828;">
+                ⚠️ 최우선 관리 · {worst_pump['equip']} ({worst_result['점수']}점)
+                </span>
+                """,
 
-            "※ 현재 시점 CBM Score 기준입니다 "
-            "(이번 달 진단 여부와 무관)"
-
-        )
-
-        st.write("")
-
-        _next_due = [
-
-            (p, r["다음오버홀까지남은시간"])
-
-            for p, r in _all_results
-
-            if r.get("다음오버홀까지남은시간") is not None
-
-        ]
-
-        if _next_due:
-
-            _soonest_pump, _soonest_hours = min(
-
-                _next_due,
-
-                key=lambda x: x[1]
+                unsafe_allow_html=True
 
             )
 
             st.caption(
 
-                f"🔧 오버홀이 가장 임박한 설비 : "
-                f"{_soonest_pump['equip']} "
-                f"(약 {_soonest_hours:,}시간 남음)"
+                "※ 현재 시점 CBM Score 기준입니다 "
+                "(이번 달 진단 여부와 무관)"
 
             )
+
+            st.write("")
+
+            _next_due = [
+
+                (p, r["다음오버홀까지남은시간"])
+
+                for p, r in _all_results
+
+                if r.get("다음오버홀까지남은시간") is not None
+
+            ]
+
+            if _next_due:
+
+                _soonest_pump, _soonest_hours = min(
+
+                    _next_due,
+
+                    key=lambda x: x[1]
+
+                )
+
+                st.caption(
+
+                    f"🔧 오버홀이 가장 임박한 설비 : "
+                    f"{_soonest_pump['equip']} "
+                    f"(약 {_soonest_hours:,}시간 남음)"
+
+                )
 
         st.markdown(
             "</div>",
@@ -9911,6 +10039,17 @@ elif st.session_state.page == "설비":
         unsafe_allow_html=True
     )
 
+    if not ALL_PUMPS:
+
+        st.info(
+
+            "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
+            "설비를 추가하거나 엑셀을 업로드해주세요."
+
+        )
+
+        st.stop()
+
     selected = st.selectbox(
 
         "설비 선택",
@@ -10294,6 +10433,17 @@ elif st.session_state.page == "QR":
         """,
         unsafe_allow_html=True
     )
+
+    if not ALL_PUMPS:
+
+        st.info(
+
+            "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
+            "설비를 추가하거나 엑셀을 업로드해주세요."
+
+        )
+
+        st.stop()
 
     _pump_names = [
         p["equip"]
@@ -10960,6 +11110,17 @@ elif st.session_state.page == "진단":
         """,
         unsafe_allow_html=True
     )
+
+    if not ALL_PUMPS:
+
+        st.info(
+
+            "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
+            "설비를 추가하거나 엑셀을 업로드해주세요."
+
+        )
+
+        st.stop()
 
     selected = st.selectbox(
 
@@ -11689,6 +11850,17 @@ elif st.session_state.page == "CBM":
         unsafe_allow_html=True
     )
 
+    if not ALL_PUMPS:
+
+        st.info(
+
+            "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
+            "설비를 추가하거나 엑셀을 업로드해주세요."
+
+        )
+
+        st.stop()
+
     ranking = []
 
     for pump in ALL_PUMPS:
@@ -12015,6 +12187,17 @@ elif st.session_state.page == "오버홀":
         unsafe_allow_html=True
     )
 
+    if not ALL_PUMPS:
+
+        st.info(
+
+            "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
+            "설비를 추가하거나 엑셀을 업로드해주세요."
+
+        )
+
+        st.stop()
+
     selected = st.selectbox(
 
         "작업 대상",
@@ -12262,6 +12445,17 @@ elif st.session_state.page == "AI":
         unsafe_allow_html=True
     )
 
+    if not ALL_PUMPS:
+
+        st.info(
+
+            "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
+            "설비를 추가하거나 엑셀을 업로드해주세요."
+
+        )
+
+        st.stop()
+
     selected = st.selectbox(
 
         "분석 대상",
@@ -12506,6 +12700,17 @@ elif st.session_state.page == "전사트렌드":
         """,
         unsafe_allow_html=True
     )
+
+    if not ALL_PUMPS:
+
+        st.info(
+
+            "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
+            "설비를 추가하거나 엑셀을 업로드해주세요."
+
+        )
+
+        st.stop()
 
     st.caption(
 
@@ -13120,6 +13325,8 @@ elif st.session_state.page == "노하우":
 
                         wb.close()
 
+                    _read_excel_cached.clear()
+
                     log_audit(
 
                         "노하우 삭제",
@@ -13251,6 +13458,17 @@ elif st.session_state.page == "보고서":
         """,
         unsafe_allow_html=True
     )
+
+    if not ALL_PUMPS:
+
+        st.info(
+
+            "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
+            "설비를 추가하거나 엑셀을 업로드해주세요."
+
+        )
+
+        st.stop()
 
     report_pump_name = st.selectbox(
 
@@ -14327,6 +14545,125 @@ elif st.session_state.page == "백업":
         "다르게 두고 싶으면 기준값도 함께 입력하세요 "
         "(비워두면 공통 기준 적용)."
     )
+
+    _sample_names_now = {
+        p["equip"] for p in DEFAULT_PUMPS
+    } & {
+        p["equip"] for p in get_all_pumps()
+    }
+
+    if _sample_names_now:
+
+        st.warning(
+
+            f"코드에 예시로 들어있던 샘플(가짜) 설비가 "
+            f"{len(_sample_names_now)}대 남아있습니다: "
+            +
+            ", ".join(sorted(_sample_names_now))
+
+        )
+
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 삭제할 수 없습니다."
+            )
+
+        elif st.button(
+
+            "🗑️ 샘플(가짜) 설비 전체 삭제",
+
+            type="primary",
+
+            use_container_width=True,
+
+            key="delete_sample_btn"
+
+        ):
+
+            st.session_state["_show_delete_sample_confirm"] = True
+
+        if st.session_state.get("_show_delete_sample_confirm"):
+
+            @st.dialog("샘플 설비 삭제 확인")
+            def _confirm_delete_sample():
+
+                st.write(
+
+                    f"코드 예시용 샘플 설비 {len(_sample_names_now)}대를 "
+                    "삭제하시겠습니까?"
+
+                )
+
+                st.caption(
+
+                    "실제로 업로드해서 등록한 설비는 이름이 달라서 "
+                    "영향받지 않습니다."
+
+                )
+
+                sc1, sc2 = st.columns(2)
+
+                with sc1:
+
+                    if st.button(
+
+                        "예, 삭제합니다",
+
+                        type="primary",
+
+                        use_container_width=True,
+
+                        key="delete_sample_confirm_yes"
+
+                    ):
+
+                        deleted_count = delete_sample_default_equipment()
+
+                        st.session_state[
+                            "_show_delete_sample_confirm"
+                        ] = False
+
+                        st.session_state[
+                            "_sample_delete_done"
+                        ] = deleted_count
+
+                        st.rerun()
+
+                with sc2:
+
+                    if st.button(
+
+                        "아니오",
+
+                        use_container_width=True,
+
+                        key="delete_sample_confirm_no"
+
+                    ):
+
+                        st.session_state[
+                            "_show_delete_sample_confirm"
+                        ] = False
+
+                        st.rerun()
+
+            _confirm_delete_sample()
+
+        if st.session_state.get("_sample_delete_done"):
+
+            st.success(
+
+                f"샘플 설비 {st.session_state['_sample_delete_done']}대가 "
+                "삭제되었습니다."
+
+            )
+
+    else:
+
+        st.caption(
+            "✅ 코드 예시용 샘플(가짜) 설비는 남아있지 않습니다."
+        )
 
     with st.expander(
         "➕ 새 설비 추가"
