@@ -6839,6 +6839,980 @@ def apply_unified_import(parsed):
 
 
 # ============================================================
+# 10-4. 월간 진동측정 보고서
+#
+# 사업소에서 실제로 매달 쓰는 "펌프모터 진동 측정 분석 보고서"
+# 양식을 그대로 재현한다. SAP에서 뽑은 "정기점검 실적목록" 원본
+# 엑셀(측정점 10개 x 설비 수만큼 행)을 매달 업로드하면, 누적
+# DB에 쌓이고 그걸로 붙임2(기록대장)·붙임3(추세분석)까지 자동
+# 생성한다.
+# ============================================================
+
+VIBRATION_DB_PATH = "Pump_VibrationMeasure_DB.xlsx"
+
+VIB_JUDGE_GOOD = 3.2
+VIB_JUDGE_FAIR = 5.1
+VIB_JUDGE_BAD = 8.5
+
+VIB_POINT_COLS = [
+
+    ("모터", "반부하", "수직"),
+    ("모터", "반부하", "수평"),
+    ("모터", "반부하", "축"),
+    ("모터", "부하", "수직"),
+    ("모터", "부하", "수평"),
+    ("펌프", "반부하", "수직"),
+    ("펌프", "반부하", "수평"),
+    ("펌프", "반부하", "축"),
+    ("펌프", "부하", "수직"),
+    ("펌프", "부하", "수평")
+
+]
+
+
+def ensure_vibration_db_exists():
+
+    ensure_excel_file(
+
+        VIBRATION_DB_PATH,
+
+        "진동측정이력",
+
+        [
+            "측정일자",
+            "사업장",
+            "설비명",
+            "펌프모터구분",
+            "부하구분",
+            "측정방향",
+            "측정값",
+            "평가코드내역",
+            "측정인"
+        ]
+
+    )
+
+
+ensure_vibration_db_exists()
+
+
+def _extract_site_from_raw(raw_site):
+
+    # "양산정수장 여과지동" -> "양산정수장",
+    # "부곡가압장 가압펌프동" -> "부곡가압장" 처럼
+    # 뒤에 붙는 "동" 이름을 떼어내 사업장명만 남긴다.
+
+    if not raw_site:
+
+        return ""
+
+    m = re.match(
+        r"^(.*?)\s*(가압펌프동|여과지동)?$",
+        str(raw_site).strip()
+    )
+
+    return m.group(1) if m else str(raw_site).strip()
+
+
+def _extract_ho_label(raw_equip_desc):
+
+    # "원심펌프, #3" -> "#3", "원심펌프, 인라인 #1" -> "인라인#1"
+
+    text = str(raw_equip_desc)
+
+    if "인라인" in text:
+
+        m = re.search(r"인라인\s*#?\s*(\d+)", text)
+
+        if m:
+
+            return f"인라인#{m.group(1)}"
+
+    m = re.search(r"#\s*(\d+)", text)
+
+    if m:
+
+        return f"#{m.group(1)}"
+
+    return text.strip()
+
+
+def match_equip_by_site_and_ho(
+
+    site,
+    ho_label,
+    all_pumps
+
+):
+
+    candidates = [
+
+        p for p in all_pumps
+
+        if p["site"] == site
+
+    ]
+
+    # 설비명에 공백이 들어가는 방식이 제각각이라("인라인 #1" vs
+    # "인라인#1") 공백을 다 지우고 비교해야 정확히 매칭된다.
+
+    ho_label_norm = (
+
+        re.sub(r"\s+", "", ho_label)
+
+        if ho_label
+
+        else ""
+
+    )
+
+    for p in candidates:
+
+        equip_norm = re.sub(
+
+            r"\s+",
+            "",
+            p["equip"]
+
+        )
+
+        if ho_label_norm and ho_label_norm in equip_norm:
+
+            return p
+
+    # 정확히 안 맞으면, 사업장이 같고 설비가 1개뿐이면 그거라도 매칭
+
+    if len(candidates) == 1:
+
+        return candidates[0]
+
+    return None
+
+
+def parse_vibration_measure_upload(
+
+    file_bytes,
+    all_pumps
+
+):
+
+    df = pd.read_excel(
+        io.BytesIO(file_bytes)
+    )
+
+    rows = []
+
+    skipped = 0
+
+    unmatched_labels = set()
+
+    for _, r in df.iterrows():
+
+        raw_site = r.get("기능위치내역")
+
+        raw_equip = r.get("설비내역")
+
+        raw_point = r.get("측정지점내역")
+
+        raw_val = r.get("측정값")
+
+        raw_date = r.get("측정일자")
+
+        if (
+
+            pd.isna(raw_site)
+
+            or pd.isna(raw_equip)
+
+            or pd.isna(raw_point)
+
+            or pd.isna(raw_val)
+
+            or pd.isna(raw_date)
+
+        ):
+
+            skipped += 1
+
+            continue
+
+        site = _extract_site_from_raw(
+            raw_site
+        )
+
+        ho_label = _extract_ho_label(
+            raw_equip
+        )
+
+        pump = match_equip_by_site_and_ho(
+
+            site,
+            ho_label,
+            all_pumps
+
+        )
+
+        if pump is None:
+
+            unmatched_labels.add(
+                f"{site} {ho_label}"
+            )
+
+            skipped += 1
+
+            continue
+
+        m = re.search(
+
+            r"진동측정\((펌프|모터)(부하|반부하)\s*(수직|수평|축)\)",
+
+            str(raw_point)
+
+        )
+
+        if not m:
+
+            skipped += 1
+
+            continue
+
+        pm_type, load_type, direction = m.groups()
+
+        try:
+
+            work_date = datetime.strptime(
+
+                str(int(raw_date)),
+
+                "%Y%m%d"
+
+            ).strftime("%Y-%m-%d")
+
+        except Exception:
+
+            skipped += 1
+
+            continue
+
+        worker = (
+
+            str(r.get("측정인", ""))
+
+            if pd.notna(r.get("측정인"))
+
+            else ""
+
+        )
+
+        rows.append(
+
+            [
+                work_date,
+                site,
+                pump["equip"],
+                pm_type,
+                load_type,
+                direction,
+                float(raw_val),
+                (
+
+                    str(r.get("평가코드내역", ""))
+
+                    if pd.notna(r.get("평가코드내역"))
+
+                    else ""
+
+                ),
+                anonymize_name(worker)
+            ]
+
+        )
+
+    return rows, skipped, unmatched_labels
+
+
+def apply_vibration_measure_upload(rows):
+
+    for row in rows:
+
+        safe_append_row(
+
+            VIBRATION_DB_PATH,
+
+            "진동측정이력",
+
+            row
+
+        )
+
+    log_audit(
+
+        "월간 진동측정 업로드",
+
+        "전체",
+
+        f"{len(rows)}건 추가"
+
+    )
+
+
+def get_vib_judgement(value):
+
+    if value is None:
+
+        return "-"
+
+    if value <= VIB_JUDGE_GOOD:
+
+        return "A"
+
+    if value <= VIB_JUDGE_FAIR:
+
+        return "B"
+
+    if value <= VIB_JUDGE_BAD:
+
+        return "C"
+
+    return "D"
+
+
+def build_vibration_monthly_report_docx(
+
+    site_list,
+    month_label,
+    all_pumps,
+    work_period_text,
+    work_members_text
+
+):
+
+    df_vib = read_excel(
+
+        VIBRATION_DB_PATH,
+
+        "진동측정이력"
+
+    )
+
+    month_df = pd.DataFrame()
+
+    if not df_vib.empty:
+
+        month_df = df_vib[
+
+            df_vib["측정일자"].astype(str).str.startswith(
+                month_label
+            )
+
+        ]
+
+    doc = Document()
+
+    _set_korean_font(doc)
+
+    logo_path = find_logo_file()
+
+    if logo_path:
+
+        try:
+
+            logo_p = doc.add_paragraph()
+
+            logo_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            logo_p.add_run().add_picture(
+                logo_path,
+                width=Inches(1.3)
+            )
+
+        except Exception:
+
+            pass
+
+    title = doc.add_heading(
+        "펌프모터 진동 측정 분석 보고서",
+        level=0
+    )
+
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    sub = doc.add_paragraph()
+
+    sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    sub_run = sub.add_run(
+
+        f"('{month_label[2:4]}. "
+        f"{int(month_label[5:7])}월 밀양권사업소)"
+
+    )
+
+    sub_run.bold = True
+
+    doc.add_paragraph()
+
+    # ---------------- 1. 개요 ----------------
+
+    doc.add_heading(
+        "1. 개요",
+        level=1
+    )
+
+    _add_styled_table(
+
+        doc,
+
+        ["항목", "내용"],
+
+        [
+            [
+                "작업 목적",
+                "펌프모터의 진동을 주기적으로 측정·분석하여 "
+                "이상 징후를 조기에 감지하고, 측정값을 기존 "
+                "데이터 및 기준값과 비교해 상태를 진단한다. "
+                "필요시 적절한 조치를 수행하여 설비의 안정적 "
+                "운영과 효율적 유지관리를 도모하고자 한다."
+            ],
+            ["작업 기간", work_period_text],
+            ["작업 인원", work_members_text],
+            ["작업 내용", "휴대용 진동측정기를 활용하여 수행하는 진동측정"],
+            ["측정 장비", "진동계(ACO 3116)"]
+        ]
+
+    )
+
+    # ---------------- 계획 대비 실적 (공란) ----------------
+
+    doc.add_heading(
+        "계획 대비 실적",
+        level=1
+    )
+
+    doc.add_paragraph(
+
+        "※ 계약수량·주기횟수 등은 별도 계약관리 자료 확인 후 "
+        "기입하시기 바랍니다 (표만 제공)."
+
+    )
+
+    _add_styled_table(
+
+        doc,
+
+        [
+            "구분/분류", "주기", "계약수량", "주기횟수", "총 횟수",
+            "전월", "금월", "누계", "잔여물량", "비고"
+        ],
+
+        [
+            ["2. 측정 및 시험", "", "", "", "", "", "", "", "", ""],
+            ["2.1.기계설비", "", "", "", "", "", "", "", "", ""],
+            ["2.1.2.진동측정_A", "월간", "", "", "", "", "", "", "", ""],
+            ["2.1.3.진동측정_B", "월간", "", "", "", "", "", "", "", ""]
+        ]
+
+    )
+
+    # ---------------- 대상 시설(작업범위) ----------------
+
+    doc.add_heading(
+        "대상 시설(작업 범위)",
+        level=1
+    )
+
+    facility_rows = []
+
+    for pump in all_pumps:
+
+        if pump["site"] not in site_list:
+
+            continue
+
+        flow_v = pump.get("flow")
+
+        head_v = pump.get("head")
+
+        hp_v = pump.get("hp")
+
+        spec_parts = []
+
+        if flow_v and head_v:
+
+            spec_parts.append(
+
+                f"(펌프) {flow_v}m³/h × {head_v}m"
+
+            )
+
+        if hp_v:
+
+            spec_parts.append(
+
+                f"(모터) {hp_v}HP"
+
+            )
+
+        spec_text = (
+
+            "\n".join(spec_parts)
+
+            if spec_parts
+
+            else "제원 미등록"
+
+        )
+
+        facility_rows.append(
+
+            [
+                pump["site"],
+                pump["equip"],
+                spec_text,
+                "○"
+            ]
+
+        )
+
+    if facility_rows:
+
+        _add_styled_table(
+
+            doc,
+
+            ["사업장", "설비명", "제원", "작업대상"],
+
+            facility_rows
+
+        )
+
+    else:
+
+        doc.add_paragraph(
+            "등록된 대상 설비가 없습니다."
+        )
+
+    # ---------------- 2. 측정‧시험 결과 ----------------
+
+    doc.add_heading(
+        "2. 측정‧시험 결과",
+        level=1
+    )
+
+    summary_rows = []
+
+    equip_worst = {}
+
+    if not month_df.empty:
+
+        for equip_name, g in month_df.groupby("설비명"):
+
+            max_val = g["측정값"].max()
+
+            judgement = get_vib_judgement(
+                max_val
+            )
+
+            site_name = g["사업장"].iloc[0]
+
+            comment = (
+
+                "특이사항 없음"
+
+                if judgement == "A"
+
+                else "진동값 상승 추세, 지속 관찰 및 그리스 주입 등 조치 필요"
+
+            )
+
+            equip_worst[equip_name] = (
+
+                site_name,
+                max_val,
+                judgement,
+                comment
+
+            )
+
+    for equip_name, (site_name, max_val, judgement, comment) in sorted(
+
+        equip_worst.items(),
+
+        key=lambda x: (x[1][0], x[0])
+
+    ):
+
+        summary_rows.append(
+
+            [
+                site_name,
+                equip_name,
+                round(max_val, 1),
+                judgement,
+                comment
+            ]
+
+        )
+
+    if summary_rows:
+
+        _add_styled_table(
+
+            doc,
+
+            ["사업장", "설비명", "진동값(mm/s,rms)", "판정", "측정·시험 결과"],
+
+            summary_rows
+
+        )
+
+    else:
+
+        doc.add_paragraph(
+
+            f"{month_label}에 업로드된 진동측정 데이터가 없습니다."
+
+        )
+
+    # ---------------- 3. 종합의견 ----------------
+
+    doc.add_heading(
+        "3. 종합의견",
+        level=1
+    )
+
+    if summary_rows:
+
+        by_site = {}
+
+        for site_name, equip_name, max_val, judgement, comment in summary_rows:
+
+            by_site.setdefault(
+                site_name,
+                []
+            ).append(
+
+                (equip_name, max_val, judgement)
+
+            )
+
+        for site_name, items in by_site.items():
+
+            bad_items = [
+
+                i for i in items
+
+                if i[2] != "A"
+
+            ]
+
+            if bad_items:
+
+                p = doc.add_paragraph(
+
+                    f"☐ {site_name} 펌프모터 설비의 진동값은 "
+                    f"전반적으로 양호하였으나, "
+                    +
+                    ", ".join(
+
+                        f"{e} ({v:.1f}㎜/s)"
+                        for e, v, j in bad_items
+
+                    )
+                    +
+                    " 에서 진동값이 다소 높게 나타나 지속적인 추적 "
+                    "관찰 및 주기적인 그리스 주입 등 개선 조치가 "
+                    "필요함."
+
+                )
+
+            else:
+
+                p = doc.add_paragraph(
+
+                    f"☐ {site_name} 펌프모터 설비의 진동값은 "
+                    "전 항목 양호(A영역)로 특이사항 없음."
+
+                )
+
+    else:
+
+        doc.add_paragraph(
+            "이번 달 측정 데이터가 없어 종합의견을 생성할 수 없습니다."
+        )
+
+    # ---------------- 붙임1. 관리상태 판단기준 ----------------
+
+    doc.add_page_break()
+
+    doc.add_heading(
+        "붙임1. 관리상태 판단기준",
+        level=1
+    )
+
+    doc.add_paragraph(
+
+        "◦ 진동판정기준 (본 보고서 적용 기준)\n"
+        f"- 양호(A) : 총진동값 {VIB_JUDGE_GOOD}(mm/s, rms) 이하\n"
+        f"- 보통(B) : 총진동값 {VIB_JUDGE_FAIR}(mm/s, rms) 이하\n"
+        f"- 주의(C) : 총진동값 {VIB_JUDGE_BAD}(mm/s, rms) 이하\n"
+        f"- 불량(D) : 총진동값 {VIB_JUDGE_BAD}(mm/s, rms) 초과 "
+        "(☞ 불량판정의 경우 주관부서에 정밀진동분석 의뢰)"
+
+    )
+
+    doc.add_paragraph(
+
+        "◦ ISO10816-3/7 등 공식 규격은 설비 종류·용량·회전수에 "
+        "따라 세분화된 영역(A/B/C/D)을 정의하며, 본 보고서의 "
+        "판정기준(위)은 이를 참고해 자체적으로 단순화한 관리기준"
+        "입니다. 공식 규격 전문은 사내 규정집을 참고하십시오."
+
+    )
+
+    # ---------------- 붙임2. 측정‧시험 DATA(결과값) ----------------
+
+    doc.add_page_break()
+
+    doc.add_heading(
+        "붙임2. 측정‧시험 DATA(결과값)",
+        level=1
+    )
+
+    for site_name in site_list:
+
+        site_pumps = [
+
+            p for p in all_pumps
+
+            if p["site"] == site_name
+
+        ]
+
+        if not site_pumps:
+
+            continue
+
+        doc.add_heading(
+            f"{site_name} 펌프모터 총진동값 기록대장",
+            level=2
+        )
+
+        rec_rows = []
+
+        for pump in site_pumps:
+
+            equip_df = (
+
+                month_df[month_df["설비명"] == pump["equip"]]
+
+                if not month_df.empty
+
+                else pd.DataFrame()
+
+            )
+
+            if equip_df.empty:
+
+                rec_rows.append(
+
+                    [pump["equip"], "-", "-", "-", "-", "-"]
+
+                )
+
+                continue
+
+            for load_type in ["부하", "반부하"]:
+
+                sub = equip_df[
+
+                    equip_df["부하구분"] == load_type
+
+                ]
+
+                if sub.empty:
+
+                    continue
+
+                def _v(pm, d):
+
+                    m = sub[
+
+                        (sub["펌프모터구분"] == pm)
+
+                        &
+                        (sub["측정방향"] == d)
+
+                    ]
+
+                    return (
+
+                        round(m["측정값"].iloc[0], 1)
+
+                        if not m.empty
+
+                        else "-"
+
+                    )
+
+                worst = sub["측정값"].max()
+
+                rec_rows.append(
+
+                    [
+                        f"{pump['equip']} ({load_type})",
+                        _v("펌프", "수직"),
+                        _v("펌프", "수평"),
+                        _v("모터", "수직"),
+                        _v("모터", "수평"),
+                        get_vib_judgement(worst)
+                    ]
+
+                )
+
+        _add_styled_table(
+
+            doc,
+
+            ["호기(측정위치)", "펌프 V", "펌프 H", "모터 V", "모터 H", "판정"],
+
+            rec_rows
+
+        )
+
+    # ---------------- 붙임3. 상태변화 및 추이분석 ----------------
+
+    doc.add_page_break()
+
+    doc.add_heading(
+        "붙임3. 상태변화 및 추이분석",
+        level=1
+    )
+
+    if not df_vib.empty:
+
+        for pump in all_pumps:
+
+            if pump["site"] not in site_list:
+
+                continue
+
+            equip_hist = df_vib[
+
+                df_vib["설비명"] == pump["equip"]
+
+            ]
+
+            if equip_hist.empty:
+
+                continue
+
+            months_avail = sorted(
+
+                equip_hist["측정일자"].str[:7].unique()
+
+            )
+
+            if not months_avail:
+
+                continue
+
+            doc.add_heading(
+                f"{pump['equip']} ({pump['site']})",
+                level=2
+            )
+
+            trend_rows = []
+
+            for m in months_avail:
+
+                m_df = equip_hist[
+
+                    equip_hist["측정일자"].str.startswith(m)
+
+                ]
+
+                def _mv(pm, load, d):
+
+                    r = m_df[
+
+                        (m_df["펌프모터구분"] == pm)
+
+                        &
+                        (m_df["부하구분"] == load)
+
+                        &
+                        (m_df["측정방향"] == d)
+
+                    ]
+
+                    return (
+
+                        round(r["측정값"].mean(), 1)
+
+                        if not r.empty
+
+                        else ""
+
+                    )
+
+                trend_rows.append(
+
+                    [
+                        m,
+                        _mv("모터", "반부하", "수직"),
+                        _mv("모터", "반부하", "수평"),
+                        _mv("모터", "부하", "수직"),
+                        _mv("모터", "부하", "수평"),
+                        _mv("펌프", "반부하", "수직"),
+                        _mv("펌프", "반부하", "수평"),
+                        _mv("펌프", "부하", "수직"),
+                        _mv("펌프", "부하", "수평")
+                    ]
+
+                )
+
+            _add_styled_table(
+
+                doc,
+
+                [
+                    "월별",
+                    "모터 반부하V", "모터 반부하H",
+                    "모터 부하V", "모터 부하H",
+                    "펌프 반부하V", "펌프 반부하H",
+                    "펌프 부하V", "펌프 부하H"
+                ],
+
+                trend_rows
+
+            )
+
+            doc.add_paragraph(
+
+                f"비고 : 판정기준 {VIB_JUDGE_GOOD}이하(양호), "
+                f"{VIB_JUDGE_FAIR}이하(장시간 운전허용), "
+                f"{VIB_JUDGE_BAD}이하(보수조치 필요)"
+
+            )
+
+    else:
+
+        doc.add_paragraph(
+
+            "누적된 진동측정 이력이 없습니다. 매달 정기점검 "
+            "실적목록을 업로드하면 이 자리에 추세표가 쌓입니다."
+
+        )
+
+    buffer = io.BytesIO()
+
+    doc.save(buffer)
+
+    return buffer.getvalue()
+
+
+# ============================================================
 # 12. QR 비용 계산
 # ============================================================
 
@@ -13448,6 +14422,35 @@ elif st.session_state.page == "보고서":
     st.markdown(
         """
         <div class="section-title">
+        📄 보고서
+        </div>
+
+        <div class="section-caption">
+        용도에 맞는 보고서 유형을 선택하세요.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    report_mode = st.radio(
+
+        "보고서 종류",
+
+        ["설비별 CBM 월간보고서", "월간 진동측정 보고서"],
+
+        horizontal=True,
+
+        key="report_mode_select"
+
+    )
+
+    st.write("---")
+
+if st.session_state.page == "보고서" and report_mode == "설비별 CBM 월간보고서":
+
+    st.markdown(
+        """
+        <div class="section-title">
         📄 설비별 월간 보고서
         </div>
 
@@ -13741,6 +14744,276 @@ elif st.session_state.page == "보고서":
         )
 
     )
+
+
+if (
+
+    st.session_state.page == "보고서"
+
+    and report_mode == "월간 진동측정 보고서"
+
+):
+
+    st.markdown(
+        """
+        <div class="section-title">
+        📈 월간 진동측정 보고서
+        </div>
+
+        <div class="section-caption">
+        매달 받는 "정기점검 실적목록" 엑셀을 그대로 올리면
+        누적 DB에 쌓이고, 그걸로 실제 사업소 양식 그대로
+        월간 진동측정 분석 보고서(Word)를 만듭니다.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        "#### 1. 이번 달 정기점검 실적목록 업로드"
+    )
+
+    vib_upload_file = st.file_uploader(
+
+        "정기점검 실적목록 엑셀",
+
+        type=["xlsx"],
+
+        key="vib_measure_uploader"
+
+    )
+
+    if vib_upload_file is not None:
+
+        try:
+
+            _vib_rows, _vib_skipped, _vib_unmatched = parse_vibration_measure_upload(
+
+                vib_upload_file.getvalue(),
+
+                ALL_PUMPS
+
+            )
+
+            st.success(
+
+                f"{len(_vib_rows)}건의 측정점을 확인했습니다."
+                +
+                (
+
+                    f" ({_vib_skipped}건은 매칭 실패/누락으로 제외)"
+
+                    if _vib_skipped
+
+                    else ""
+                )
+
+            )
+
+            if _vib_unmatched:
+
+                st.warning(
+
+                    "설비 매칭에 실패한 사업장/호기: "
+                    +
+                    ", ".join(sorted(_vib_unmatched))
+
+                )
+
+            with st.expander(
+
+                f"업로드 데이터 미리보기 ({len(_vib_rows)}건)"
+
+            ):
+
+                st.dataframe(
+
+                    pd.DataFrame(
+
+                        _vib_rows,
+
+                        columns=[
+                            "측정일자", "사업장", "설비명",
+                            "펌프모터구분", "부하구분", "측정방향",
+                            "측정값", "평가코드내역", "측정인"
+                        ]
+
+                    ),
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+            if is_read_only():
+
+                st.info(
+                    "🔒 보기 전용 모드에서는 반영할 수 없습니다."
+                )
+
+            elif st.button(
+
+                "📥 진동측정 데이터 반영하기",
+
+                type="primary",
+
+                use_container_width=True,
+
+                key="vib_upload_apply_btn"
+
+            ):
+
+                apply_vibration_measure_upload(
+                    _vib_rows
+                )
+
+                st.success(
+
+                    f"{len(_vib_rows)}건이 누적 DB에 저장되었습니다."
+
+                )
+
+        except Exception as e:
+
+            st.error(
+                f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
+            )
+
+    st.markdown(
+        "#### 2. 보고서 생성"
+    )
+
+    vib_site_list = sorted(
+
+        set(
+            p["site"] for p in ALL_PUMPS
+        )
+
+    )
+
+    selected_sites = st.multiselect(
+
+        "대상 사업장",
+
+        vib_site_list,
+
+        default=vib_site_list,
+
+        key="vib_report_sites"
+
+    )
+
+    vmc1, vmc2 = st.columns(2)
+
+    vib_today = datetime.now()
+
+    vib_year = vmc1.selectbox(
+
+        "보고 연도",
+
+        list(range(vib_today.year - 2, vib_today.year + 1)),
+
+        index=2,
+
+        key="vib_report_year"
+
+    )
+
+    vib_month = vmc2.selectbox(
+
+        "보고 월",
+
+        list(range(1, 13)),
+
+        index=vib_today.month - 1,
+
+        key="vib_report_month"
+
+    )
+
+    vib_month_label = f"{vib_year}-{vib_month:02d}"
+
+    work_period_text = st.text_input(
+
+        "작업 기간 문구",
+
+        value=f"'{str(vib_year)[2:]}.{vib_month:02d}.01. ~ {vib_month:02d}.말일.",
+
+        key="vib_work_period"
+
+    )
+
+    work_members_text = st.text_input(
+
+        "작업 인원 문구",
+
+        value="조원기, 김광일, 정현철",
+
+        key="vib_work_members"
+
+    )
+
+    if st.button(
+
+        "📝 월간 진동측정 보고서 생성",
+
+        type="primary",
+
+        use_container_width=True,
+
+        key="generate_vib_report_btn"
+
+    ):
+
+        with st.spinner(
+            "보고서를 만드는 중입니다..."
+        ):
+
+            vib_docx_bytes = build_vibration_monthly_report_docx(
+
+                selected_sites,
+
+                vib_month_label,
+
+                ALL_PUMPS,
+
+                work_period_text,
+
+                work_members_text
+
+            )
+
+        st.session_state["_vib_report_bytes"] = vib_docx_bytes
+
+        st.session_state["_vib_report_filename"] = (
+
+            f"{vib_month_label}_월간진동측정보고서.docx"
+
+        )
+
+    if "_vib_report_bytes" in st.session_state:
+
+        st.download_button(
+
+            "⬇️ Word 보고서 다운로드",
+
+            data=st.session_state["_vib_report_bytes"],
+
+            file_name=st.session_state["_vib_report_filename"],
+
+            mime=(
+                "application/vnd.openxmlformats-"
+                "officedocument.wordprocessingml.document"
+            ),
+
+            type="primary",
+
+            use_container_width=True,
+
+            key="download_vib_report_btn"
+
+        )
 
 
 # ============================================================
