@@ -5615,6 +5615,14 @@ def parse_equipment_import_excel(df1):
 
     site_by_no = {}
 
+    # 평촌가압장처럼 스펙이 같은 설비 여러 대가 "설비내역"에
+    # 아무 번호 없이 "원심펌프"로만 똑같이 적혀있는 경우가
+    # 있다. 이러면 나중에 "평촌#1/#2/#3" 같은 진동그래프
+    # 시트명과 매칭할 방법이 없어서, 같은 사업장+설명이
+    # 중복되면 순서대로 "#1,#2,#3..."을 자동으로 붙여준다.
+
+    dup_counter = {}
+
     for _, r in df1.iterrows():
 
         equip_no = r.get("설비번호")
@@ -5652,6 +5660,24 @@ def parse_equipment_import_excel(df1):
             " ",
             equip_desc
         )
+
+        if "#" not in equip_desc:
+
+            dup_key = (
+                site_name,
+                equip_desc
+            )
+
+            dup_counter[dup_key] = dup_counter.get(
+                dup_key,
+                0
+            ) + 1
+
+            equip_desc = (
+
+                f"{equip_desc} #{dup_counter[dup_key]}"
+
+            )
 
         equip_label = f"{equip_desc} ({equip_no})"
 
@@ -6967,6 +6993,38 @@ def match_equip_by_site_and_ho(
 
     )
 
+    is_inline_query = "인라인" in ho_label_norm
+
+    # 1차: "인라인" 여부까지 정확히 맞는 후보 우선.
+    # (안 그러면 "#1"을 찾을 때 "인라인 #1"도 "#1"을 포함하고
+    #  있어서 엉뚱한 인라인펌프로 잘못 매칭되는 문제가 있었다)
+
+    for p in candidates:
+
+        equip_norm = re.sub(
+
+            r"\s+",
+            "",
+            p["equip"]
+
+        )
+
+        equip_is_inline = "인라인" in equip_norm
+
+        if (
+
+            ho_label_norm
+
+            and ho_label_norm in equip_norm
+
+            and is_inline_query == equip_is_inline
+
+        ):
+
+            return p
+
+    # 2차: 인라인 여부는 무시하고 그냥 포함되는지만 확인
+
     for p in candidates:
 
         equip_norm = re.sub(
@@ -7134,17 +7192,36 @@ def parse_vibration_measure_upload(
 
 def apply_vibration_measure_upload(rows):
 
-    for row in rows:
+    # 예전엔 행 하나하나마다 파일을 열고 닫아서(safe_append_row
+    # 반복호출), 그래프 엑셀처럼 한 번에 수천 행이 들어오면
+    # 매우 느려서 타임아웃이 나는 문제가 있었다. 파일을 딱
+    # 한 번만 열고 다 쓴 다음 한 번만 저장한다.
 
-        safe_append_row(
+    if not rows:
 
-            VIBRATION_DB_PATH,
+        return
 
-            "진동측정이력",
+    with get_lock(VIBRATION_DB_PATH):
 
-            row
-
+        wb = load_workbook(
+            VIBRATION_DB_PATH
         )
+
+        ws = wb["진동측정이력"]
+
+        for row in rows:
+
+            ws.append(
+                row
+            )
+
+        wb.save(
+            VIBRATION_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
 
     log_audit(
 
@@ -7155,6 +7232,241 @@ def apply_vibration_measure_upload(rows):
         f"{len(rows)}건 추가"
 
     )
+
+
+# ============================================================
+# 10-5. 진동 그래프 엑셀(과거 이력 일괄) 업로드
+#
+# "정기점검 실적목록"은 그달치만 들어있어서, 이전 몇 년치
+# 이력을 한 번에 채우려면 매달 것을 일일이 올려야 하는
+# 문제가 있었다. 사업소에서 별도로 관리하는 "진동 그래프"
+# 엑셀(설비 1대당 시트 1개, 월별로 이미 집계된 값)을 올리면
+# 과거 이력을 한 번에 채울 수 있게 한다.
+# ============================================================
+
+VIB_GRAPH_SITE_PREFIX = {
+
+    "평촌": "평촌가압장",
+    "팔도": "팔도가압장",
+    "부곡": "부곡가압장",
+    "밀양": "밀양정수장",
+    "양산": "양산정수장",
+    "나노": "나노가압장"
+
+}
+
+VIB_GRAPH_COL_ORDER = [
+
+    ("모터", "반부하", "수직"),
+    ("모터", "반부하", "수평"),
+    ("모터", "반부하", "축"),
+    ("모터", "부하", "수직"),
+    ("모터", "부하", "수평"),
+    ("펌프", "반부하", "수직"),
+    ("펌프", "반부하", "수평"),
+    ("펌프", "반부하", "축"),
+    ("펌프", "부하", "수직"),
+    ("펌프", "부하", "수평")
+
+]
+
+
+def parse_vib_graph_sheet_name(sheet_name):
+
+    name = sheet_name.strip()
+
+    # "평촌#1 (대체)" 같은 꼬리표는 떼어낸다
+
+    name = re.sub(
+
+        r"\s*\(.*?\)\s*$",
+
+        "",
+
+        name
+
+    )
+
+    site = None
+
+    rest = name
+
+    for prefix, site_full in VIB_GRAPH_SITE_PREFIX.items():
+
+        if name.startswith(prefix):
+
+            site = site_full
+
+            rest = name[len(prefix):]
+
+            break
+
+    if site is None:
+
+        return None, None
+
+    ho_label = _extract_ho_label(
+        rest
+    )
+
+    return site, ho_label
+
+
+def parse_vibration_graph_workbook(
+
+    file_bytes,
+    all_pumps
+
+):
+
+    xl = pd.ExcelFile(
+        io.BytesIO(file_bytes)
+    )
+
+    rows = []
+
+    unmatched = set()
+
+    sheet_month_counts = {}
+
+    for sheet_name in xl.sheet_names:
+
+        site, ho_label = parse_vib_graph_sheet_name(
+            sheet_name
+        )
+
+        if site is None:
+
+            unmatched.add(
+                f"{sheet_name} (사업장 인식 실패)"
+            )
+
+            continue
+
+        pump = match_equip_by_site_and_ho(
+
+            site,
+            ho_label,
+            all_pumps
+
+        )
+
+        if pump is None:
+
+            unmatched.add(
+
+                f"{sheet_name} ({site} {ho_label})"
+
+            )
+
+            continue
+
+        df = xl.parse(
+            sheet_name,
+            header=0
+        )
+
+        current_year = None
+
+        month_count = 0
+
+        for _, r in df.iterrows():
+
+            raw_month = r.iloc[0]
+
+            if pd.isna(raw_month):
+
+                continue
+
+            raw_month = str(raw_month).strip()
+
+            m = re.match(
+
+                r"^(?:(\d{2})\.)?(\d{2})월",
+
+                raw_month
+
+            )
+
+            if not m:
+
+                continue
+
+            if m.group(1):
+
+                current_year = 2000 + int(
+                    m.group(1)
+                )
+
+            if current_year is None:
+
+                # 첫 행부터 연도가 안 붙어있으면 매칭 불가라 건너뜀
+
+                continue
+
+            month_num = int(
+                m.group(2)
+            )
+
+            work_date = (
+
+                f"{current_year}-{month_num:02d}-01"
+
+            )
+
+            got_any_value = False
+
+            for col_i, (pm, load, direction) in enumerate(
+
+                VIB_GRAPH_COL_ORDER,
+
+                start=1
+
+            ):
+
+                if col_i >= len(r):
+
+                    continue
+
+                val = r.iloc[col_i]
+
+                if pd.isna(val):
+
+                    continue
+
+                try:
+
+                    val = float(val)
+
+                except (TypeError, ValueError):
+
+                    continue
+
+                got_any_value = True
+
+                rows.append(
+
+                    [
+                        work_date,
+                        pump["site"],
+                        pump["equip"],
+                        pm,
+                        load,
+                        direction,
+                        val,
+                        "",
+                        ""
+                    ]
+
+                )
+
+            if got_any_value:
+
+                month_count += 1
+
+        sheet_month_counts[sheet_name] = month_count
+
+    return rows, unmatched, sheet_month_counts
 
 
 def get_vib_judgement(value):
@@ -15225,6 +15537,117 @@ if (
                 st.success(
 
                     f"{len(_vib_rows)}건이 누적 DB에 저장되었습니다."
+
+                )
+
+        except Exception as e:
+
+            st.error(
+                f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
+            )
+
+    st.markdown(
+        "#### 1-2. 과거 이력 일괄 업로드 (진동 그래프 엑셀, 선택)"
+    )
+
+    st.caption(
+
+        "설비마다 시트 하나씩, 월별로 이미 집계된 값이 담긴 "
+        "'진동 그래프' 엑셀이 있으면 여기 올리세요. 정기점검 "
+        "실적목록을 매달 올리는 대신, 과거 1년치를 한 번에 "
+        "채울 수 있습니다."
+
+    )
+
+    vib_graph_file = st.file_uploader(
+
+        "진동 그래프 엑셀",
+
+        type=["xlsx"],
+
+        key="vib_graph_uploader"
+
+    )
+
+    if vib_graph_file is not None:
+
+        try:
+
+            _graph_rows, _graph_unmatched, _graph_month_counts = parse_vibration_graph_workbook(
+
+                vib_graph_file.getvalue(),
+
+                ALL_PUMPS
+
+            )
+
+            st.success(
+
+                f"{len(_graph_rows)}건(측정점 기준)을 확인했습니다."
+
+            )
+
+            with st.expander(
+
+                "시트별 인식된 개월 수"
+
+            ):
+
+                st.dataframe(
+
+                    pd.DataFrame(
+
+                        [
+
+                            {"시트": k, "인식된 개월 수": v}
+
+                            for k, v in _graph_month_counts.items()
+
+                        ]
+
+                    ),
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+            if _graph_unmatched:
+
+                st.warning(
+
+                    "설비 매칭에 실패한 시트: "
+                    +
+                    ", ".join(sorted(_graph_unmatched))
+
+                )
+
+            if is_read_only():
+
+                st.info(
+                    "🔒 보기 전용 모드에서는 반영할 수 없습니다."
+                )
+
+            elif st.button(
+
+                "📥 과거 이력 반영하기",
+
+                type="primary",
+
+                use_container_width=True,
+
+                key="vib_graph_apply_btn"
+
+            ):
+
+                apply_vibration_measure_upload(
+                    _graph_rows
+                )
+
+                st.success(
+
+                    f"{len(_graph_rows)}건이 누적 DB에 저장되었습니다."
 
                 )
 
