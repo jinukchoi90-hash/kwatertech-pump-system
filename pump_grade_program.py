@@ -11079,6 +11079,35 @@ with st.sidebar:
             args=(key,)
         )
 
+    st.markdown(
+        "<div class='menu-caption'>부서별 관리 (개발예정)</div>",
+        unsafe_allow_html=True
+    )
+
+    dept_menus = [
+
+        ("토목", "🏗️ 토목"),
+
+        ("전기", "⚡ 전기"),
+
+        ("전자", "💻 전자"),
+
+        ("행정", "📋 행정"),
+
+        ("안전", "🦺 안전")
+
+    ]
+
+    for key, label in dept_menus:
+
+        st.button(
+            label,
+            key=f"menu_{key}",
+            use_container_width=True,
+            on_click=go_to_page,
+            args=(key,)
+        )
+
     st.markdown("---")
 
     st.caption(
@@ -11174,6 +11203,8 @@ ALL_MENUS = (
     analysis_menus
     +
     knowledge_menus
+    +
+    dept_menus
 )
 
 MENU_LABEL_BY_KEY = dict(
@@ -18642,6 +18673,55 @@ elif st.session_state.page == "백업":
         "설비마스터_목록.xlsx",
 
         lambda: pd.DataFrame(ALL_PUMPS)
+
+    )
+
+
+# ============================================================
+# 26-1. 부서별 관리 (개발예정)
+# ============================================================
+
+elif st.session_state.page in (
+
+    "토목",
+    "전기",
+    "전자",
+    "행정",
+    "안전"
+
+):
+
+    _dept_icon = {
+
+        "토목": "🏗️",
+        "전기": "⚡",
+        "전자": "💻",
+        "행정": "📋",
+        "안전": "🦺"
+
+    }[st.session_state.page]
+
+    st.markdown(
+
+        f"""
+        <div class="section-title">
+        {_dept_icon} {st.session_state.page} 관리
+        </div>
+
+        <div class="section-caption">
+        곧 추가될 예정인 메뉴입니다.
+        </div>
+        """,
+
+        unsafe_allow_html=True
+
+    )
+
+    st.info(
+
+        f"🚧 {st.session_state.page} 관리 메뉴는 "
+        "현재 개발 준비 중입니다. 필요한 기능이 있으면 "
+        "말씀해 주세요."
 
     )
 
