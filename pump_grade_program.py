@@ -33,6 +33,7 @@ import base64
 import glob
 import zipfile
 import re
+import calendar
 from filelock import FileLock
 
 from docx import Document
@@ -7177,6 +7178,129 @@ def get_vib_judgement(value):
     return "D"
 
 
+def build_vibration_trend_chart_fig(
+
+    equip_name,
+    months_avail,
+    trend_rows
+
+):
+
+    # 보내주신 "펌프모터진동 그래프" 엑셀처럼, 표만 있는 게
+    # 아니라 실제 그래프도 같이 보여준다. trend_rows는 이미
+    # [월, 모터반부하V, 모터반부하H, 모터부하V, 모터부하H,
+    #  펌프반부하V, 펌프반부하H, 펌프부하V, 펌프부하H] 순서로
+    # 붙임3 표를 만들 때 쓴 것과 동일한 데이터를 재사용한다.
+
+    if not trend_rows:
+
+        return None
+
+    series_names = [
+
+        "모터 반부하V", "모터 반부하H",
+        "모터 부하V", "모터 부하H",
+        "펌프 반부하V", "펌프 반부하H",
+        "펌프 부하V", "펌프 부하H"
+
+    ]
+
+    fig, ax = plt.subplots(
+        figsize=(9, 4)
+    )
+
+    for col_idx, name in enumerate(
+        series_names,
+        start=1
+    ):
+
+        values = []
+
+        for row in trend_rows:
+
+            v = row[col_idx]
+
+            values.append(
+
+                v if isinstance(v, (int, float)) else None
+
+            )
+
+        # 값이 하나도 없는 계열은 그래프에서 생략
+
+        if all(v is None for v in values):
+
+            continue
+
+        ax.plot(
+
+            months_avail,
+
+            values,
+
+            marker="o",
+
+            linewidth=1.6,
+
+            label=name
+
+        )
+
+    ax.axhline(
+
+        VIB_JUDGE_GOOD,
+
+        linestyle="--",
+
+        color="#2f9e44",
+
+        linewidth=1,
+
+        label=f"양호기준({VIB_JUDGE_GOOD})"
+
+    )
+
+    ax.axhline(
+
+        VIB_JUDGE_FAIR,
+
+        linestyle=":",
+
+        color="#e8590c",
+
+        linewidth=1,
+
+        label=f"보통기준({VIB_JUDGE_FAIR})"
+
+    )
+
+    ax.set_ylabel(
+        "진동값 (mm/s, rms)"
+    )
+
+    ax.set_title(
+        f"{equip_name} 진동 추세"
+    )
+
+    ax.legend(
+
+        loc="upper left",
+
+        bbox_to_anchor=(1.01, 1.0),
+
+        fontsize=8
+
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    fig.tight_layout()
+
+    return fig
+
+
 def build_vibration_monthly_report_docx(
 
     site_list,
@@ -7210,6 +7334,20 @@ def build_vibration_monthly_report_docx(
     doc = Document()
 
     _set_korean_font(doc)
+
+    # 표가 많은 문서라 기본 여백(보통 상하좌우 1인치)이면
+    # 표 열이 옹색하게 나온다. 여백을 줄여서 표가 넉넉하게
+    # 나오도록 한다.
+
+    for section in doc.sections:
+
+        section.left_margin = Inches(0.6)
+
+        section.right_margin = Inches(0.6)
+
+        section.top_margin = Inches(0.5)
+
+        section.bottom_margin = Inches(0.5)
 
     logo_path = find_logo_file()
 
@@ -7407,7 +7545,11 @@ def build_vibration_monthly_report_docx(
 
         for equip_name, g in month_df.groupby("설비명"):
 
-            max_val = g["측정값"].max()
+            idx_max = g["측정값"].idxmax()
+
+            max_row = g.loc[idx_max]
+
+            max_val = max_row["측정값"]
 
             judgement = get_vib_judgement(
                 max_val
@@ -7415,13 +7557,21 @@ def build_vibration_monthly_report_docx(
 
             site_name = g["사업장"].iloc[0]
 
+            point_desc = (
+
+                f"{max_row['펌프모터구분']} "
+                f"{max_row['부하구분']} 부분 "
+                f"{max_row['측정방향']}"
+
+            )
+
             comment = (
 
                 "특이사항 없음"
 
                 if judgement == "A"
 
-                else "진동값 상승 추세, 지속 관찰 및 그리스 주입 등 조치 필요"
+                else f"{point_desc} 진동값 상승, 원인 분석 필요"
 
             )
 
@@ -7430,11 +7580,12 @@ def build_vibration_monthly_report_docx(
                 site_name,
                 max_val,
                 judgement,
+                point_desc,
                 comment
 
             )
 
-    for equip_name, (site_name, max_val, judgement, comment) in sorted(
+    for equip_name, (site_name, max_val, judgement, point_desc, comment) in sorted(
 
         equip_worst.items(),
 
@@ -7481,54 +7632,125 @@ def build_vibration_monthly_report_docx(
         level=1
     )
 
-    if summary_rows:
+    # A영역이라도 이 값 이상이면 "특이사항 없음"으로 뭉개지 않고
+    # 추이관찰 문구를 붙인다. (예시 보고서의 "2.2㎜/s(A영역)이지만
+    # 지속관찰 중" 같은 표현을 재현)
+
+    VIB_WATCH_IN_A = 2.0
+
+    def _build_vib_comment(
+
+        equip_name,
+        point_desc,
+        value,
+        judgement
+
+    ):
+
+        if judgement == "A":
+
+            if value >= VIB_WATCH_IN_A:
+
+                return (
+
+                    f"○ {equip_name} : {point_desc} 진동값이 "
+                    f"최대 {value:.1f}㎜/s(A영역)로 측정되어 "
+                    "그리스 주입 후 추이 관찰을 진행하고 있음."
+
+                )
+
+            return None
+
+        if judgement == "B":
+
+            return (
+
+                f"○ {equip_name} : {point_desc} 진동값이 "
+                f"{value:.1f}㎜/s(B영역, 보통)로 측정되어 "
+                "정기점검 주기를 단축하고 원인 분석이 필요함."
+
+            )
+
+        if judgement == "C":
+
+            return (
+
+                f"○ {equip_name} : {point_desc} 진동값이 "
+                f"{value:.1f}㎜/s(C영역, 주의)로 측정되어 "
+                "정밀진동분석 및 정비계획 수립이 필요함."
+
+            )
+
+        return (
+
+            f"○ {equip_name} : {point_desc} 진동값이 "
+            f"{value:.1f}㎜/s(D영역, 불량)로 측정되어 "
+            "즉시 정밀진동분석 및 정비 조치가 필요함 "
+            "(주관부서 정밀진동분석 의뢰 요망)."
+
+        )
+
+    if equip_worst:
 
         by_site = {}
 
-        for site_name, equip_name, max_val, judgement, comment in summary_rows:
+        for equip_name, (site_name, max_val, judgement, point_desc, comment) in equip_worst.items():
 
             by_site.setdefault(
                 site_name,
                 []
             ).append(
 
-                (equip_name, max_val, judgement)
+                (equip_name, max_val, judgement, point_desc)
 
             )
 
-        for site_name, items in by_site.items():
+        for site_name, items in sorted(by_site.items()):
 
-            bad_items = [
+            watch_comments = []
 
-                i for i in items
+            for equip_name, value, judgement, point_desc in sorted(
 
-                if i[2] != "A"
+                items,
 
-            ]
+                key=lambda x: x[0]
 
-            if bad_items:
+            ):
 
-                p = doc.add_paragraph(
+                c = _build_vib_comment(
 
-                    f"☐ {site_name} 펌프모터 설비의 진동값은 "
-                    f"전반적으로 양호하였으나, "
-                    +
-                    ", ".join(
-
-                        f"{e} ({v:.1f}㎜/s)"
-                        for e, v, j in bad_items
-
-                    )
-                    +
-                    " 에서 진동값이 다소 높게 나타나 지속적인 추적 "
-                    "관찰 및 주기적인 그리스 주입 등 개선 조치가 "
-                    "필요함."
+                    equip_name,
+                    point_desc,
+                    value,
+                    judgement
 
                 )
 
+                if c:
+
+                    watch_comments.append(c)
+
+            if watch_comments:
+
+                doc.add_paragraph(
+
+                    f"☐ {site_name} 펌프모터 설비의 진동값은 "
+                    "대체로 양호(A영역)하였으나, 일부 설비에서 "
+                    "진동값 상승이 확인되어 아래와 같이 지속적인 "
+                    "관리가 필요함."
+
+                )
+
+                for c in watch_comments:
+
+                    doc.add_paragraph(
+                        c,
+                        style="List Bullet"
+                    )
+
             else:
 
-                p = doc.add_paragraph(
+                doc.add_paragraph(
 
                     f"☐ {site_name} 펌프모터 설비의 진동값은 "
                     "전 항목 양호(A영역)로 특이사항 없음."
@@ -7616,7 +7838,7 @@ def build_vibration_monthly_report_docx(
 
                 rec_rows.append(
 
-                    [pump["equip"], "-", "-", "-", "-", "-"]
+                    [pump["equip"], "", "", "", "", "", "", ""]
 
                 )
 
@@ -7651,7 +7873,7 @@ def build_vibration_monthly_report_docx(
 
                         if not m.empty
 
-                        else "-"
+                        else ""
 
                     )
 
@@ -7663,8 +7885,10 @@ def build_vibration_monthly_report_docx(
                         f"{pump['equip']} ({load_type})",
                         _v("펌프", "수직"),
                         _v("펌프", "수평"),
+                        _v("펌프", "축"),
                         _v("모터", "수직"),
                         _v("모터", "수평"),
+                        _v("모터", "축"),
                         get_vib_judgement(worst)
                     ]
 
@@ -7674,7 +7898,10 @@ def build_vibration_monthly_report_docx(
 
             doc,
 
-            ["호기(측정위치)", "펌프 V", "펌프 H", "모터 V", "모터 H", "판정"],
+            [
+                "호기(측정위치)", "펌프 V", "펌프 H", "펌프 축(A)",
+                "모터 V", "모터 H", "모터 축(A)", "판정"
+            ],
 
             rec_rows
 
@@ -7795,6 +8022,33 @@ def build_vibration_monthly_report_docx(
                 f"{VIB_JUDGE_BAD}이하(보수조치 필요)"
 
             )
+
+            # 표만으로는 추세가 한눈에 안 들어와서, 보내주신
+            # "진동 그래프" 엑셀처럼 실제 그래프도 같이 넣는다.
+
+            trend_fig = build_vibration_trend_chart_fig(
+
+                pump["equip"],
+
+                months_avail,
+
+                trend_rows
+
+            )
+
+            if trend_fig is not None:
+
+                _add_fig_to_doc(
+
+                    doc,
+
+                    trend_fig,
+
+                    width_inches=6.3,
+
+                    caption=f"{pump['equip']} 진동 추세 그래프"
+
+                )
 
     else:
 
@@ -14908,6 +15162,27 @@ if (
 
     vib_today = datetime.now()
 
+    def _sync_vib_work_period():
+
+        # 보고 연/월이 바뀌면 "작업 기간 문구"도 자동으로
+        # 그 달의 1일~말일로 맞춰준다. (예전엔 월을 바꿔도
+        # 문구가 안 따라와서 8월로 그대로 남아있던 문제가 있었음)
+
+        y = st.session_state["vib_report_year"]
+
+        m = st.session_state["vib_report_month"]
+
+        last_day = calendar.monthrange(
+            y,
+            m
+        )[1]
+
+        st.session_state["vib_work_period"] = (
+
+            f"'{str(y)[2:]}.{m:02d}.01. ~ {last_day}."
+
+        )
+
     vib_year = vmc1.selectbox(
 
         "보고 연도",
@@ -14916,7 +15191,9 @@ if (
 
         index=2,
 
-        key="vib_report_year"
+        key="vib_report_year",
+
+        on_change=_sync_vib_work_period
 
     )
 
@@ -14928,17 +15205,31 @@ if (
 
         index=vib_today.month - 1,
 
-        key="vib_report_month"
+        key="vib_report_month",
+
+        on_change=_sync_vib_work_period
 
     )
 
     vib_month_label = f"{vib_year}-{vib_month:02d}"
 
+    if "vib_work_period" not in st.session_state:
+
+        _last_day_init = calendar.monthrange(
+            vib_year,
+            vib_month
+        )[1]
+
+        st.session_state["vib_work_period"] = (
+
+            f"'{str(vib_year)[2:]}.{vib_month:02d}.01. "
+            f"~ {_last_day_init}."
+
+        )
+
     work_period_text = st.text_input(
 
         "작업 기간 문구",
-
-        value=f"'{str(vib_year)[2:]}.{vib_month:02d}.01. ~ {vib_month:02d}.말일.",
 
         key="vib_work_period"
 
