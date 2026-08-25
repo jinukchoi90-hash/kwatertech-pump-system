@@ -6097,6 +6097,24 @@ def get_all_pumps():
 
 def add_equipment(new_pump):
 
+    # 수동 등록 화면에서는 중복이름을 미리 걸러주지만, 통합
+    # 업로드·일괄교체 등 다른 경로로 들어올 때도 안전하도록
+    # 함수 자체에도 마지막 방어선을 둔다. 안 그러면 같은
+    # 이름의 설비가 두 번 들어가서, 화면에서 그 설비 이름으로
+    # 만든 버튼 key가 중복돼 앱이 통째로 죽는 문제가 생긴다.
+
+    existing_names = {
+
+        p["equip"].strip()
+
+        for p in get_all_pumps()
+
+    }
+
+    if new_pump["equip"].strip() in existing_names:
+
+        return False
+
     safe_append_row(
 
         EQUIP_DB_PATH,
@@ -6129,6 +6147,8 @@ def add_equipment(new_pump):
         f"사업장={new_pump['site']}, 모델={new_pump['model']}"
 
     )
+
+    return True
 
 
 def delete_equipment(equip_name):
@@ -6930,6 +6950,13 @@ def upsert_equipment_rows(equip_rows):
     # (통합 업로드는 반복해서 여러 번 올릴 걸 가정하므로,
     #  이전 것을 지우는 "전체 교체"가 아니라 "이미 있으면
     #  건너뛰고 없으면 추가"로 동작한다.)
+    #
+    # 예전엔 existing_names를 루프 시작 전에 한 번만 계산해서,
+    # 같은 업로드 파일 "안에" 같은 이름이 두 번 있으면 그
+    # 배치 안에서의 중복은 못 걸러내고 둘 다 추가되는 문제가
+    # 있었다(그러면 나중에 그 이름으로 만든 화면 버튼 key가
+    # 겹쳐서 앱이 죽는다). 추가할 때마다 그 이름도 바로
+    # existing_names에 넣어서 같은 배치 안의 중복도 막는다.
 
     existing_names = {
 
@@ -6947,11 +6974,13 @@ def upsert_equipment_rows(equip_rows):
 
             continue
 
-        add_equipment(
-            row
-        )
+        if add_equipment(row):
 
-        added += 1
+            existing_names.add(
+                row["equip"]
+            )
+
+            added += 1
 
     return added
 
@@ -8230,10 +8259,10 @@ def build_vibration_trend_chart_fig(
 
     series_names = [
 
-        "모터 반부하 수직", "모터 반부하 수평", "모터 반부하 축",
-        "모터 부하 수직", "모터 부하 수평",
-        "펌프 반부하 수직", "펌프 반부하 수평", "펌프 반부하 축",
-        "펌프 부하 수직", "펌프 부하 수평"
+        "모터반부하V", "모터반부하H", "모터반부하축",
+        "모터부하V", "모터부하H",
+        "펌프반부하V", "펌프반부하H", "펌프반부하축",
+        "펌프부하V", "펌프부하H"
 
     ]
 
@@ -8318,11 +8347,15 @@ def build_vibration_trend_chart_fig(
 
         loc="upper center",
 
-        bbox_to_anchor=(0.5, -0.18),
+        bbox_to_anchor=(0.5, -0.16),
 
-        ncol=4,
+        ncol=6,
 
-        fontsize=7.5
+        fontsize=8,
+
+        columnspacing=1.0,
+
+        handletextpad=0.4
 
     )
 
@@ -9131,7 +9164,11 @@ def build_vibration_monthly_report_docx(
 
                     trend_fig,
 
-                    width_inches=6.3
+                    # 여백을 0.6인치씩 줄여둔 문서라 실제 표 폭은
+                    # 8.5 - 0.6 - 0.6 = 7.3인치. 그래프도 이 폭에
+                    # 맞춰서 표랑 나란히 꽉 차 보이게 한다.
+
+                    width_inches=7.3
 
                 )
 
@@ -12041,7 +12078,7 @@ if st.session_state.page == "홈":
 
         home_search_matched_names = set()
 
-        for pump, result in sorted_results:
+        for _card_idx, (pump, result) in enumerate(sorted_results):
 
             rows.append(
 
@@ -12179,7 +12216,7 @@ if st.session_state.page == "홈":
 
                 f"🔍 {pump['equip']} 상세보기 →",
 
-                key=f"card_goto_{pump['equip']}",
+                key=f"card_goto_{_card_idx}_{pump['equip']}",
 
                 use_container_width=True
 
