@@ -290,7 +290,8 @@ section[data-testid="stSidebar"] * {
 
 }
 
-section[data-testid="stSidebar"] .stButton > button {
+section[data-testid="stSidebar"] .stButton > button,
+section[data-testid="stSidebar"] .stDownloadButton > button {
 
     background: rgba(255,255,255,0.08);
 
@@ -308,7 +309,8 @@ section[data-testid="stSidebar"] .stButton > button {
 
 }
 
-section[data-testid="stSidebar"] .stButton > button:hover {
+section[data-testid="stSidebar"] .stButton > button:hover,
+section[data-testid="stSidebar"] .stDownloadButton > button:hover {
 
     background: rgba(255,255,255,0.20);
 
