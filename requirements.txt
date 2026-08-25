@@ -6,3 +6,4 @@ matplotlib
 qrcode[pil]
 filelock
 python-docx
+reportlab

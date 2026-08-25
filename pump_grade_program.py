@@ -29,8 +29,17 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 
 import qrcode
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas as rl_canvas
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 import base64
 import glob
+import subprocess
+import tempfile
+import shutil
 import zipfile
 import re
 import calendar
@@ -74,7 +83,7 @@ DRAFT_DIR = "diag_drafts"
 # True로만 바꾸면 되고, PIN 검증 로직 자체는 그대로 남아있다.
 # ------------------------------------------------------------
 
-LOGIN_GATE_ENABLED = False
+LOGIN_GATE_ENABLED = True
 
 
 # ------------------------------------------------------------
@@ -3782,6 +3791,353 @@ def find_manual_pdf():
             return matches[0]
 
     return None
+
+
+_KOREAN_PDF_FONT_NAME = "Helvetica"
+
+_korean_font_registered = False
+
+
+def ensure_korean_pdf_font():
+
+    # reportlab 기본 폰트(Helvetica 등)는 한글을 못 그린다.
+    # 한글 폰트 파일(NanumGothic.ttf 등)을 앱 폴더에 같이
+    # 올려두면 그걸 등록해서 쓰고, 없으면 어쩔 수 없이
+    # 기본 폰트로 폴백한다(그러면 한글이 깨져 보일 수 있음).
+
+    global _KOREAN_PDF_FONT_NAME, _korean_font_registered
+
+    if _korean_font_registered:
+
+        return _KOREAN_PDF_FONT_NAME
+
+    for pattern in (
+        "NanumGothic.ttf",
+        "[Nn]anum*.ttf",
+        "*고딕*.ttf",
+        "*Gothic*.ttf"
+    ):
+
+        matches = glob.glob(pattern)
+
+        if matches:
+
+            try:
+
+                pdfmetrics.registerFont(
+
+                    TTFont(
+                        "KoreanFont",
+                        matches[0]
+                    )
+
+                )
+
+                _KOREAN_PDF_FONT_NAME = "KoreanFont"
+
+                break
+
+            except Exception:
+
+                continue
+
+    _korean_font_registered = True
+
+    return _KOREAN_PDF_FONT_NAME
+
+
+def build_qr_label_sheet_pdf(
+
+    pumps,
+    cols=3,
+    rows=6
+
+):
+
+    # 현장에 붙일 QR 라벨을 A4 한 장에 여러 개씩(기본
+    # 3열x6행=18개) 격자로 배치해서 인쇄용 PDF로 만든다.
+    # 자르는 선까지 같이 그려서 가위로 자르기 편하게 한다.
+
+    font_name = ensure_korean_pdf_font()
+
+    buffer = io.BytesIO()
+
+    c = rl_canvas.Canvas(
+        buffer,
+        pagesize=A4
+    )
+
+    page_w, page_h = A4
+
+    margin = 10 * mm
+
+    usable_w = page_w - 2 * margin
+
+    usable_h = page_h - 2 * margin
+
+    cell_w = usable_w / cols
+
+    cell_h = usable_h / rows
+
+    per_page = cols * rows
+
+    app_base_url = get_app_base_url()
+
+    for i, pump in enumerate(pumps):
+
+        page_pos = i % per_page
+
+        if (
+
+            i > 0
+
+            and page_pos == 0
+
+        ):
+
+            c.showPage()
+
+        col = page_pos % cols
+
+        row = page_pos // cols
+
+        x0 = margin + col * cell_w
+
+        y0 = page_h - margin - (row + 1) * cell_h
+
+        # 자르는 선 (점선 테두리)
+
+        c.setDash(
+            2,
+            2
+        )
+
+        c.setStrokeColorRGB(
+            0.7,
+            0.7,
+            0.7
+        )
+
+        c.rect(
+            x0,
+            y0,
+            cell_w,
+            cell_h
+        )
+
+        c.setDash()
+
+        # QR 이미지
+
+        qr_target_url = (
+
+            f"{app_base_url}/?page=QR&equip="
+            +
+            urllib.parse.quote(
+                pump["equip"]
+            )
+
+        )
+
+        qr_img = qrcode.make(
+            qr_target_url
+        )
+
+        qr_buf = io.BytesIO()
+
+        qr_img.save(
+            qr_buf,
+            format="PNG"
+        )
+
+        qr_buf.seek(0)
+
+        qr_size = min(
+            cell_w * 0.55,
+            cell_h * 0.62
+        )
+
+        qr_x = x0 + 6
+
+        qr_y = y0 + (cell_h - qr_size) / 2
+
+        c.drawImage(
+
+            ImageReader(qr_buf),
+
+            qr_x,
+
+            qr_y,
+
+            width=qr_size,
+
+            height=qr_size
+
+        )
+
+        # 설비명 / 사업장 텍스트
+
+        text_x = qr_x + qr_size + 8
+
+        text_w = cell_w - (qr_size + 20)
+
+        c.setFont(
+            font_name,
+            9
+        )
+
+        c.setFillColorRGB(
+            0.06,
+            0.21,
+            0.33
+        )
+
+        equip_display = pump["equip"]
+
+        if (
+
+            font_name != "Helvetica"
+
+            and c.stringWidth(
+                equip_display,
+                font_name,
+                9
+
+            ) > text_w
+
+        ):
+
+            while (
+
+                len(equip_display) > 3
+
+                and c.stringWidth(
+                    equip_display + "…",
+                    font_name,
+                    9
+
+                ) > text_w
+
+            ):
+
+                equip_display = equip_display[:-1]
+
+            equip_display += "…"
+
+        c.drawString(
+
+            text_x,
+
+            y0 + cell_h / 2 + 4,
+
+            equip_display
+
+        )
+
+        c.setFont(
+            font_name,
+            7.5
+        )
+
+        c.setFillColorRGB(
+            0.4,
+            0.45,
+            0.5
+        )
+
+        c.drawString(
+
+            text_x,
+
+            y0 + cell_h / 2 - 9,
+
+            pump["site"]
+
+        )
+
+    c.save()
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+
+def convert_docx_bytes_to_pdf_bytes(docx_bytes):
+
+    # Word 보고서를 인쇄용 PDF로도 바로 받을 수 있게 한다.
+    # 서버에 LibreOffice(soffice)가 설치돼 있어야 변환이
+    # 되는데, 없으면 조용히 None을 돌려주고 호출부에서
+    # "PDF 변환은 서버에 LibreOffice가 필요합니다" 안내를
+    # 보여준다. (packages.txt에 libreoffice-writer 추가 필요)
+
+    tmp_dir = tempfile.mkdtemp()
+
+    try:
+
+        docx_path = os.path.join(
+            tmp_dir,
+            "report.docx"
+        )
+
+        with open(
+            docx_path,
+            "wb"
+        ) as f:
+
+            f.write(
+                docx_bytes
+            )
+
+        result = subprocess.run(
+
+            [
+                "soffice",
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                tmp_dir,
+                docx_path
+            ],
+
+            capture_output=True,
+
+            timeout=60
+
+        )
+
+        pdf_path = os.path.join(
+            tmp_dir,
+            "report.pdf"
+        )
+
+        if (
+
+            result.returncode == 0
+
+            and os.path.exists(pdf_path)
+
+        ):
+
+            with open(
+                pdf_path,
+                "rb"
+            ) as f:
+
+                return f.read()
+
+        return None
+
+    except Exception:
+
+        return None
+
+    finally:
+
+        shutil.rmtree(
+            tmp_dir,
+            ignore_errors=True
+        )
 
 
 def get_logo_base64_html(
@@ -10893,101 +11249,137 @@ def is_read_only():
 
 if LOGIN_GATE_ENABLED and not st.session_state.authenticated:
 
+    _login_logo_html = get_logo_base64_html(
+        max_height_px=52
+    )
+
     st.markdown(
-        """
-        <div class="top-header">
-        <div class="top-title">
-        💧 K-water tech 설비관리 플랫폼
-        </div>
-        <div class="top-sub">
-        접속하려면 이름과 PIN 번호를 입력하세요.
-        </div>
+
+        f"""
+        <div style="
+        background: linear-gradient(
+            135deg,
+            #052c4a 0%, #063b63 35%, #087ea4 75%, #11a6c9 100%
+        );
+        border-radius: 20px;
+        padding: 46px 36px 40px 36px;
+        margin-bottom: 22px;
+        text-align: center;
+        box-shadow: 0 14px 34px rgba(3, 65, 100, 0.22);">
+
+            <div style="
+            background:white; border-radius:14px;
+            display:inline-block; padding:12px 22px;
+            margin-bottom:18px;">
+            {_login_logo_html if _login_logo_html else '<span style="font-size:2.2rem;">💧</span>'}
+            </div>
+
+            <div style="
+            color:white; font-size:1.6rem; font-weight:900;
+            letter-spacing:-0.5px;">
+            설비관리 통합 플랫폼
+            </div>
+
+            <div style="
+            color:rgba(255,255,255,0.85); font-size:0.95rem;
+            margin-top:8px;">
+            접속하려면 이름과 PIN 번호를 입력하세요.
+            </div>
+
         </div>
         """,
+
         unsafe_allow_html=True
-    )
-
-    name_input = st.text_input(
-
-        "이름",
-
-        value="최진욱",
-
-        key="name_input"
 
     )
 
-    pin_input = st.text_input(
-
-        "PIN 번호",
-
-        type="password",
-
-        key="pin_input"
-
+    login_col1, login_col2, login_col3 = st.columns(
+        [1, 2, 1]
     )
 
-    col_a, col_b = st.columns(2)
+    with login_col2:
 
-    with col_a:
+        name_input = st.text_input(
 
-        if st.button(
-            "접속",
-            type="primary",
-            use_container_width=True
-        ):
+            "이름",
 
-            if pin_input == AUTH_PIN:
+            value="최진욱",
+
+            key="name_input"
+
+        )
+
+        pin_input = st.text_input(
+
+            "PIN 번호",
+
+            type="password",
+
+            key="pin_input"
+
+        )
+
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+
+            if st.button(
+                "🔓 접속",
+                type="primary",
+                use_container_width=True
+            ):
+
+                if pin_input == AUTH_PIN:
+
+                    st.session_state.authenticated = True
+
+                    st.session_state.entered_as_viewer = False
+
+                    st.session_state.user_name = (
+
+                        name_input.strip()
+
+                        or
+                        "최진욱"
+
+                    )
+
+                    st.rerun()
+
+                else:
+
+                    st.error(
+                        "PIN 번호가 올바르지 않습니다."
+                    )
+
+        with col_b:
+
+            if st.button(
+                "👀 보기 전용으로 둘러보기",
+                use_container_width=True
+            ):
 
                 st.session_state.authenticated = True
 
-                st.session_state.entered_as_viewer = False
+                st.session_state.read_only = True
+
+                # 보기전용으로 들어온 사람은 사이드바에서
+                # 스스로 보기전용을 해제할 수 없게 잠근다.
+                # (태블릿만 넘기면 토글 하나로 수정권한이
+                #  생기던 문제에 대한 보완)
+
+                st.session_state.entered_as_viewer = True
 
                 st.session_state.user_name = (
 
                     name_input.strip()
 
                     or
-                    "최진욱"
+                    "방문자"
 
                 )
 
                 st.rerun()
-
-            else:
-
-                st.error(
-                    "PIN 번호가 올바르지 않습니다."
-                )
-
-    with col_b:
-
-        if st.button(
-            "👀 보기 전용으로 둘러보기",
-            use_container_width=True
-        ):
-
-            st.session_state.authenticated = True
-
-            st.session_state.read_only = True
-
-            # 보기전용으로 들어온 사람은 사이드바에서
-            # 스스로 보기전용을 해제할 수 없게 잠근다.
-            # (태블릿만 넘기면 토글 하나로 수정권한이
-            #  생기던 문제에 대한 보완)
-
-            st.session_state.entered_as_viewer = True
-
-            st.session_state.user_name = (
-
-                name_input.strip()
-
-                or
-                "방문자"
-
-            )
-
-            st.rerun()
 
     st.stop()
 
@@ -16630,6 +17022,62 @@ if st.session_state.page == "보고서" and report_mode == "설비별 CBM 월간
 
         )
 
+        if st.button(
+
+            "🖨️ PDF로 변환해서 받기",
+
+            use_container_width=True,
+
+            key="convert_word_report_pdf_btn"
+
+        ):
+
+            with st.spinner(
+                "PDF로 변환하는 중입니다..."
+            ):
+
+                _pdf_bytes = convert_docx_bytes_to_pdf_bytes(
+
+                    st.session_state["_word_report_bytes"]
+
+                )
+
+            if _pdf_bytes:
+
+                st.session_state["_word_report_pdf_bytes"] = _pdf_bytes
+
+            else:
+
+                st.error(
+
+                    "PDF 변환에 실패했습니다. 서버에 "
+                    "LibreOffice가 설치돼 있는지 확인해주세요 "
+                    "(packages.txt에 libreoffice-writer 필요)."
+
+                )
+
+        if "_word_report_pdf_bytes" in st.session_state:
+
+            st.download_button(
+
+                "⬇️ PDF 보고서 다운로드",
+
+                data=st.session_state["_word_report_pdf_bytes"],
+
+                file_name=st.session_state[
+
+                    "_word_report_filename"
+
+                ].replace(".docx", ".pdf"),
+
+                mime="application/pdf",
+
+                use_container_width=True,
+
+                key="download_word_report_pdf_btn"
+
+            )
+
     st.write("---")
 
     st.markdown(
@@ -17179,6 +17627,62 @@ if (
             key="download_vib_report_btn"
 
         )
+
+        if st.button(
+
+            "🖨️ PDF로 변환해서 받기",
+
+            use_container_width=True,
+
+            key="convert_vib_report_pdf_btn"
+
+        ):
+
+            with st.spinner(
+                "PDF로 변환하는 중입니다..."
+            ):
+
+                _vib_pdf_bytes = convert_docx_bytes_to_pdf_bytes(
+
+                    st.session_state["_vib_report_bytes"]
+
+                )
+
+            if _vib_pdf_bytes:
+
+                st.session_state["_vib_report_pdf_bytes"] = _vib_pdf_bytes
+
+            else:
+
+                st.error(
+
+                    "PDF 변환에 실패했습니다. 서버에 "
+                    "LibreOffice가 설치돼 있는지 확인해주세요 "
+                    "(packages.txt에 libreoffice-writer 필요)."
+
+                )
+
+        if "_vib_report_pdf_bytes" in st.session_state:
+
+            st.download_button(
+
+                "⬇️ PDF 보고서 다운로드",
+
+                data=st.session_state["_vib_report_pdf_bytes"],
+
+                file_name=st.session_state[
+
+                    "_vib_report_filename"
+
+                ].replace(".docx", ".pdf"),
+
+                mime="application/pdf",
+
+                use_container_width=True,
+
+                key="download_vib_report_pdf_btn"
+
+            )
 
 
 # ============================================================
@@ -18522,6 +19026,120 @@ elif st.session_state.page == "백업":
             st.success(
                 f"{del_target} 설비가 삭제되었습니다. "
                 "정밀진단·오버홀 이력은 그대로 남아있습니다."
+            )
+
+    st.markdown(
+        "### 🏷️ QR 라벨 인쇄용 PDF"
+    )
+
+    st.caption(
+
+        "등록된 설비의 QR코드+설비명+사업장을 A4 한 장에 "
+        "여러 개씩 격자로 배치해서, 현장에 붙일 라벨을 한 번에 "
+        "인쇄할 수 있게 만듭니다. 점선을 따라 잘라 쓰시면 됩니다."
+
+    )
+
+    if not ALL_PUMPS:
+
+        st.caption(
+            "등록된 설비가 없어 라벨을 만들 수 없습니다."
+        )
+
+    else:
+
+        label_site_list = sorted(
+
+            set(
+                p["site"] for p in ALL_PUMPS
+            )
+
+        )
+
+        label_site_filter = st.multiselect(
+
+            "라벨 만들 사업장 선택 (비워두면 전체)",
+
+            label_site_list,
+
+            default=label_site_list,
+
+            key="qr_label_site_filter"
+
+        )
+
+        label_cols_per_row = st.selectbox(
+
+            "한 줄에 라벨 개수",
+
+            [2, 3, 4],
+
+            index=1,
+
+            key="qr_label_cols"
+
+        )
+
+        target_pumps_for_label = [
+
+            p for p in ALL_PUMPS
+
+            if p["site"] in label_site_filter
+
+        ]
+
+        st.caption(
+
+            f"대상 설비 {len(target_pumps_for_label)}개 "
+            f"(A4 {label_cols_per_row}열×6행 기준 "
+            f"{-(-len(target_pumps_for_label) // (label_cols_per_row * 6))}페이지)"
+
+        )
+
+        if target_pumps_for_label and st.button(
+
+            "🏷️ QR 라벨 PDF 생성",
+
+            type="primary",
+
+            use_container_width=True,
+
+            key="generate_qr_label_pdf_btn"
+
+        ):
+
+            with st.spinner(
+                "라벨 PDF를 만드는 중입니다..."
+            ):
+
+                label_pdf_bytes = build_qr_label_sheet_pdf(
+
+                    target_pumps_for_label,
+
+                    cols=label_cols_per_row,
+
+                    rows=6
+
+                )
+
+            st.session_state["_qr_label_pdf_bytes"] = label_pdf_bytes
+
+        if "_qr_label_pdf_bytes" in st.session_state:
+
+            st.download_button(
+
+                "⬇️ QR 라벨 PDF 다운로드",
+
+                data=st.session_state["_qr_label_pdf_bytes"],
+
+                file_name="QR_설비라벨.pdf",
+
+                mime="application/pdf",
+
+                use_container_width=True,
+
+                key="download_qr_label_pdf_btn"
+
             )
 
     st.markdown(
