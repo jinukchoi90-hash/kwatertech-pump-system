@@ -4140,6 +4140,1137 @@ def convert_docx_bytes_to_pdf_bytes(docx_bytes):
         )
 
 
+# ============================================================
+# 10-7. 설계적산 (일위대가 라이브러리 + 공사)
+#
+# 실제 설계·시공 산출내역서 엑셀을 올리면 "일위대가표" 시트를
+# 파싱해서 라이브러리에 쌓는다. 라이브러리는 자주 쓰는 순서로
+# 정렬되고, 신입사원이 새 공사를 만들 때 자유롭게 검색해서
+# 담을 수 있다. 공종별 "가이드라인"(추천 세트)도 별도로 두어,
+# 처음 시작할 때 참고할 수 있게 한다.
+# ============================================================
+
+DESIGN_UNITPRICE_DB_PATH = "Pump_DesignUnitPrice_DB.xlsx"
+
+DESIGN_GUIDELINE_DB_PATH = "Pump_DesignGuideline_DB.xlsx"
+
+DESIGN_PROJECT_DB_PATH = "Pump_DesignProject_DB.xlsx"
+
+DESIGN_PROJECT_ITEM_DB_PATH = "Pump_DesignProjectItem_DB.xlsx"
+
+DESIGN_GONGJONG_LIST = [
+
+    "배관 교체",
+    "펌프 오버홀",
+    "배수펌프 교체",
+    "잡철물 설치",
+    "전동밸브 교체"
+
+]
+
+
+def ensure_design_dbs_exist():
+
+    ensure_excel_file(
+
+        DESIGN_UNITPRICE_DB_PATH,
+
+        "일위대가라이브러리",
+
+        [
+            "항목명",
+            "규격",
+            "단위",
+            "노무비단가",
+            "재료비단가",
+            "기계경비단가",
+            "외주경비단가",
+            "합계단가",
+            "사용횟수",
+            "등록일",
+            "출처공사",
+            "상세내역JSON"
+        ]
+
+    )
+
+    ensure_excel_file(
+
+        DESIGN_GUIDELINE_DB_PATH,
+
+        "공종가이드라인",
+
+        [
+            "공사유형",
+            "추천항목명"
+        ]
+
+    )
+
+    ensure_excel_file(
+
+        DESIGN_PROJECT_DB_PATH,
+
+        "설계공사",
+
+        [
+            "공사ID",
+            "공사명",
+            "공사유형",
+            "사업장",
+            "작성자",
+            "작성일"
+        ]
+
+    )
+
+    ensure_excel_file(
+
+        DESIGN_PROJECT_ITEM_DB_PATH,
+
+        "설계공사상세",
+
+        [
+            "공사ID",
+            "항목명",
+            "규격",
+            "수량",
+            "단위",
+            "적용단가",
+            "금액"
+        ]
+
+    )
+
+
+def repair_broken_xlsx_bytes(file_bytes):
+
+    # 오래된 실무 엑셀(특히 여러 번 다른 파일을 참조하며
+    # 편집된 산출내역서)에는 손상된 definedNames(#REF!,
+    # #N/A 등이 수천 개 쌓인 경우)가 많아서 openpyxl/pandas가
+    # 아예 못 여는 경우가 잦다. definedNames 섹션을 통째로
+    # 제거하면 시트 내용 자체는 멀쩡하게 읽을 수 있다.
+
+    import zipfile
+    import re as _re
+
+    src = io.BytesIO(file_bytes)
+
+    out_buf = io.BytesIO()
+
+    with zipfile.ZipFile(src, "r") as zin:
+
+        with zipfile.ZipFile(
+
+            out_buf,
+            "w",
+            zipfile.ZIP_DEFLATED
+
+        ) as zout:
+
+            for item in zin.namelist():
+
+                data = zin.read(item)
+
+                if item == "xl/workbook.xml":
+
+                    text = data.decode(
+                        "utf-8",
+                        errors="ignore"
+                    )
+
+                    text = _re.sub(
+
+                        r"<definedNames>.*?</definedNames>",
+
+                        "",
+
+                        text,
+
+                        flags=_re.DOTALL
+
+                    )
+
+                    data = text.encode("utf-8")
+
+                zout.writestr(item, data)
+
+    out_buf.seek(0)
+
+    return out_buf.getvalue()
+
+
+def safe_read_excel_any(file_bytes, sheet_name=None):
+
+    # 정상 파일이면 그냥 읽고, 깨진 파일이면 자동 복구 후
+    # 다시 읽는다.
+
+    try:
+
+        return pd.read_excel(
+
+            io.BytesIO(file_bytes),
+
+            sheet_name=sheet_name,
+
+            header=None
+
+        )
+
+    except Exception:
+
+        fixed_bytes = repair_broken_xlsx_bytes(
+            file_bytes
+        )
+
+        return pd.read_excel(
+
+            io.BytesIO(fixed_bytes),
+
+            sheet_name=sheet_name,
+
+            header=None
+
+        )
+
+
+def parse_unitprice_sheet(df):
+
+    # "일위대가표" 시트 하나를 파싱해서, 항목(호표)별로
+    # [항목명, 단위, 노무비, 재료비, 기계경비, 외주경비, 합계,
+    #  상세내역(종별/규격/수량/단위/단가/금액 전체 구조)] 를
+    # 뽑아낸다. 상세내역을 완전한 구조로 저장해두면 나중에
+    # 원본과 똑같은 엑셀 양식으로 다시 뽑을 수 있다.
+    #
+    # 열 구조(고정): 1=종별 2=규격 3=수량 4=단위
+    # 5=노무비단가 6=노무비금액 7=재료비단가 8=재료비금액
+    # 9=기계경비단가 10=기계경비금액 11=외주경비단가
+    # 12=외주경비금액 13=비고
+
+    items = []
+
+    n = len(df)
+
+    i = 0
+
+    while i < n:
+
+        row = df.iloc[i]
+
+        row_vals = [
+
+            str(v) if pd.notna(v) else ""
+
+            for v in row.tolist()
+
+        ]
+
+        if any(
+
+            "항목번호" in v
+
+            for v in row_vals
+
+        ):
+
+            gongjong_row = df.iloc[i + 1] if i + 1 < n else None
+
+            unit_row = df.iloc[i + 2] if i + 2 < n else None
+
+            total_row = df.iloc[i + 3] if i + 3 < n else None
+
+            if (
+
+                gongjong_row is None
+
+                or unit_row is None
+
+                or total_row is None
+
+            ):
+
+                i += 1
+
+                continue
+
+            gongjong_vals = [
+
+                v for v in gongjong_row.tolist()
+
+                if pd.notna(v)
+
+            ]
+
+            unit_vals = [
+
+                v for v in unit_row.tolist()
+
+                if pd.notna(v)
+
+            ]
+
+            total_vals = [
+
+                v for v in total_row.tolist()
+
+                if pd.notna(v)
+
+            ]
+
+            if (
+
+                len(gongjong_vals) < 2
+
+                or len(unit_vals) < 2
+
+                or len(total_vals) < 4
+
+            ):
+
+                i += 1
+
+                continue
+
+            item_name = str(
+                gongjong_vals[-1]
+            ).strip()
+
+            unit = str(
+                unit_vals[1]
+            ).strip()
+
+            def _num(v):
+
+                try:
+
+                    return float(v)
+
+                except (TypeError, ValueError):
+
+                    return 0.0
+
+            labor = _num(
+                total_vals[0]
+            )
+
+            material = _num(
+                total_vals[1]
+
+                if len(total_vals) > 1
+
+                else 0
+
+            )
+
+            machine = _num(
+                total_vals[2]
+
+                if len(total_vals) > 2
+
+                else 0
+
+            )
+
+            outsourcing = _num(
+                total_vals[3]
+
+                if len(total_vals) > 3
+
+                else 0
+
+            )
+
+            total = (
+
+                total_vals[-1]
+
+                if len(total_vals) > 4
+
+                else labor + material + machine + outsourcing
+
+            )
+
+            total = _num(total)
+
+            # 상세내역: 헤더(종별/규격/수량/단위...) 2줄을 건너
+            # 뛰고, "합   계" 행이나 다음 "일위대가표" 제목이
+            # 나올 때까지 상세 라인을 하나씩 읽는다.
+
+            detail_lines = []
+
+            current_section = ""
+
+            j = i + 6
+
+            while j < n:
+
+                drow = df.iloc[j]
+
+                dvals = [
+
+                    str(v) if pd.notna(v) else ""
+
+                    for v in drow.tolist()
+
+                ]
+
+                col1 = dvals[1] if len(dvals) > 1 else ""
+
+                if "합   계" in col1:
+
+                    break
+
+                if "일   위   대   가   표" in "".join(dvals):
+
+                    break
+
+                if (
+
+                    "노 무 비" in col1
+
+                    or "재 료 비" in col1
+
+                    or "기계 경비" in col1
+
+                    or "외주 경비" in col1
+
+                ):
+
+                    current_section = col1.strip()
+
+                    j += 1
+
+                    continue
+
+                jongbyeol = drow.iloc[1] if pd.notna(drow.iloc[1]) else ""
+
+                if str(jongbyeol).strip():
+
+                    detail_lines.append(
+
+                        {
+                            "구분": current_section,
+                            "종별": str(jongbyeol).strip(),
+                            "규격": (
+
+                                str(drow.iloc[2]).strip()
+
+                                if pd.notna(drow.iloc[2])
+
+                                else ""
+
+                            ),
+                            "수량": (
+
+                                float(drow.iloc[3])
+
+                                if pd.notna(drow.iloc[3])
+
+                                else 0
+
+                            ),
+                            "단위": (
+
+                                str(drow.iloc[4]).strip()
+
+                                if pd.notna(drow.iloc[4])
+
+                                else ""
+
+                            ),
+                            "노무비단가": (
+
+                                float(drow.iloc[5])
+
+                                if pd.notna(drow.iloc[5])
+
+                                else 0
+
+                            ),
+                            "노무비금액": (
+
+                                float(drow.iloc[6])
+
+                                if pd.notna(drow.iloc[6])
+
+                                else 0
+
+                            ),
+                            "재료비단가": (
+
+                                float(drow.iloc[7])
+
+                                if len(drow) > 7 and pd.notna(drow.iloc[7])
+
+                                else 0
+
+                            ),
+                            "재료비금액": (
+
+                                float(drow.iloc[8])
+
+                                if len(drow) > 8 and pd.notna(drow.iloc[8])
+
+                                else 0
+
+                            ),
+                            "기계경비단가": (
+
+                                float(drow.iloc[9])
+
+                                if len(drow) > 9 and pd.notna(drow.iloc[9])
+
+                                else 0
+
+                            ),
+                            "기계경비금액": (
+
+                                float(drow.iloc[10])
+
+                                if len(drow) > 10 and pd.notna(drow.iloc[10])
+
+                                else 0
+
+                            ),
+                            "외주경비단가": (
+
+                                float(drow.iloc[11])
+
+                                if len(drow) > 11 and pd.notna(drow.iloc[11])
+
+                                else 0
+
+                            ),
+                            "외주경비금액": (
+
+                                float(drow.iloc[12])
+
+                                if len(drow) > 12 and pd.notna(drow.iloc[12])
+
+                                else 0
+
+                            )
+                        }
+
+                    )
+
+                j += 1
+
+                if j - i > 30:
+
+                    break
+
+            items.append(
+
+                {
+                    "항목명": item_name,
+                    "규격": "",
+                    "단위": unit,
+                    "노무비단가": labor,
+                    "재료비단가": material,
+                    "기계경비단가": machine,
+                    "외주경비단가": outsourcing,
+                    "합계단가": total,
+                    "상세내역": detail_lines
+                }
+
+            )
+
+            i = j
+
+        else:
+
+            i += 1
+
+    return items
+
+
+def import_unitprice_items_to_library(items, source_name=""):
+
+    added = 0
+
+    existing = get_unitprice_library()
+
+    existing_names = set(
+
+        existing["항목명"].tolist()
+
+        if not existing.empty
+
+        else []
+
+    )
+
+    with get_lock(DESIGN_UNITPRICE_DB_PATH):
+
+        wb = load_workbook(
+            DESIGN_UNITPRICE_DB_PATH
+        )
+
+        ws = wb["일위대가라이브러리"]
+
+        for item in items:
+
+            if item["항목명"] in existing_names:
+
+                continue
+
+            ws.append(
+
+                [
+                    item["항목명"],
+                    item.get("규격", ""),
+                    item["단위"],
+                    item["노무비단가"],
+                    item["재료비단가"],
+                    item["기계경비단가"],
+                    item["외주경비단가"],
+                    item["합계단가"],
+                    0,
+                    datetime.now().strftime("%Y-%m-%d"),
+                    source_name,
+                    json.dumps(
+
+                        item.get("상세내역", []),
+
+                        ensure_ascii=False
+
+                    )
+                ]
+
+            )
+
+            existing_names.add(
+                item["항목명"]
+            )
+
+            added += 1
+
+        wb.save(
+            DESIGN_UNITPRICE_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+    log_audit(
+
+        "일위대가 라이브러리 추가",
+
+        source_name,
+
+        f"{added}건 추가"
+
+    )
+
+    return added
+
+
+def get_unitprice_library():
+
+    df = read_excel(
+
+        DESIGN_UNITPRICE_DB_PATH,
+
+        "일위대가라이브러리"
+
+    )
+
+    if df.empty:
+
+        return df
+
+    return df.sort_values(
+
+        "사용횟수",
+
+        ascending=False
+
+    ).reset_index(drop=True)
+
+
+def bump_unitprice_usage(item_name):
+
+    with get_lock(DESIGN_UNITPRICE_DB_PATH):
+
+        wb = load_workbook(
+            DESIGN_UNITPRICE_DB_PATH
+        )
+
+        ws = wb["일위대가라이브러리"]
+
+        for r in ws.iter_rows(min_row=2):
+
+            if r[0].value == item_name:
+
+                cur = r[8].value or 0
+
+                r[8].value = cur + 1
+
+                break
+
+        wb.save(
+            DESIGN_UNITPRICE_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+
+def create_design_project(name, gongjong, site, author):
+
+    project_id = f"P{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    safe_append_row(
+
+        DESIGN_PROJECT_DB_PATH,
+
+        "설계공사",
+
+        [
+            project_id,
+            name,
+            gongjong,
+            site,
+            author,
+            datetime.now().strftime("%Y-%m-%d")
+        ]
+
+    )
+
+    log_audit(
+
+        "설계공사 생성",
+
+        name,
+
+        f"공종={gongjong}, 사업장={site}"
+
+    )
+
+    return project_id
+
+
+def add_item_to_project(
+
+    project_id,
+    item_name,
+    spec,
+    qty,
+    unit,
+    unit_price
+
+):
+
+    amount = qty * unit_price
+
+    safe_append_row(
+
+        DESIGN_PROJECT_ITEM_DB_PATH,
+
+        "설계공사상세",
+
+        [
+            project_id,
+            item_name,
+            spec,
+            qty,
+            unit,
+            unit_price,
+            amount
+        ]
+
+    )
+
+    bump_unitprice_usage(
+        item_name
+    )
+
+
+def get_project_items(project_id):
+
+    df = read_excel(
+
+        DESIGN_PROJECT_ITEM_DB_PATH,
+
+        "설계공사상세"
+
+    )
+
+    if df.empty:
+
+        return df
+
+    return df[
+
+        df["공사ID"] == project_id
+
+    ]
+
+
+def get_guideline_items(gongjong):
+
+    df = read_excel(
+
+        DESIGN_GUIDELINE_DB_PATH,
+
+        "공종가이드라인"
+
+    )
+
+    if df.empty:
+
+        return []
+
+    matched = df[
+
+        df["공사유형"] == gongjong
+
+    ]
+
+    return matched["추천항목명"].tolist()
+
+
+def set_guideline_items(gongjong, item_names):
+
+    with get_lock(DESIGN_GUIDELINE_DB_PATH):
+
+        wb = load_workbook(
+            DESIGN_GUIDELINE_DB_PATH
+        )
+
+        ws = wb["공종가이드라인"]
+
+        # 기존 이 공종의 가이드라인은 지우고 새로 쓴다
+
+        rows_to_delete = [
+
+            r[0].row
+
+            for r in ws.iter_rows(min_row=2)
+
+            if r[0].value == gongjong
+
+        ]
+
+        for row_num in sorted(
+
+            rows_to_delete,
+
+            reverse=True
+
+        ):
+
+            ws.delete_rows(row_num)
+
+        for name in item_names:
+
+            ws.append(
+                [gongjong, name]
+            )
+
+        wb.save(
+            DESIGN_GUIDELINE_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+
+def build_unitprice_excel_bytes(items_with_detail):
+
+    # 원본 산출내역서의 "일위대가표" 시트와 똑같은 양식으로
+    # 다시 만든다. items_with_detail: 라이브러리 DataFrame 행
+    # (상세내역JSON 컬럼 포함) 리스트.
+
+    from openpyxl.styles import Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+
+    ws = wb.active
+
+    ws.title = "일위대가표"
+
+    thin = Side(
+        style="thin",
+        color="000000"
+    )
+
+    box = Border(
+
+        left=thin,
+        right=thin,
+        top=thin,
+        bottom=thin
+
+    )
+
+    center = Alignment(
+
+        horizontal="center",
+        vertical="center"
+
+    )
+
+    bold = Font(
+        bold=True
+    )
+
+    # 원본 파일 실측값 그대로 반영
+    # (A=여백, B=종별/항목명, C=규격/공종, D=수량, E=단위,
+    #  F=노무비단가, 그 뒤(G~M)는 원본에 지정이 없어 기본값)
+
+    ws.column_dimensions["A"].width = 2.22
+
+    ws.column_dimensions["B"].width = 19.11
+
+    ws.column_dimensions["C"].width = 21.78
+
+    ws.column_dimensions["D"].width = 11.22
+
+    ws.column_dimensions["E"].width = 5.78
+
+    ws.column_dimensions["F"].width = 11.78
+
+    for col_letter in ["G", "H", "I", "J", "K", "L", "M"]:
+
+        ws.column_dimensions[col_letter].width = 8.89
+
+    row = 1
+
+    for item_row in items_with_detail:
+
+        item_name = item_row["항목명"]
+
+        unit = item_row["단위"]
+
+        labor = item_row["노무비단가"]
+
+        material = item_row["재료비단가"]
+
+        machine = item_row["기계경비단가"]
+
+        outsourcing = item_row["외주경비단가"]
+
+        total = item_row["합계단가"]
+
+        try:
+
+            details = json.loads(
+
+                item_row.get("상세내역JSON", "[]")
+
+                if isinstance(item_row, dict)
+
+                else item_row["상세내역JSON"]
+
+            )
+
+        except Exception:
+
+            details = []
+
+        ws.cell(
+            row, 2, "일   위   대   가   표"
+        ).font = Font(
+            bold=True,
+            size=14
+        )
+
+        ws.merge_cells(
+
+            start_row=row, start_column=2,
+
+            end_row=row, end_column=13
+
+        )
+
+        ws.cell(row, 2).alignment = center
+
+        ws.row_dimensions[row].height = 27.0
+
+        row += 2
+
+        ws.cell(row, 2, "   항목번호 :")
+
+        ws.cell(row, 3, item_name)
+
+        ws.row_dimensions[row].height = 27.0
+
+        row += 1
+
+        ws.cell(row, 2, "   공    종 : ")
+
+        ws.cell(row, 3, item_name)
+
+        ws.row_dimensions[row].height = 27.0
+
+        row += 1
+
+        ws.cell(row, 2, "   단    위 :")
+
+        ws.cell(row, 3, unit)
+
+        headers1 = [
+
+            "노 무 비", "재 료 비", "기계경비", "외주경비", "합   계"
+
+        ]
+
+        col = 5
+
+        for h in headers1:
+
+            ws.cell(row, col, h).font = bold
+
+            ws.cell(row, col).border = box
+
+            col += 2 if h != "합   계" else 1
+
+        ws.row_dimensions[row].height = 27.0
+
+        row += 1
+
+        vals = [labor, material, machine, outsourcing, total]
+
+        target_cols = [5, 7, 9, 11, 13]
+
+        for idx, v in enumerate(vals):
+
+            ws.cell(
+
+                row,
+                target_cols[idx],
+                v
+
+            ).border = box
+
+        ws.row_dimensions[row].height = 27.0
+
+        row += 1
+
+        header_cols = [
+
+            "종   별", "규   격", "수   량", "단  위",
+            "노 무 비", "", "재 료 비", "",
+            "기계경비", "", "외주경비", "", "비   고"
+
+        ]
+
+        for idx, h in enumerate(header_cols):
+
+            if h:
+
+                ws.cell(
+                    row,
+                    2 + idx,
+                    h
+                ).font = bold
+
+                ws.cell(
+                    row,
+                    2 + idx
+                ).border = box
+
+        ws.row_dimensions[row].height = 20.1
+
+        row += 1
+
+        subheader = [
+
+            "", "", "", "",
+            "단 가", "금 액", "단 가", "금 액",
+            "단 가", "금 액", "단 가", "금 액", ""
+
+        ]
+
+        for idx, h in enumerate(subheader):
+
+            if h:
+
+                ws.cell(
+                    row,
+                    2 + idx,
+                    h
+                ).border = box
+
+        ws.row_dimensions[row].height = 20.1
+
+        row += 1
+
+        current_section = None
+
+        for d in details:
+
+            if d.get("구분") != current_section:
+
+                current_section = d.get("구분")
+
+                ws.cell(
+                    row,
+                    2,
+                    current_section
+                ).font = bold
+
+                ws.row_dimensions[row].height = 27.95
+
+                row += 1
+
+            ws.cell(row, 2, d.get("종별", ""))
+
+            ws.cell(row, 3, d.get("규격", ""))
+
+            ws.cell(row, 4, d.get("수량", ""))
+
+            ws.cell(row, 5, d.get("단위", ""))
+
+            ws.cell(row, 6, d.get("노무비단가") or "")
+
+            ws.cell(row, 7, d.get("노무비금액") or "")
+
+            ws.cell(row, 8, d.get("재료비단가") or "")
+
+            ws.cell(row, 9, d.get("재료비금액") or "")
+
+            ws.cell(row, 10, d.get("기계경비단가") or "")
+
+            ws.cell(row, 11, d.get("기계경비금액") or "")
+
+            ws.cell(row, 12, d.get("외주경비단가") or "")
+
+            ws.cell(row, 13, d.get("외주경비금액") or "")
+
+            ws.row_dimensions[row].height = 27.95
+
+            row += 1
+
+        ws.cell(row, 2, "합   계").font = bold
+
+        ws.cell(row, 7, labor)
+
+        ws.cell(row, 9, material)
+
+        ws.cell(row, 11, machine)
+
+        ws.cell(row, 13, outsourcing)
+
+        ws.row_dimensions[row].height = 27.95
+
+        row += 3
+
+    buffer = io.BytesIO()
+
+    wb.save(buffer)
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+
 def get_logo_base64_html(
 
     max_height_px=40
@@ -6138,6 +7269,8 @@ ensure_db_exists()
 ensure_audit_log_exists()
 
 ensure_consumables_db_exists()
+
+ensure_design_dbs_exist()
 
 
 
@@ -11418,6 +12551,31 @@ def go_to_page(
         del st.query_params["equip"]
 
 
+def render_back_to_home_button(key_suffix):
+
+    # 브라우저 뒤로가기가 Streamlit 특성상 두 번 눌러야 하는
+    # 경우가 있어서, 확실하게 한 번에 홈으로 돌아갈 수 있는
+    # 버튼을 각 페이지 상단에도 심어둔다.
+
+    if st.button(
+
+        "← 홈으로",
+
+        key=f"back_to_home_{key_suffix}"
+
+    ):
+
+        st.session_state.page = "홈"
+
+        st.query_params["page"] = "홈"
+
+        if "equip" in st.query_params:
+
+            del st.query_params["equip"]
+
+        st.rerun()
+
+
 with st.sidebar:
 
 
@@ -11519,6 +12677,8 @@ with st.sidebar:
 
         ("보고서", "📄 진단 보고서"),
 
+        ("설계적산", "📐 설계적산"),
+
         ("백업", "💾 데이터 관리")
 
     ]
@@ -11615,6 +12775,72 @@ with st.sidebar:
         except Exception:
 
             pass
+
+    st.toggle(
+
+        "🌙 다크모드",
+
+        key="dark_mode",
+
+        value=False
+
+    )
+
+    if st.session_state.get("dark_mode"):
+
+        st.markdown(
+
+            """
+            <style>
+
+            [data-testid="stAppViewContainer"],
+            [data-testid="stMain"],
+            [data-testid="stHeader"] {
+                background: #0f172a !important;
+            }
+
+            [data-testid="stMain"] * {
+                color: #e2e8f0;
+            }
+
+            .section-title { color: #f1f5f9 !important; }
+
+            .section-caption { color: #94a3b8 !important; }
+
+            .kpi-card,
+            .equip-card,
+            .feature-card {
+                background: #1e293b !important;
+                box-shadow: 0 3px 12px rgba(0,0,0,0.5) !important;
+            }
+
+            .cbm-bar-track { background: #334155 !important; }
+
+            [data-testid="stMain"] [data-testid="stDataFrame"],
+            [data-testid="stMain"] .stDataFrame {
+                filter: invert(0.92) hue-rotate(180deg);
+            }
+
+            [data-testid="stMain"] input,
+            [data-testid="stMain"] textarea,
+            [data-testid="stMain"] select {
+                background: #1e293b !important;
+                color: #e2e8f0 !important;
+            }
+
+            [data-testid="stMain"] .stButton > button,
+            [data-testid="stMain"] .stDownloadButton > button {
+                background: #1e293b !important;
+                color: #e2e8f0 !important;
+                border: 1px solid #334155 !important;
+            }
+
+            </style>
+            """,
+
+            unsafe_allow_html=True
+
+        )
 
     if st.session_state.entered_as_viewer:
 
@@ -12178,6 +13404,67 @@ if st.session_state.page == "홈":
             st.query_params["page"] = "CBM"
 
             st.rerun()
+
+    with st.expander(
+
+        "📤 오늘 현황 공유하기"
+
+    ):
+
+        _repair_names = [
+
+            p["equip"]
+
+            for p, r in _all_results
+
+            if r["상태"] == "정비검토"
+
+        ]
+
+        _share_text = (
+
+            f"[K-water tech 설비관리 현황] "
+            f"{datetime.now().strftime('%Y-%m-%d')}\n"
+            f"정상 {normal}대 · 관찰 {watch}대 · "
+            f"정비검토 {repair}대\n"
+
+        )
+
+        if _repair_names:
+
+            _share_text += (
+
+                "정비검토 필요 설비: "
+                +
+                ", ".join(_repair_names)
+                +
+                "\n"
+
+            )
+
+        st.text_area(
+
+            "아래 내용을 복사해서 문자·카톡 등으로 보내세요",
+
+            value=_share_text,
+
+            height=120,
+
+            key="home_share_text_area"
+
+        )
+
+        st.link_button(
+
+            "💬 문자로 바로 보내기",
+
+            "sms:?body="
+            +
+            urllib.parse.quote(_share_text),
+
+            use_container_width=True
+
+        )
 
     _recent_viewed = [
 
@@ -14220,6 +15507,8 @@ elif st.session_state.page == "QR":
 
 elif st.session_state.page == "진단":
 
+    render_back_to_home_button("diag")
+
     st.markdown(
         """
         <div class="section-title">
@@ -14962,6 +16251,8 @@ elif st.session_state.page == "진단":
 
 elif st.session_state.page == "CBM":
 
+    render_back_to_home_button("cbm")
+
     st.markdown(
         """
         <div class="section-title">
@@ -15337,6 +16628,8 @@ elif st.session_state.page == "CBM":
 # ============================================================
 
 elif st.session_state.page == "오버홀":
+
+    render_back_to_home_button("overhaul")
 
     st.markdown(
         """
@@ -15809,6 +17102,8 @@ elif st.session_state.page == "오버홀":
 # ============================================================
 
 elif st.session_state.page == "AI":
+
+    render_back_to_home_button("ai")
 
     st.markdown(
         """
@@ -19417,6 +20712,668 @@ elif st.session_state.page == "백업":
         lambda: pd.DataFrame(ALL_PUMPS)
 
     )
+
+
+# ============================================================
+# 26-0. 설계적산
+# ============================================================
+
+elif st.session_state.page == "설계적산":
+
+    render_back_to_home_button("design")
+
+    st.markdown(
+        """
+        <div class="section-title">
+        📐 설계적산
+        </div>
+
+        <div class="section-caption">
+        일위대가 라이브러리를 쌓아두고, 새 공사를 만들 때
+        자유롭게 검색해서 담으면 자동으로 금액이 계산됩니다.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    design_tab1, design_tab2, design_tab3 = st.tabs(
+
+        [
+            "📦 일위대가 라이브러리",
+            "🏗️ 새 공사 만들기",
+            "📋 저장된 공사"
+        ]
+
+    )
+
+    with design_tab1:
+
+        st.markdown(
+            "##### 산출내역서 엑셀 업로드"
+        )
+
+        st.caption(
+
+            "실제 설계·시공 산출내역서(\"일위대가표\" 시트가 "
+            "있는 엑셀)를 올리면 자동으로 항목을 뽑아 "
+            "라이브러리에 추가합니다. 오래된 엑셀이라 파일이 "
+            "손상돼 있어도(정의된 이름 오류 등) 자동으로 "
+            "복구를 시도합니다."
+
+        )
+
+        design_upload = st.file_uploader(
+
+            "산출내역서 엑셀",
+
+            type=["xlsx"],
+
+            key="design_unitprice_uploader"
+
+        )
+
+        if design_upload is not None:
+
+            try:
+
+                _raw_bytes = design_upload.getvalue()
+
+                _df_up = safe_read_excel_any(
+
+                    _raw_bytes,
+
+                    sheet_name="일위대가표"
+
+                )
+
+                _parsed_items = parse_unitprice_sheet(
+                    _df_up
+                )
+
+                if not _parsed_items:
+
+                    st.warning(
+
+                        "\"일위대가표\" 시트에서 항목을 "
+                        "찾지 못했습니다. 시트 이름과 양식을 "
+                        "확인해주세요."
+
+                    )
+
+                else:
+
+                    st.success(
+
+                        f"{len(_parsed_items)}개 항목을 "
+                        "찾았습니다."
+
+                    )
+
+                    with st.expander(
+                        "찾은 항목 미리보기"
+                    ):
+
+                        st.dataframe(
+
+                            pd.DataFrame(
+
+                                [
+                                    {
+                                        "항목명": it["항목명"],
+                                        "단위": it["단위"],
+                                        "합계단가": it["합계단가"]
+                                    }
+                                    for it in _parsed_items
+                                ]
+
+                            ),
+
+                            use_container_width=True,
+
+                            hide_index=True
+
+                        )
+
+                    if is_read_only():
+
+                        st.info(
+                            "🔒 보기 전용 모드에서는 "
+                            "반영할 수 없습니다."
+                        )
+
+                    elif st.button(
+
+                        "📥 라이브러리에 추가하기",
+
+                        type="primary",
+
+                        use_container_width=True,
+
+                        key="design_import_btn"
+
+                    ):
+
+                        _added = import_unitprice_items_to_library(
+
+                            _parsed_items,
+
+                            source_name=design_upload.name
+
+                        )
+
+                        st.success(
+
+                            f"{_added}건이 라이브러리에 "
+                            "새로 추가되었습니다 (이미 있던 "
+                            "이름은 건너뛰었습니다)."
+
+                        )
+
+                        st.rerun()
+
+            except Exception as e:
+
+                st.error(
+
+                    f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
+
+                )
+
+        st.write("---")
+
+        st.markdown(
+            "##### 라이브러리 (자주 쓰는 순)"
+        )
+
+        _lib_df = get_unitprice_library()
+
+        if _lib_df.empty:
+
+            st.info(
+                "아직 등록된 일위대가가 없습니다. "
+                "위에서 엑셀을 올려 시작해보세요."
+            )
+
+        else:
+
+            _lib_search = st.text_input(
+
+                "🔍 항목명 검색",
+
+                key="design_lib_search"
+
+            )
+
+            _lib_view = _lib_df
+
+            if _lib_search.strip():
+
+                _lib_view = _lib_df[
+
+                    _lib_df["항목명"].str.contains(
+
+                        _lib_search.strip(),
+
+                        case=False,
+
+                        na=False
+
+                    )
+
+                ]
+
+            st.dataframe(
+
+                _lib_view[
+
+                    [
+                        "항목명",
+                        "단위",
+                        "합계단가",
+                        "사용횟수",
+                        "출처공사"
+                    ]
+
+                ],
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+            st.download_button(
+
+                "⬇️ 이 목록 원본 양식 엑셀로 다운로드",
+
+                data=build_unitprice_excel_bytes(
+
+                    _lib_view.to_dict("records")
+
+                ),
+
+                file_name="일위대가표.xlsx",
+
+                mime=(
+                    "application/vnd.openxmlformats-"
+                    "officedocument.spreadsheetml.sheet"
+                ),
+
+                use_container_width=True,
+
+                key="download_unitprice_excel_btn"
+
+            )
+
+    with design_tab2:
+
+        st.markdown(
+            "##### 새 공사 정보"
+        )
+
+        _lib_df2 = get_unitprice_library()
+
+        if _lib_df2.empty:
+
+            st.info(
+
+                "먼저 \"일위대가 라이브러리\" 탭에서 "
+                "산출내역서를 올려 항목을 등록해주세요."
+
+            )
+
+        else:
+
+            pc1, pc2 = st.columns(2)
+
+            new_project_name = pc1.text_input(
+
+                "공사명",
+
+                placeholder="예: 부곡가압장 배관 재설치",
+
+                key="new_project_name"
+
+            )
+
+            new_project_gongjong = pc2.selectbox(
+
+                "공사 유형",
+
+                DESIGN_GONGJONG_LIST + ["기타"],
+
+                key="new_project_gongjong"
+
+            )
+
+            pc3, pc4 = st.columns(2)
+
+            new_project_site = pc3.selectbox(
+
+                "사업장",
+
+                sorted(
+
+                    set(
+                        p["site"] for p in ALL_PUMPS
+                    )
+
+                ) or ["미지정"],
+
+                key="new_project_site"
+
+            )
+
+            new_project_author = pc4.text_input(
+
+                "작성자",
+
+                value=st.session_state.user_name,
+
+                key="new_project_author"
+
+            )
+
+            _guideline_names = get_guideline_items(
+
+                new_project_gongjong
+
+            )
+
+            if _guideline_names:
+
+                st.info(
+
+                    f"💡 \"{new_project_gongjong}\" 공사에 "
+                    "보통 쓰는 항목: "
+                    +
+                    ", ".join(_guideline_names)
+
+                )
+
+            st.write("---")
+
+            st.markdown(
+                "##### 담을 항목 고르기"
+            )
+
+            _cart_key = "design_cart_items"
+
+            if _cart_key not in st.session_state:
+
+                st.session_state[_cart_key] = []
+
+            item_search = st.text_input(
+
+                "🔍 라이브러리에서 검색",
+
+                key="design_item_search"
+
+            )
+
+            _search_view = _lib_df2
+
+            if item_search.strip():
+
+                _search_view = _lib_df2[
+
+                    _lib_df2["항목명"].str.contains(
+
+                        item_search.strip(),
+
+                        case=False,
+
+                        na=False
+
+                    )
+
+                ]
+
+            for _, _row in _search_view.head(15).iterrows():
+
+                _icol1, _icol2 = st.columns(
+
+                    [4, 1]
+
+                )
+
+                _icol1.write(
+
+                    f"**{_row['항목명']}** "
+                    f"({_row['단위']}) · "
+                    f"{_row['합계단가']:,.0f}원"
+
+                )
+
+                if _icol2.button(
+
+                    "담기",
+
+                    key=f"add_cart_{_row['항목명']}"
+
+                ):
+
+                    st.session_state[_cart_key].append(
+
+                        {
+                            "항목명": _row["항목명"],
+                            "단위": _row["단위"],
+                            "단가": _row["합계단가"],
+                            "규격": "",
+                            "수량": 1.0
+                        }
+
+                    )
+
+                    st.rerun()
+
+            if st.session_state[_cart_key]:
+
+                st.write("---")
+
+                st.markdown(
+                    "##### 담은 항목 (규격·수량 입력)"
+                )
+
+                _total_amount = 0
+
+                for idx, cart_item in enumerate(
+
+                    st.session_state[_cart_key]
+
+                ):
+
+                    ccol1, ccol2, ccol3, ccol4 = st.columns(
+
+                        [2, 2, 1, 1]
+
+                    )
+
+                    ccol1.write(
+                        f"**{cart_item['항목명']}**"
+                    )
+
+                    cart_item["규격"] = ccol2.text_input(
+
+                        "규격",
+
+                        value=cart_item["규격"],
+
+                        key=f"cart_spec_{idx}",
+
+                        label_visibility="collapsed"
+
+                    )
+
+                    cart_item["수량"] = ccol3.number_input(
+
+                        f"수량({cart_item['단위']})",
+
+                        min_value=0.0,
+
+                        value=cart_item["수량"],
+
+                        key=f"cart_qty_{idx}",
+
+                        label_visibility="collapsed"
+
+                    )
+
+                    amount = (
+
+                        cart_item["수량"]
+                        *
+                        cart_item["단가"]
+
+                    )
+
+                    _total_amount += amount
+
+                    ccol4.write(
+                        f"{amount:,.0f}원"
+                    )
+
+                st.markdown(
+
+                    f"### 합계: {_total_amount:,.0f}원"
+
+                )
+
+                if st.button(
+
+                    "🗑️ 담은 항목 전체 비우기",
+
+                    key="clear_cart_btn"
+
+                ):
+
+                    st.session_state[_cart_key] = []
+
+                    st.rerun()
+
+                if is_read_only():
+
+                    st.info(
+                        "🔒 보기 전용 모드에서는 "
+                        "저장할 수 없습니다."
+                    )
+
+                elif st.button(
+
+                    "💾 이 공사로 저장하기",
+
+                    type="primary",
+
+                    use_container_width=True,
+
+                    key="save_project_btn"
+
+                ):
+
+                    if not new_project_name.strip():
+
+                        st.error(
+                            "공사명을 입력해주세요."
+                        )
+
+                    else:
+
+                        _pid = create_design_project(
+
+                            new_project_name.strip(),
+
+                            new_project_gongjong,
+
+                            new_project_site,
+
+                            new_project_author
+
+                        )
+
+                        for cart_item in st.session_state[
+
+                            _cart_key
+
+                        ]:
+
+                            add_item_to_project(
+
+                                _pid,
+
+                                cart_item["항목명"],
+
+                                cart_item["규격"],
+
+                                cart_item["수량"],
+
+                                cart_item["단위"],
+
+                                cart_item["단가"]
+
+                            )
+
+                        st.session_state[_cart_key] = []
+
+                        st.success(
+
+                            f"\"{new_project_name}\" "
+                            "공사가 저장되었습니다."
+
+                        )
+
+                        st.rerun()
+
+    with design_tab3:
+
+        st.markdown(
+            "##### 저장된 공사 목록"
+        )
+
+        _proj_df = read_excel(
+
+            DESIGN_PROJECT_DB_PATH,
+
+            "설계공사"
+
+        )
+
+        if _proj_df.empty:
+
+            st.info(
+                "아직 저장된 공사가 없습니다."
+            )
+
+        else:
+
+            st.dataframe(
+
+                _proj_df[
+
+                    [
+                        "공사명",
+                        "공사유형",
+                        "사업장",
+                        "작성자",
+                        "작성일"
+                    ]
+
+                ],
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
+            _sel_project_name = st.selectbox(
+
+                "상세 보기",
+
+                _proj_df["공사명"].tolist(),
+
+                key="view_project_select"
+
+            )
+
+            _sel_pid = _proj_df[
+
+                _proj_df["공사명"] == _sel_project_name
+
+            ]["공사ID"].iloc[0]
+
+            _items_df = get_project_items(
+                _sel_pid
+            )
+
+            if not _items_df.empty:
+
+                st.dataframe(
+
+                    _items_df[
+
+                        [
+                            "항목명",
+                            "규격",
+                            "수량",
+                            "단위",
+                            "적용단가",
+                            "금액"
+                        ]
+
+                    ],
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+                st.markdown(
+
+                    f"### 총 공사금액: "
+                    f"{_items_df['금액'].sum():,.0f}원"
+
+                )
 
 
 # ============================================================
