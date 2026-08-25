@@ -3761,6 +3761,27 @@ def find_logo_file():
     return None
 
 
+def find_manual_pdf():
+
+    # 사용자 매뉴얼 PDF를 앱 폴더에 같이 올려두면(파일명에
+    # "매뉴얼"이 들어가면) 자동으로 찾아서 다운로드 버튼을
+    # 보여준다. 없으면 그냥 조용히 버튼을 숨긴다.
+
+    for pattern in (
+        "*매뉴얼*.pdf",
+        "*manual*.pdf",
+        "*Manual*.pdf"
+    ):
+
+        matches = glob.glob(pattern)
+
+        if matches:
+
+            return matches[0]
+
+    return None
+
+
 def get_logo_base64_html(
 
     max_height_px=40
@@ -11167,6 +11188,40 @@ with st.sidebar:
         "밀양정수장"
     )
 
+    _manual_pdf_path = find_manual_pdf()
+
+    if _manual_pdf_path:
+
+        try:
+
+            with open(
+
+                _manual_pdf_path,
+
+                "rb"
+
+            ) as f:
+
+                st.download_button(
+
+                    "📘 사용자 매뉴얼 다운로드",
+
+                    data=f.read(),
+
+                    file_name="설비관리_플랫폼_사용자매뉴얼.pdf",
+
+                    mime="application/pdf",
+
+                    use_container_width=True,
+
+                    key="manual_pdf_download_btn"
+
+                )
+
+        except Exception:
+
+            pass
+
     if st.session_state.entered_as_viewer:
 
         # 보기전용으로 들어온 사람은 토글 자체를 못 보게 해서
@@ -12080,6 +12135,11 @@ if st.session_state.page == "홈":
 
         home_search_matched_names = set()
 
+        # 카드가 세로로 한 줄씩 쭉 나열되면 폭이 너무 넓어서
+        # 오히려 보기 불편했다. 2열로 나눠서 옆으로 배치한다.
+
+        home_cols = st.columns(2)
+
         for _card_idx, (pump, result) in enumerate(sorted_results):
 
             rows.append(
@@ -12122,115 +12182,119 @@ if st.session_state.page == "홈":
                 pump["equip"]
             )
 
-            text_color, bg_color = status_color_map.get(
+            _col_idx = rendered_card_count % 2
 
-                result["상태"],
-                ("#64748b", "#f1f5f9")
+            with home_cols[_col_idx]:
 
-            )
+                text_color, bg_color = status_color_map.get(
 
-            # 6. 게이지바 색상을 등급 5단계 기준과 통일
+                    result["상태"],
+                    ("#64748b", "#f1f5f9")
 
-            gauge_color = grade_bar_color(
-                result["점수"]
-            )
-
-            _, vib_values, _ = get_vibration_trend_data(
-
-                pump,
-
-                result,
-
-                df_history
-
-            )
-
-            # 7. 스파크라인에 마우스를 올리면 실제 수치가
-            # 툴팁으로 보이도록 <title>을 넣는다.
-
-            spark_tooltip = (
-
-                "진동 추세(mm/s): "
-                +
-                " → ".join(
-                    f"{v:.1f}" for v in vib_values
                 )
 
-            )
+                # 6. 게이지바 색상을 등급 5단계 기준과 통일
 
-            spark_svg = build_svg_sparkline(
+                gauge_color = grade_bar_color(
+                    result["점수"]
+                )
 
-                vib_values,
+                _, vib_values, _ = get_vibration_trend_data(
 
-                color=gauge_color,
+                    pump,
 
-                tooltip=spark_tooltip
+                    result,
 
-            )
+                    df_history
 
-            st.markdown(
+                )
 
-                f"""
-                <div class="equip-card" style="
-                border-left:4px solid {text_color};">
+                # 7. 스파크라인에 마우스를 올리면 실제 수치가
+                # 툴팁으로 보이도록 <title>을 넣는다.
 
-                    <div class="equip-card-title">
-                    {'⭐ ' if pump['equip'] in st.session_state.favorite_equips else ''}{pump['equip']}
+                spark_tooltip = (
+
+                    "진동 추세(mm/s): "
+                    +
+                    " → ".join(
+                        f"{v:.1f}" for v in vib_values
+                    )
+
+                )
+
+                spark_svg = build_svg_sparkline(
+
+                    vib_values,
+
+                    color=gauge_color,
+
+                    tooltip=spark_tooltip
+
+                )
+
+                st.markdown(
+
+                    f"""
+                    <div class="equip-card" style="
+                    border-left:4px solid {text_color};">
+
+                        <div class="equip-card-title">
+                        {'⭐ ' if pump['equip'] in st.session_state.favorite_equips else ''}{pump['equip']}
+                        </div>
+
+                        <span style="
+                        background:{bg_color}; color:{text_color};
+                        border-radius:999px; padding:2px 9px;
+                        font-size:0.68rem; font-weight:800;">
+                        {status_icon(result['상태'])} {result['상태']} · {result['등급']}등급
+                        </span>
+
+                        <div class="cbm-bar-track">
+                            <div class="cbm-bar-fill" style="
+                            width:{result['점수']}%;
+                            background:{gauge_color};"></div>
+                        </div>
+
+                        <div class="equip-card-meta">
+                            <span>CBM {result['점수']}점</span>
+                            <span>효율 {result['효율']:.1f}%</span>
+                        </div>
+
+                        <div style="margin-top:6px;">
+                        {spark_svg}
+                        <span style="
+                        font-size:0.68rem; color:#94a3b8;
+                        margin-left:4px;">진동 추세</span>
+                        </div>
+
                     </div>
+                    """,
 
-                    <span style="
-                    background:{bg_color}; color:{text_color};
-                    border-radius:999px; padding:2px 9px;
-                    font-size:0.68rem; font-weight:800;">
-                    {status_icon(result['상태'])} {result['상태']} · {result['등급']}등급
-                    </span>
+                    unsafe_allow_html=True
 
-                    <div class="cbm-bar-track">
-                        <div class="cbm-bar-fill" style="
-                        width:{result['점수']}%;
-                        background:{gauge_color};"></div>
-                    </div>
+                )
 
-                    <div class="equip-card-meta">
-                        <span>CBM {result['점수']}점</span>
-                        <span>효율 {result['효율']:.1f}%</span>
-                    </div>
+                # 카드 자체는 그림(HTML)이라 눌러도 반응이 없었다.
+                # 카드 바로 밑에 진짜 버튼을 붙여서, 누르면 그
+                # 설비를 선택한 채로 QR 포털로 이동한다.
 
-                    <div style="margin-top:6px;">
-                    {spark_svg}
-                    <span style="
-                    font-size:0.68rem; color:#94a3b8;
-                    margin-left:4px;">진동 추세</span>
-                    </div>
+                if st.button(
 
-                </div>
-                """,
+                    f"🔍 상세보기 →",
 
-                unsafe_allow_html=True
+                    key=f"card_goto_{_card_idx}_{pump['equip']}",
 
-            )
+                    use_container_width=True
 
-            # 카드 자체는 그림(HTML)이라 눌러도 반응이 없었다.
-            # 카드 바로 밑에 진짜 버튼을 붙여서, 누르면 그
-            # 설비를 선택한 채로 QR 포털로 이동한다.
+                ):
 
-            if st.button(
+                    st.session_state.page = "QR"
 
-                f"🔍 {pump['equip']} 상세보기 →",
+                    st.query_params["page"] = "QR"
 
-                key=f"card_goto_{_card_idx}_{pump['equip']}",
+                    st.query_params["equip"] = pump["equip"]
 
-                use_container_width=True
-
-            ):
-
-                st.session_state.page = "QR"
-
-                st.query_params["page"] = "QR"
-
-                st.query_params["equip"] = pump["equip"]
-
-                st.rerun()
+                    st.rerun()
 
             rendered_card_count += 1
 
