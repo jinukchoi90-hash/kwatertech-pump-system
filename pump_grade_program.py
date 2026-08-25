@@ -8345,13 +8345,15 @@ def build_vibration_trend_chart_fig(
 
     ax.legend(
 
-        loc="upper center",
+        loc="upper left",
 
-        bbox_to_anchor=(0.5, -0.16),
+        bbox_to_anchor=(0, -0.16, 1, 0.1),
+
+        mode="expand",
 
         ncol=6,
 
-        fontsize=8,
+        fontsize=10.5,
 
         columnspacing=1.0,
 
