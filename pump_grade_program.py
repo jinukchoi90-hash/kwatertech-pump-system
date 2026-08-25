@@ -9663,7 +9663,7 @@ def build_vibration_trend_fig(
 
     title_suffix = (
 
-        f"(실측 {len(real_values)}건)"
+        f"(실측 {len(vibration)}건)"
 
         if use_real
 
@@ -10106,7 +10106,7 @@ def build_efficiency_trend_fig(
 
     title_suffix = (
 
-        f"(실측 {len(real_values)}건)"
+        f"(실측 {len(values)}건)"
 
         if use_real
 
@@ -10200,7 +10200,7 @@ def build_temperature_trend_fig(
 
     title_suffix = (
 
-        f"(실측 {len(real_values)}건)"
+        f"(실측 {len(values)}건)"
 
         if use_real
 
