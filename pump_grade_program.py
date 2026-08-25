@@ -10228,7 +10228,7 @@ def build_status_donut_fig(
     normal,
     watch,
     repair,
-    figsize=(4, 4)
+    figsize=(2.7, 2.7)
 ):
 
     # 홈 화면 상단의 정상/관찰/정비검토 비율 도넛차트
@@ -11908,7 +11908,9 @@ if st.session_state.page == "홈":
                 normal,
                 watch,
                 repair
-            )
+            ),
+
+            use_container_width=False
 
         )
 
@@ -12348,7 +12350,7 @@ if st.session_state.page == "홈":
 
             ranking_df = pd.DataFrame(
 
-                ranking[:5],
+                ranking[:10],
 
                 columns=[
                     "설비",
@@ -12362,8 +12364,25 @@ if st.session_state.page == "홈":
             st.dataframe(
                 ranking_df,
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                height=350
             )
+
+            if st.button(
+
+                "→ CBM 정비판단에서 전체 보기",
+
+                key="home_cbm_ranking_more_btn",
+
+                use_container_width=True
+
+            ):
+
+                st.session_state.page = "CBM"
+
+                st.query_params["page"] = "CBM"
+
+                st.rerun()
 
         else:
 
