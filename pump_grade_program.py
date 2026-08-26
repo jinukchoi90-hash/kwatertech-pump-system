@@ -4809,22 +4809,21 @@ def import_unitprice_items_to_library(items, source_name=""):
 
 def seed_default_unitprice_library():
 
-    # 앱을 처음 켰을 때(또는 아직 아무도 아무것도 안 올렸을
-    # 때) 라이브러리가 텅 비어있으면, 기본 탑재해둔 자주쓰는
-    # 일위대가로 자동으로 채운다. 신입사원이 업로드 없이도
-    # 바로 검색해서 쓸 수 있게 하기 위함.
+    # 예전엔 "라이브러리가 완전히 비어있을 때만" 기본 데이터를
+    # 심었는데, 이미 사용자가 뭔가(예: 직접 업로드한 항목
+    # 몇 개)를 넣어둔 상태면 "이미 있네" 하고 통째로 건너뛰어
+    # 버려서, 기본 탑재 항목이 하나도 안 들어가는 문제가
+    # 있었다. import_unitprice_items_to_library() 자체가
+    # 이름별로 이미 있으면 건너뛰고 없으면만 추가하므로,
+    # 매번 그냥 실행해도 안전하다(중복 추가 걱정 없음).
 
-    existing = get_unitprice_library()
+    import_unitprice_items_to_library(
 
-    if existing.empty:
+        DEFAULT_UNITPRICE_ITEMS,
 
-        import_unitprice_items_to_library(
+        source_name="기본 탑재 데이터"
 
-            DEFAULT_UNITPRICE_ITEMS,
-
-            source_name="기본 탑재 데이터"
-
-        )
+    )
 
 
 def get_unitprice_library():
