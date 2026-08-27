@@ -9,6 +9,13 @@
 import os
 import io
 import urllib.request
+import requests
+import gspread
+import smtplib
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 import urllib.parse
 from datetime import datetime, date, timedelta
 import random
@@ -3846,6 +3853,322 @@ def ensure_korean_pdf_font():
     return _KOREAN_PDF_FONT_NAME
 
 
+def build_dashboard_summary_pdf(
+
+    all_pumps,
+    df_history,
+    site_list
+
+):
+
+    # 설비 하나씩 보고서를 뽑는 게 아니라, 이번 달 전체 현황을
+    # 한 장으로 정리한 경영보고용 요약 PDF.
+
+    font_name = ensure_korean_pdf_font()
+
+    buffer = io.BytesIO()
+
+    c = rl_canvas.Canvas(
+        buffer,
+        pagesize=A4
+    )
+
+    page_w, page_h = A4
+
+    margin = 18 * mm
+
+    y = page_h - margin
+
+    logo_path = find_logo_file()
+
+    if logo_path:
+
+        try:
+
+            c.drawImage(
+
+                logo_path,
+
+                margin,
+
+                y - 16 * mm,
+
+                width=40 * mm,
+
+                height=12 * mm,
+
+                preserveAspectRatio=True,
+
+                mask="auto"
+
+            )
+
+        except Exception:
+
+            pass
+
+    c.setFont(
+        font_name,
+        18
+    )
+
+    c.setFillColorRGB(
+        0.06, 0.21, 0.33
+    )
+
+    c.drawString(
+
+        margin,
+
+        y - 26 * mm,
+
+        f"설비관리 통합 플랫폼 · "
+        f"{datetime.now().strftime('%Y년 %m월')} 종합 대시보드"
+
+    )
+
+    y -= 34 * mm
+
+    # 전체 요약
+
+    normal = watch = repair = 0
+
+    repair_items = []
+
+    site_summary = {
+
+        site: {"정상": 0, "관찰": 0, "정비검토": 0}
+
+        for site in site_list
+
+    }
+
+    for pump in all_pumps:
+
+        result = pump_status(
+
+            pump,
+            df_history
+
+        )
+
+        site_summary.setdefault(
+
+            pump["site"],
+            {"정상": 0, "관찰": 0, "정비검토": 0}
+
+        )
+
+        if result["상태"] == "정상":
+
+            normal += 1
+
+            site_summary[pump["site"]]["정상"] += 1
+
+        elif result["상태"] == "관찰":
+
+            watch += 1
+
+            site_summary[pump["site"]]["관찰"] += 1
+
+        else:
+
+            repair += 1
+
+            site_summary[pump["site"]]["정비검토"] += 1
+
+            repair_items.append(
+
+                (pump["equip"], pump["site"], result["점수"])
+
+            )
+
+    c.setFont(
+        font_name,
+        13
+    )
+
+    c.setFillColorRGB(
+        0.06, 0.21, 0.33
+    )
+
+    c.drawString(
+
+        margin,
+
+        y,
+
+        f"전체 설비: {len(all_pumps)}대   "
+        f"정상: {normal}대   관찰: {watch}대   "
+        f"정비검토: {repair}대"
+
+    )
+
+    y -= 12 * mm
+
+    # 사업장별 표
+
+    c.setFont(
+        font_name,
+        12
+    )
+
+    c.drawString(
+        margin,
+        y,
+        "사업장별 현황"
+    )
+
+    y -= 8 * mm
+
+    col_x = [margin, margin + 55 * mm, margin + 85 * mm, margin + 115 * mm]
+
+    c.setFont(
+        font_name,
+        10
+    )
+
+    for label, x in zip(
+        ["사업장", "정상", "관찰", "정비검토"],
+        col_x
+
+    ):
+
+        c.drawString(
+            x,
+            y,
+            label
+        )
+
+    y -= 6 * mm
+
+    c.line(
+        margin,
+        y + 3 * mm,
+        page_w - margin,
+        y + 3 * mm
+
+    )
+
+    for site, counts in site_summary.items():
+
+        c.drawString(
+            col_x[0],
+            y,
+            site
+        )
+
+        c.drawString(
+            col_x[1],
+            y,
+            str(counts["정상"])
+        )
+
+        c.drawString(
+            col_x[2],
+            y,
+            str(counts["관찰"])
+        )
+
+        c.drawString(
+            col_x[3],
+            y,
+            str(counts["정비검토"])
+        )
+
+        y -= 6 * mm
+
+    y -= 8 * mm
+
+    # 정비검토 필요 설비 목록
+
+    c.setFont(
+        font_name,
+        12
+    )
+
+    c.setFillColorRGB(
+        0.78, 0.16, 0.16
+    )
+
+    c.drawString(
+
+        margin,
+
+        y,
+
+        f"⚠ 정비검토 필요 설비 ({len(repair_items)}건)"
+
+    )
+
+    y -= 8 * mm
+
+    c.setFont(
+        font_name,
+        10
+    )
+
+    c.setFillColorRGB(
+        0.06, 0.21, 0.33
+    )
+
+    if repair_items:
+
+        for equip, site, score in repair_items:
+
+            c.drawString(
+
+                margin,
+
+                y,
+
+                f"- {equip} ({site}) · CBM Score {score}점"
+
+            )
+
+            y -= 6 * mm
+
+    else:
+
+        c.drawString(
+
+            margin,
+
+            y,
+
+            "- 없음 (전 설비 정상/관찰 수준)"
+
+        )
+
+        y -= 6 * mm
+
+    c.setFont(
+        font_name,
+        8
+    )
+
+    c.setFillColorRGB(
+        0.5, 0.5, 0.5
+    )
+
+    c.drawString(
+
+        margin,
+
+        margin,
+
+        f"생성일시: "
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+    )
+
+    c.save()
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+
 def build_qr_label_sheet_pdf(
 
     pumps,
@@ -5044,15 +5367,36 @@ def build_unitprice_excel_bytes(items_with_detail):
     # 원본 산출내역서의 "일위대가표" 시트와 똑같은 양식으로
     # 다시 만든다. items_with_detail: 라이브러리 DataFrame 행
     # (상세내역JSON 컬럼 포함) 리스트.
+    #
+    # 원본 파일을 직접 열어서 확인한 실제 구조:
+    # - 종별(B)/규격(C)/수량(D)/단위(E)는 세로로 2행 병합
+    # - 노무비/재료비/기계경비/외주경비는 각각 2열씩 병합
+    #   (F:G=노무비, H:I=재료비, J:K=기계경비, L:M=외주경비)
+    # - "라벨"은 병합영역의 앞쪽 열(F,H,J,L)에, "합계 숫자"는
+    #   뒤쪽 열(G,I,K,M)에 들어간다(같은 열이 아님)
+    # - 비고는 N열(종별헤더 줄 기준 세로 2행 병합)
 
     from openpyxl.styles import Font, Alignment, Border, Side
-    from openpyxl.utils import get_column_letter
 
     wb = Workbook()
 
     ws = wb.active
 
     ws.title = "일위대가표"
+
+    # 원본과 동일하게 가로방향 + 페이지맞춤(폭 1페이지)로
+    # 인쇄되도록 설정한다. 이게 없으면 우측 열들이 인쇄/PDF
+    # 변환 시 페이지 밖으로 잘려나간다.
+
+    ws.page_setup.orientation = "landscape"
+
+    ws.page_setup.fitToPage = True
+
+    ws.page_setup.fitToWidth = 1
+
+    ws.page_setup.fitToHeight = 0
+
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
 
     thin = Side(
         style="thin",
@@ -5080,8 +5424,6 @@ def build_unitprice_excel_bytes(items_with_detail):
     )
 
     # 원본 파일 실측값 그대로 반영
-    # (A=여백, B=종별/항목명, C=규격/공종, D=수량, E=단위,
-    #  F=노무비단가, 그 뒤(G~M)는 원본에 지정이 없어 기본값)
 
     ws.column_dimensions["A"].width = 2.22
 
@@ -5095,9 +5437,17 @@ def build_unitprice_excel_bytes(items_with_detail):
 
     ws.column_dimensions["F"].width = 11.78
 
-    for col_letter in ["G", "H", "I", "J", "K", "L", "M"]:
+    for col_letter in ["G", "H", "I", "J", "K", "L", "M", "N"]:
 
         ws.column_dimensions[col_letter].width = 8.89
+
+    def _box_range(r1, c1, r2, c2):
+
+        for rr in range(r1, r2 + 1):
+
+            for cc in range(c1, c2 + 1):
+
+                ws.cell(rr, cc).border = box
 
     row = 1
 
@@ -5133,6 +5483,8 @@ def build_unitprice_excel_bytes(items_with_detail):
 
             details = []
 
+        # 1행: 제목
+
         ws.cell(
             row, 2, "일   위   대   가   표"
         ).font = Font(
@@ -5144,7 +5496,7 @@ def build_unitprice_excel_bytes(items_with_detail):
 
             start_row=row, start_column=2,
 
-            end_row=row, end_column=13
+            end_row=row, end_column=14
 
         )
 
@@ -5152,7 +5504,11 @@ def build_unitprice_excel_bytes(items_with_detail):
 
         ws.row_dimensions[row].height = 27.0
 
+        title_row = row
+
         row += 2
+
+        # 항목번호 / 공종 / 단위
 
         ws.cell(row, 2, "   항목번호 :")
 
@@ -5170,96 +5526,153 @@ def build_unitprice_excel_bytes(items_with_detail):
 
         row += 1
 
+        unit_row = row
+
         ws.cell(row, 2, "   단    위 :")
 
         ws.cell(row, 3, unit)
 
-        headers1 = [
+        # 노무비/재료비/기계경비/외주경비/합계 라벨
+        # (각 2열 병합: F:G, H:I, J:K, L:M / 합계는 N열 단독)
 
-            "노 무 비", "재 료 비", "기계경비", "외주경비", "합   계"
+        label_spans = [
+
+            (6, 7, "노 무 비"),
+            (8, 9, "재 료 비"),
+            (10, 11, "기계경비"),
+            (12, 13, "외주경비")
 
         ]
 
-        col = 5
+        for c1, c2, label in label_spans:
 
-        for h in headers1:
+            ws.merge_cells(
 
-            ws.cell(row, col, h).font = bold
+                start_row=row, start_column=c1,
 
-            ws.cell(row, col).border = box
+                end_row=row, end_column=c2
 
-            col += 2 if h != "합   계" else 1
+            )
+
+            ws.cell(row, c1, label).font = bold
+
+            ws.cell(row, c1).alignment = center
+
+        ws.cell(row, 14, "합   계").font = bold
+
+        ws.cell(row, 14).alignment = center
+
+        _box_range(row, 6, row, 14)
 
         ws.row_dimensions[row].height = 27.0
 
         row += 1
 
-        vals = [labor, material, machine, outsourcing, total]
+        # 합계 숫자 (라벨의 "뒤쪽 열"에 위치: G,I,K,M / 총합계 N)
 
-        target_cols = [5, 7, 9, 11, 13]
+        val_positions = [
 
-        for idx, v in enumerate(vals):
-
-            ws.cell(
-
-                row,
-                target_cols[idx],
-                v
-
-            ).border = box
-
-        ws.row_dimensions[row].height = 27.0
-
-        row += 1
-
-        header_cols = [
-
-            "종   별", "규   격", "수   량", "단  위",
-            "노 무 비", "", "재 료 비", "",
-            "기계경비", "", "외주경비", "", "비   고"
+            (7, labor),
+            (9, material),
+            (11, machine),
+            (13, outsourcing)
 
         ]
 
-        for idx, h in enumerate(header_cols):
+        for col_pos, v in val_positions:
 
-            if h:
+            ws.cell(row, col_pos, v)
 
-                ws.cell(
-                    row,
-                    2 + idx,
-                    h
-                ).font = bold
+        ws.cell(row, 14, total)
 
-                ws.cell(
-                    row,
-                    2 + idx
-                ).border = box
+        _box_range(row, 6, row, 14)
 
-        ws.row_dimensions[row].height = 20.1
+        ws.row_dimensions[row].height = 27.0
+
+        total_val_row = row
 
         row += 1
 
-        subheader = [
+        # 종별/규격/수량/단위(세로 2행 병합) +
+        # 노무비/재료비/기계경비/외주경비(가로 2열 병합) + 비고
 
-            "", "", "", "",
+        header_row1 = row
+
+        header_row2 = row + 1
+
+        for col_idx, label in [
+
+            (2, "종   별"),
+            (3, "규   격"),
+            (4, "수   량"),
+            (5, "단  위")
+
+        ]:
+
+            ws.merge_cells(
+
+                start_row=header_row1, start_column=col_idx,
+
+                end_row=header_row2, end_column=col_idx
+
+            )
+
+            ws.cell(header_row1, col_idx, label).font = bold
+
+            ws.cell(header_row1, col_idx).alignment = center
+
+        for c1, c2, label in label_spans:
+
+            ws.merge_cells(
+
+                start_row=header_row1, start_column=c1,
+
+                end_row=header_row1, end_column=c2
+
+            )
+
+            ws.cell(header_row1, c1, label).font = bold
+
+            ws.cell(header_row1, c1).alignment = center
+
+        ws.merge_cells(
+
+            start_row=header_row1, start_column=14,
+
+            end_row=header_row2, end_column=14
+
+        )
+
+        ws.cell(header_row1, 14, "비   고").font = bold
+
+        ws.cell(header_row1, 14).alignment = center
+
+        _box_range(header_row1, 2, header_row2, 14)
+
+        ws.row_dimensions[header_row1].height = 20.1
+
+        # 단가/금액 서브헤더 (2번째 줄)
+
+        sub_cols = [6, 7, 8, 9, 10, 11, 12, 13]
+
+        sub_labels = [
+
             "단 가", "금 액", "단 가", "금 액",
-            "단 가", "금 액", "단 가", "금 액", ""
+            "단 가", "금 액", "단 가", "금 액"
 
         ]
 
-        for idx, h in enumerate(subheader):
+        for c, label in zip(sub_cols, sub_labels):
 
-            if h:
+            ws.cell(header_row2, c, label)
 
-                ws.cell(
-                    row,
-                    2 + idx,
-                    h
-                ).border = box
+            ws.cell(header_row2, c).alignment = center
 
-        ws.row_dimensions[row].height = 20.1
+        ws.row_dimensions[header_row2].height = 20.1
 
-        row += 1
+        row = header_row2 + 1
+
+        # 상세내역
 
         current_section = None
 
@@ -5303,9 +5716,13 @@ def build_unitprice_excel_bytes(items_with_detail):
 
             ws.cell(row, 13, d.get("외주경비금액") or "")
 
+            _box_range(row, 2, row, 14)
+
             ws.row_dimensions[row].height = 27.95
 
             row += 1
+
+        # 합계 행
 
         ws.cell(row, 2, "합   계").font = bold
 
@@ -5316,6 +5733,8 @@ def build_unitprice_excel_bytes(items_with_detail):
         ws.cell(row, 11, machine)
 
         ws.cell(row, 13, outsourcing)
+
+        _box_range(row, 2, row, 14)
 
         ws.row_dimensions[row].height = 27.95
 
@@ -5999,7 +6418,8 @@ def build_pump_monthly_report_docx(
     result,
     month_label,
     df_history,
-    all_pumps
+    all_pumps,
+    use_ai_commentary=False
 ):
 
     doc = Document()
@@ -6242,11 +6662,73 @@ def build_pump_monthly_report_docx(
 
     )
 
+    ai_used = False
+
+    if use_ai_commentary:
+
+        _df_vib_full = read_excel(
+
+            VIBRATION_DB_PATH,
+
+            "진동측정이력"
+
+        )
+
+        _pred_for_report = predict_failure_date_regression(
+
+            pump,
+
+            _df_vib_full
+
+        )
+
+        _ai_text, _ai_error = generate_ai_commentary_for_equipment(
+
+            pump,
+
+            result,
+
+            _pred_for_report
+
+        )
+
+        if _ai_text:
+
+            summary_text = _ai_text
+
+            ai_used = True
+
     summary_p = doc.add_paragraph(
         summary_text
     )
 
     summary_p.paragraph_format.space_after = Pt(12)
+
+    if use_ai_commentary:
+
+        ai_note_p = doc.add_paragraph()
+
+        ai_note_run = ai_note_p.add_run(
+
+            "🤖 AI(Claude)가 데이터를 보고 직접 작성한 "
+            "종합소견입니다."
+
+            if ai_used
+
+            else "※ AI 종합소견 생성에 실패해 기본 요약으로 "
+            "대체되었습니다."
+
+        )
+
+        ai_note_run.italic = True
+
+        ai_note_run.font.size = Pt(8.5)
+
+        ai_note_run.font.color.rgb = RGBColor(
+
+            0x08, 0x7E, 0xA4
+
+        )
 
     doc.add_page_break()
 
@@ -9771,6 +10253,1224 @@ def parse_vibration_graph_workbook(
     return rows, unmatched, sheet_month_counts
 
 
+# ============================================================
+# 10-8. AI 고장예측 (회귀분석)
+#
+# 축적된 진동 이력에 실제 선형회귀를 적용해서, "이 추세대로
+# 가면 위험 기준(8.5mm/s)에 언제쯤 도달할지"를 통계적으로
+# 예측한다. 임계값 비교 같은 규칙기반이 아니라 실제 회귀식을
+# 적합시키고 결정계수(R²)로 신뢰도까지 같이 보여준다.
+# ============================================================
+
+def predict_failure_date_regression(pump, df_vib):
+
+    if (
+
+        df_vib is None
+
+        or df_vib.empty
+
+        or "설비명" not in df_vib.columns
+
+    ):
+
+        return None
+
+    equip_hist = df_vib[
+
+        df_vib["설비명"] == pump["equip"]
+
+    ].copy()
+
+    if equip_hist.empty:
+
+        return None
+
+    equip_hist["_month"] = equip_hist[
+
+        "측정일자"
+
+    ].astype(str).str[:7]
+
+    monthly_max = equip_hist.groupby(
+
+        "_month"
+
+    )["측정값"].max().sort_index()
+
+    if len(monthly_max) < 3:
+
+        return {
+
+            "status": "insufficient_data",
+
+            "months_count": len(monthly_max)
+
+        }
+
+    x = np.arange(
+        len(monthly_max)
+    )
+
+    y = monthly_max.values.astype(float)
+
+    # 실제 선형회귀 적합 (최소자승법)
+
+    slope, intercept = np.polyfit(x, y, 1)
+
+    y_pred = slope * x + intercept
+
+    ss_res = np.sum(
+        (y - y_pred) ** 2
+    )
+
+    ss_tot = np.sum(
+        (y - np.mean(y)) ** 2
+    )
+
+    r_squared = (
+
+        1 - (ss_res / ss_tot)
+
+        if ss_tot > 0
+
+        else 0.0
+
+    )
+
+    threshold = VIB_JUDGE_BAD
+
+    result = {
+
+        "status": "stable",
+        "months": monthly_max.index.tolist(),
+        "values": y.tolist(),
+        "slope": float(slope),
+        "intercept": float(intercept),
+        "r_squared": float(r_squared),
+        "trend_line": y_pred.tolist(),
+        "seasonal_applied": False
+
+    }
+
+    # 계절성 반영: 데이터가 6개월 이상 쌓이면, 추세선만으로
+    # 밀어보는 게 아니라 "이 달(예: 여름철)엔 원래 부하가
+    # 몰려서 진동이 더 오르더라"는 월별 편차(잔차)까지 반영
+    # 한다. 데이터가 적으면(6개월 미만) 그냥 순수 추세선으로
+    # 폴백한다.
+
+    month_numbers = [
+
+        int(m.split("-")[1])
+
+        for m in monthly_max.index
+
+    ]
+
+    seasonal_avg = {}
+
+    if len(monthly_max) >= 6:
+
+        residuals = y - y_pred
+
+        by_month = {}
+
+        for mn, r in zip(month_numbers, residuals):
+
+            by_month.setdefault(
+                mn, []
+            ).append(r)
+
+        raw_seasonal = {
+
+            mn: float(np.mean(vals))
+
+            for mn, vals in by_month.items()
+
+        }
+
+        # 잔차 평균이 0 근처가 되도록 중심을 맞춘다
+        # (계절성분만 남기고, 추세는 이미 회귀식이 담당)
+
+        center = np.mean(
+            list(raw_seasonal.values())
+        )
+
+        seasonal_avg = {
+
+            mn: v - center
+
+            for mn, v in raw_seasonal.items()
+
+        }
+
+        result["seasonal_applied"] = True
+
+        result["seasonal_by_month"] = seasonal_avg
+
+    if slope <= 0.001 and not seasonal_avg:
+
+        return result
+
+    if seasonal_avg:
+
+        # 한 달씩 미래로 걸어가면서, "추세값 + 그 달의 계절
+        # 편차"가 위험기준을 넘는 첫 시점을 찾는다(대수적으로
+        # 한 번에 풀 수 없어서 반복 탐색).
+
+        last_year, last_month = (
+
+            int(v)
+
+            for v in monthly_max.index[-1].split("-")
+
+        )
+
+        cur_x = len(monthly_max) - 1
+
+        cur_year, cur_month = last_year, last_month
+
+        crossed_x = None
+
+        for _ in range(60):
+
+            cur_x += 1
+
+            cur_month += 1
+
+            if cur_month > 12:
+
+                cur_month = 1
+
+                cur_year += 1
+
+            trend_val = slope * cur_x + intercept
+
+            adj_val = trend_val + seasonal_avg.get(
+
+                cur_month,
+                0.0
+
+            )
+
+            if adj_val >= threshold:
+
+                crossed_x = cur_x
+
+                crossed_year_month = (
+                    cur_year,
+                    cur_month
+                )
+
+                break
+
+        if crossed_x is None:
+
+            return result
+
+        result["status"] = "predicted"
+
+        result["predicted_date"] = date(
+
+            crossed_year_month[0],
+
+            crossed_year_month[1],
+
+            1
+
+        )
+
+        result["months_ahead"] = float(
+
+            crossed_x - (len(monthly_max) - 1)
+
+        )
+
+        return result
+
+    # 계절성 반영 불가(데이터 부족) → 기존처럼 순수 추세선으로
+
+    x_threshold = (
+        threshold - intercept
+    ) / slope
+
+    months_ahead = x_threshold - (
+        len(monthly_max) - 1
+    )
+
+    result["status"] = "predicted"
+
+    if months_ahead < 0:
+
+        result["predicted_date"] = datetime.now().date()
+
+        result["months_ahead"] = 0.0
+
+    else:
+
+        result["predicted_date"] = (
+
+            datetime.now().date()
+
+            +
+            timedelta(
+                days=int(months_ahead * 30.4)
+            )
+
+        )
+
+        result["months_ahead"] = float(
+            months_ahead
+        )
+
+    return result
+
+
+def build_failure_prediction_chart_fig(pump, pred):
+
+    fig, ax = plt.subplots(
+        figsize=(7, 3.6)
+    )
+
+    months = pred["months"]
+
+    values = pred["values"]
+
+    ax.plot(
+
+        months,
+        values,
+        marker="o",
+        linewidth=2,
+        color="#087ea4",
+        label="실측 진동값(월별 최댓값)"
+
+    )
+
+    ax.plot(
+
+        months,
+        pred["trend_line"],
+        linestyle="--",
+        color="#e8590c",
+        linewidth=2,
+        label="회귀 추세선"
+
+    )
+
+    ax.axhline(
+
+        VIB_JUDGE_BAD,
+
+        color="#c62828",
+
+        linestyle=":",
+
+        linewidth=1.5,
+
+        label=f"위험 기준({VIB_JUDGE_BAD})"
+
+    )
+
+    if pred["status"] == "predicted":
+
+        ax.set_title(
+
+            f"{pump['equip']} — 예측 위험도달일: "
+            f"{pred['predicted_date']} "
+            f"(R²={pred['r_squared']:.2f})"
+
+        )
+
+    else:
+
+        ax.set_title(
+
+            f"{pump['equip']} — 추세 안정적 "
+            f"(R²={pred['r_squared']:.2f})"
+
+        )
+
+    ax.set_ylabel(
+        "진동값 (mm/s, rms)"
+    )
+
+    ax.legend(
+        fontsize=8
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    fig.tight_layout()
+
+    return fig
+
+
+# ============================================================
+# 10-9. AI(LLM) 종합의견 자동 생성
+#
+# 미리 정해둔 문장 틀에 숫자만 끼워넣는 방식이 아니라, 실제
+# Claude API를 호출해서 데이터를 보고 코멘트를 새로 작성하게
+# 한다. Streamlit Cloud의 Secrets에 ANTHROPIC_API_KEY를
+# 등록해야 동작한다.
+# ============================================================
+
+def call_claude_for_commentary(prompt_text):
+
+    try:
+
+        api_key = st.secrets.get(
+            "ANTHROPIC_API_KEY"
+        )
+
+    except Exception:
+
+        api_key = None
+
+    if not api_key:
+
+        return None, (
+
+            "ANTHROPIC_API_KEY가 설정되지 않았습니다. "
+            "Streamlit Cloud 앱 설정의 Secrets에 "
+            "ANTHROPIC_API_KEY를 추가해주세요."
+
+        )
+
+    try:
+
+        resp = requests.post(
+
+            "https://api.anthropic.com/v1/messages",
+
+            headers={
+
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+
+            },
+
+            json={
+
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 500,
+                "messages": [
+
+                    {
+                        "role": "user",
+                        "content": prompt_text
+                    }
+
+                ]
+
+            },
+
+            timeout=30
+
+        )
+
+        resp.raise_for_status()
+
+        data = resp.json()
+
+        text = "".join(
+
+            block.get("text", "")
+
+            for block in data.get("content", [])
+
+            if block.get("type") == "text"
+
+        )
+
+        return text, None
+
+    except Exception as e:
+
+        return None, f"AI 호출 중 오류가 발생했습니다: {e}"
+
+
+def generate_ai_commentary_for_equipment(
+
+    pump,
+    result,
+    prediction
+
+):
+
+    pred_text = "예측 데이터 부족"
+
+    if prediction:
+
+        if prediction["status"] == "predicted":
+
+            pred_text = (
+
+                f"회귀분석 결과 약 {prediction['predicted_date']}"
+                f"경 위험기준(8.5mm/s) 도달 예상 "
+                f"(신뢰도 R²={prediction['r_squared']:.2f})"
+
+            )
+
+        elif prediction["status"] == "stable":
+
+            pred_text = (
+
+                f"진동 추세 안정적 "
+                f"(R²={prediction['r_squared']:.2f})"
+
+            )
+
+    prompt = (
+
+        "당신은 수도설비 정비 전문가입니다. 아래 데이터를 "
+        "보고, 정비 담당자에게 전달할 종합의견을 한국어로 "
+        "2~3문장, 실무적인 어투로 작성해주세요. 과장하지 "
+        "말고 데이터에 근거해서만 작성하세요.\n\n"
+        f"- 설비명: {pump['equip']} ({pump['site']})\n"
+        f"- CBM Score: {result['점수']}점 ({result['등급']}등급)\n"
+        f"- 현재 상태: {result['상태']}\n"
+        f"- 현재 진동값: {result['진동']:.1f} mm/s\n"
+        f"- 현재 효율: {result['효율']:.1f}%\n"
+        f"- AI 회귀분석 예측: {pred_text}\n"
+
+    )
+
+    return call_claude_for_commentary(
+        prompt
+    )
+
+
+# ============================================================
+# 10-10. 구글시트 백업/복원
+#
+# 로컬 엑셀 파일은 서버가 재배포되면 통째로 사라질 수 있다.
+# 완전히 구글시트로 갈아엎으면(모든 읽기/쓰기를 API로) 위험
+# 부담이 크므로, 대신 "지금 상태를 구글시트에 통째로 복사"
+# (백업)하고 "구글시트에서 다시 불러오기"(복원)하는 안전망만
+# 둔다. 평소엔 그대로 빠른 로컬 엑셀로 동작한다.
+# ============================================================
+
+GSHEET_BACKUP_TARGETS = [
+
+    (DB_FILE_PATH, "진단이력"),
+    (OVERHAUL_DB_PATH, "오버홀이력"),
+    (EQUIP_DB_PATH, "설비마스터"),
+    (CONSUMABLES_DB_PATH, "소모품재고"),
+    (VIBRATION_DB_PATH, "진동측정이력"),
+    (AUDIT_LOG_PATH, "감사로그"),
+    (KNOWHOW_DB_PATH, "노하우DB"),
+    (KPI_DB_PATH, "KPI실적"),
+    (DESIGN_UNITPRICE_DB_PATH, "일위대가라이브러리"),
+    (DESIGN_GUIDELINE_DB_PATH, "공종가이드라인"),
+    (DESIGN_PROJECT_DB_PATH, "설계공사"),
+    (DESIGN_PROJECT_ITEM_DB_PATH, "설계공사상세")
+
+]
+
+
+def get_gsheet_client():
+
+    try:
+
+        creds_info = st.secrets.get(
+            "gcp_service_account"
+        )
+
+    except Exception:
+
+        creds_info = None
+
+    if not creds_info:
+
+        return None, (
+
+            "구글 서비스계정 정보가 없습니다. Streamlit "
+            "Secrets에 [gcp_service_account]를 등록해주세요."
+
+        )
+
+    try:
+
+        from google.oauth2.service_account import Credentials
+
+        scopes = [
+
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+
+        ]
+
+        creds = Credentials.from_service_account_info(
+
+            dict(creds_info),
+
+            scopes=scopes
+
+        )
+
+        client = gspread.authorize(
+            creds
+        )
+
+        return client, None
+
+    except Exception as e:
+
+        return None, f"구글 인증 실패: {e}"
+
+
+def get_gsheet_url():
+
+    try:
+
+        return st.secrets.get(
+            "GSHEET_BACKUP_URL"
+        )
+
+    except Exception:
+
+        return None
+
+
+def backup_all_to_gsheet():
+
+    client, error = get_gsheet_client()
+
+    if error:
+
+        return False, error
+
+    sheet_url = get_gsheet_url()
+
+    if not sheet_url:
+
+        return False, (
+
+            "백업할 구글시트 URL이 없습니다. Streamlit "
+            "Secrets에 GSHEET_BACKUP_URL을 등록해주세요."
+
+        )
+
+    try:
+
+        doc = client.open_by_url(
+            sheet_url
+        )
+
+        backed_up = 0
+
+        for local_path, sheet_name in GSHEET_BACKUP_TARGETS:
+
+            df = read_excel(
+
+                local_path,
+                sheet_name
+
+            )
+
+            try:
+
+                ws = doc.worksheet(
+                    sheet_name
+                )
+
+                ws.clear()
+
+            except gspread.WorksheetNotFound:
+
+                ws = doc.add_worksheet(
+
+                    title=sheet_name,
+
+                    rows=max(len(df) + 10, 100),
+
+                    cols=max(len(df.columns) + 2, 10)
+
+                        if not df.empty
+
+                        else 10
+
+                )
+
+            if df.empty:
+
+                ws.update(
+                    [list(df.columns)]
+
+                    if len(df.columns) > 0
+
+                    else [["(빈 시트)"]]
+
+                )
+
+            else:
+
+                data = (
+
+                    [df.columns.tolist()]
+
+                    +
+                    df.astype(str).values.tolist()
+
+                )
+
+                ws.update(
+                    data
+                )
+
+            backed_up += 1
+
+        return True, f"{backed_up}개 시트를 백업했습니다."
+
+    except Exception as e:
+
+        return False, f"백업 중 오류: {e}"
+
+
+def restore_all_from_gsheet():
+
+    client, error = get_gsheet_client()
+
+    if error:
+
+        return False, error
+
+    sheet_url = get_gsheet_url()
+
+    if not sheet_url:
+
+        return False, "복원할 구글시트 URL이 없습니다."
+
+    try:
+
+        doc = client.open_by_url(
+            sheet_url
+        )
+
+        restored = 0
+
+        for local_path, sheet_name in GSHEET_BACKUP_TARGETS:
+
+            try:
+
+                ws = doc.worksheet(
+                    sheet_name
+                )
+
+            except gspread.WorksheetNotFound:
+
+                continue
+
+            values = ws.get_all_values()
+
+            if not values:
+
+                continue
+
+            headers = values[0]
+
+            rows = values[1:]
+
+            wb = Workbook()
+
+            out_ws = wb.active
+
+            out_ws.title = sheet_name
+
+            out_ws.append(
+                headers
+            )
+
+            for row in rows:
+
+                out_ws.append(
+                    row
+                )
+
+            wb.save(
+                local_path
+            )
+
+            wb.close()
+
+            restored += 1
+
+        _read_excel_cached.clear()
+
+        return True, f"{restored}개 시트를 복원했습니다."
+
+    except Exception as e:
+
+        return False, f"복원 중 오류: {e}"
+
+
+# ============================================================
+# 10-11. 이메일 자동발송
+#
+# Streamlit 앱 자체는 "매달 1일 자동으로" 실행되는 백그라운드
+# 스케줄러가 없다(사람이 접속해야 코드가 돈다). 그래서 여기선
+# "버튼 누르면 지금 바로 발송"까지만 만든다. 진짜 매달 자동
+# 발송을 원하면, 외부 스케줄러(예: GitHub Actions)가 이
+# 버튼과 동일한 함수를 주기적으로 호출해줘야 한다.
+# ============================================================
+
+def send_monthly_summary_email(
+
+    recipient_list,
+    subject,
+    body_text
+
+):
+
+    try:
+
+        smtp_host = st.secrets.get(
+            "SMTP_HOST",
+            "smtp.gmail.com"
+        )
+
+        smtp_port = int(
+
+            st.secrets.get(
+                "SMTP_PORT",
+                587
+            )
+
+        )
+
+        smtp_user = st.secrets.get(
+            "SMTP_USER"
+        )
+
+        smtp_password = st.secrets.get(
+            "SMTP_PASSWORD"
+        )
+
+    except Exception:
+
+        smtp_user = None
+
+        smtp_password = None
+
+    if not smtp_user or not smtp_password:
+
+        return False, (
+
+            "이메일 발송 계정이 설정되지 않았습니다. "
+            "Streamlit Secrets에 SMTP_USER, SMTP_PASSWORD를 "
+            "등록해주세요 (Gmail이면 앱 비밀번호 필요)."
+
+        )
+
+    try:
+
+        msg = MIMEMultipart()
+
+        msg["From"] = smtp_user
+
+        msg["To"] = ", ".join(
+            recipient_list
+        )
+
+        msg["Subject"] = subject
+
+        msg.attach(
+
+            MIMEText(
+                body_text,
+                "plain",
+                "utf-8"
+            )
+
+        )
+
+        with smtplib.SMTP(
+
+            smtp_host,
+            smtp_port
+
+        ) as server:
+
+            server.starttls()
+
+            server.login(
+                smtp_user,
+                smtp_password
+            )
+
+            server.sendmail(
+
+                smtp_user,
+
+                recipient_list,
+
+                msg.as_string()
+
+            )
+
+        return True, f"{len(recipient_list)}명에게 발송했습니다."
+
+    except Exception as e:
+
+        return False, f"이메일 발송 중 오류: {e}"
+
+
+def build_monthly_summary_email_body(all_pumps, df_history):
+
+    normal = watch = repair = 0
+
+    repair_names = []
+
+    for pump in all_pumps:
+
+        result = pump_status(
+
+            pump,
+            df_history
+
+        )
+
+        if result["상태"] == "정상":
+
+            normal += 1
+
+        elif result["상태"] == "관찰":
+
+            watch += 1
+
+        else:
+
+            repair += 1
+
+            repair_names.append(
+                pump["equip"]
+            )
+
+    lines = [
+
+        f"[K-water tech 설비관리] "
+        f"{datetime.now().strftime('%Y년 %m월')} 월간 요약",
+        "",
+        f"전체 설비: {len(all_pumps)}대",
+        f"정상: {normal}대 / 관찰: {watch}대 / 정비검토: {repair}대",
+        ""
+
+    ]
+
+    if repair_names:
+
+        lines.append(
+
+            "정비검토 필요 설비: "
+            +
+            ", ".join(repair_names)
+
+        )
+
+    lines.append(
+
+        "\n자세한 내용은 K-water tech 설비관리 플랫폼에서 "
+        "확인하세요."
+
+    )
+
+    return "\n".join(lines)
+
+
+# ============================================================
+# 10-12. 통합검색
+#
+# 설비마스터·진단이력·오버홀이력·소모품재고·일위대가·노하우가
+# 다 따로따로 있어서, 뭔가 찾으려면 메뉴를 여러 개 돌아다녀야
+# 했다. 검색어 하나로 전부 한 번에 훑어서 어디에 뭐가
+# 있는지 보여준다.
+# ============================================================
+
+def find_similar_by_tfidf(
+
+    keyword,
+    df,
+    text_columns,
+    exclude_index=None,
+    top_n=5,
+    min_similarity=0.12
+
+):
+
+    # 정확한 단어가 하나도 안 겹쳐도, TF-IDF 코사인 유사도로
+    # "의미가 비슷한" 과거 사례를 찾아준다(진짜 의미 이해는
+    # 아니지만, 단어 조합의 패턴이 비슷한 문서를 순위 매겨
+    # 보여주는 가벼운 통계기반 검색).
+
+    if df is None or df.empty:
+
+        return pd.DataFrame()
+
+    valid_cols = [
+
+        c for c in text_columns
+
+        if c in df.columns
+
+    ]
+
+    if not valid_cols:
+
+        return pd.DataFrame()
+
+    corpus_df = df
+
+    if exclude_index is not None:
+
+        corpus_df = df.drop(
+
+            index=exclude_index,
+
+            errors="ignore"
+
+        )
+
+    if corpus_df.empty:
+
+        return pd.DataFrame()
+
+    combined_text = corpus_df[valid_cols].astype(
+
+        str
+
+    ).agg(" ".join, axis=1)
+
+    try:
+
+        vectorizer = TfidfVectorizer(
+
+            analyzer="char_wb",
+
+            ngram_range=(2, 3)
+
+        )
+
+        tfidf_matrix = vectorizer.fit_transform(
+
+            combined_text.tolist() + [keyword]
+
+        )
+
+        sims = cosine_similarity(
+
+            tfidf_matrix[-1],
+
+            tfidf_matrix[:-1]
+
+        )[0]
+
+    except Exception:
+
+        return pd.DataFrame()
+
+    ranked_idx = np.argsort(sims)[::-1]
+
+    picked = []
+
+    for i in ranked_idx[:top_n]:
+
+        if sims[i] >= min_similarity:
+
+            picked.append(
+
+                corpus_df.index[i]
+
+            )
+
+    if not picked:
+
+        return pd.DataFrame()
+
+    return corpus_df.loc[picked]
+
+
+def run_unified_search(keyword, all_pumps):
+
+    keyword = keyword.strip()
+
+    if not keyword:
+
+        return {}
+
+    results = {}
+
+    # 1) 설비마스터
+
+    equip_matches = [
+
+        p for p in all_pumps
+
+        if keyword.lower() in p["equip"].lower()
+
+        or keyword.lower() in p["site"].lower()
+
+    ]
+
+    if equip_matches:
+
+        results["설비"] = equip_matches
+
+    # 2) 정밀진단 이력
+
+    df_diag = read_excel(
+        DB_FILE_PATH,
+        "진단이력"
+    )
+
+    if not df_diag.empty:
+
+        mask = df_diag.apply(
+
+            lambda row: keyword.lower() in str(
+
+                row.get("설비명", "")
+
+            ).lower()
+
+            or keyword.lower() in str(
+
+                row.get("점검자", "")
+
+            ).lower(),
+
+            axis=1
+
+        )
+
+        matched = df_diag[mask]
+
+        if not matched.empty:
+
+            results["정밀진단 이력"] = matched
+
+    # 3) 오버홀 이력
+
+    df_overhaul = read_excel(
+        OVERHAUL_DB_PATH,
+        "오버홀이력"
+    )
+
+    if not df_overhaul.empty:
+
+        mask = df_overhaul.apply(
+
+            lambda row: any(
+
+                keyword.lower() in str(v).lower()
+
+                for v in row.values
+
+            ),
+
+            axis=1
+
+        )
+
+        matched = df_overhaul[mask]
+
+        if not matched.empty:
+
+            results["오버홀 이력"] = matched
+
+    # 4) 소모품 재고
+
+    df_cons = get_consumables()
+
+    if not df_cons.empty:
+
+        mask = df_cons["소모품명"].str.contains(
+
+            keyword,
+            case=False,
+            na=False
+
+        )
+
+        matched = df_cons[mask]
+
+        if not matched.empty:
+
+            results["소모품 재고"] = matched
+
+    # 5) 일위대가 라이브러리
+
+    df_unitprice = get_unitprice_library()
+
+    if not df_unitprice.empty:
+
+        mask = df_unitprice["항목명"].str.contains(
+
+            keyword,
+            case=False,
+            na=False
+
+        )
+
+        matched = df_unitprice[mask]
+
+        if not matched.empty:
+
+            results["일위대가 라이브러리"] = matched
+
+    # 6) 기술 노하우 — 정확한 단어가 없어도 "의미가 비슷한"
+    # 사례를 찾을 수 있도록, 정확 매칭에 더해 TF-IDF 기반
+    # 유사도 검색도 같이 돌린다.
+
+    df_knowhow = read_excel(
+        KNOWHOW_DB_PATH,
+        "노하우DB"
+    )
+
+    if not df_knowhow.empty:
+
+        mask = df_knowhow.apply(
+
+            lambda row: any(
+
+                keyword.lower() in str(v).lower()
+
+                for v in row.values
+
+            ),
+
+            axis=1
+
+        )
+
+        matched = df_knowhow[mask]
+
+        similar = find_similar_by_tfidf(
+
+            keyword,
+
+            df_knowhow,
+
+            text_columns=["현상및원인", "해결노하우"],
+
+            exclude_index=matched.index
+
+        )
+
+        if not matched.empty:
+
+            results["기술 노하우 (정확일치)"] = matched
+
+        if not similar.empty:
+
+            results["기술 노하우 (비슷한 사례·AI 추천)"] = similar
+
+    return results
+
+
 def get_vib_judgement(value):
 
     if value is None:
@@ -12678,6 +14378,8 @@ with st.sidebar:
     main_menus = [
 
         ("홈", "🏠 설비관리 홈"),
+
+        ("통합검색", "🔎 통합검색"),
 
         ("설비", "🏭 설비 관리"),
 
@@ -16343,6 +18045,14 @@ elif st.session_state.page == "CBM":
 
     ranking = []
 
+    df_vib_for_cbm = read_excel(
+
+        VIBRATION_DB_PATH,
+
+        "진동측정이력"
+
+    )
+
     for pump in ALL_PUMPS:
 
         result = pump_status(
@@ -16355,6 +18065,27 @@ elif st.session_state.page == "CBM":
             1
         )
 
+        pred = predict_failure_date_regression(
+
+            pump,
+            df_vib_for_cbm
+
+        )
+
+        if pred and pred.get("status") == "predicted":
+
+            ai_pred_text = str(
+                pred["predicted_date"]
+            )
+
+        elif pred and pred.get("status") == "stable":
+
+            ai_pred_text = "안정적"
+
+        else:
+
+            ai_pred_text = "예측불가"
+
         ranking.append(
 
             {
@@ -16366,7 +18097,8 @@ elif st.session_state.page == "CBM":
                 "효율": result["효율"],
                 "진동": result["진동"],
                 "등급": result["등급"],
-                "정비판단": result["상태"]
+                "정비판단": result["상태"],
+                "AI예측 위험도달일": ai_pred_text
             }
 
         )
@@ -17216,6 +18948,150 @@ elif st.session_state.page == "AI":
         pump,
         df_history
     )
+
+    st.write("---")
+
+    st.markdown(
+        "### 🤖 AI 고장예측 (회귀분석)"
+    )
+
+    st.caption(
+
+        "규칙(임계값 비교)이 아니라, 실제 진동 이력에 선형회귀를 "
+        "적합시켜 위험 기준(8.5mm/s) 도달 시점을 통계적으로 "
+        "예측합니다."
+
+    )
+
+    df_vib_ai = read_excel(
+
+        VIBRATION_DB_PATH,
+
+        "진동측정이력"
+
+    )
+
+    prediction = predict_failure_date_regression(
+
+        pump,
+        df_vib_ai
+
+    )
+
+    if prediction is None:
+
+        st.info(
+            "이 설비의 진동측정 이력이 없습니다."
+        )
+
+    elif prediction["status"] == "insufficient_data":
+
+        st.info(
+
+            f"예측하려면 최소 3개월치 데이터가 필요합니다 "
+            f"(현재 {prediction['months_count']}개월)."
+
+        )
+
+    else:
+
+        pred_fig = build_failure_prediction_chart_fig(
+
+            pump,
+            prediction
+
+        )
+
+        st.pyplot(
+            pred_fig
+        )
+
+        if prediction["status"] == "predicted":
+
+            st.warning(
+
+                f"⚠️ 현재 추세가 이어지면 약 "
+                f"**{prediction['predicted_date']}**경 "
+                f"위험 기준(8.5mm/s)에 도달할 것으로 "
+                f"예측됩니다 (결정계수 R²="
+                f"{prediction['r_squared']:.2f}, 1에 "
+                "가까울수록 추세가 뚜렷함)."
+                +
+                (
+                    " 6개월 이상 데이터가 쌓여 월별 계절편차"
+                    "(예: 여름철 부하 상승분)까지 반영한 "
+                    "예측입니다."
+
+                    if prediction.get("seasonal_applied")
+
+                    else " (데이터가 6개월 미만이라 계절성은 "
+                    "반영하지 못했습니다.)"
+                )
+
+            )
+
+        else:
+
+            st.success(
+
+                f"✅ 진동값이 증가 추세가 아니거나 안정적입니다 "
+                f"(R²={prediction['r_squared']:.2f})."
+
+            )
+
+    st.write("---")
+
+    st.markdown(
+        "### 🤖 AI 종합의견 생성 (LLM)"
+    )
+
+    st.caption(
+
+        "정해진 문장 틀이 아니라, 실제 Claude API를 호출해서 "
+        "이 설비의 데이터를 보고 종합의견을 새로 작성합니다. "
+        "(Streamlit Secrets에 ANTHROPIC_API_KEY 등록 필요)"
+
+    )
+
+    if st.button(
+
+        "🤖 AI에게 종합의견 작성 요청",
+
+        type="primary",
+
+        key="generate_ai_commentary_btn"
+
+    ):
+
+        with st.spinner(
+            "AI가 데이터를 분석하고 있습니다..."
+        ):
+
+            commentary, error = generate_ai_commentary_for_equipment(
+
+                pump,
+                result,
+                prediction
+
+            )
+
+        if error:
+
+            st.error(
+                error
+            )
+
+        else:
+
+            st.session_state["_ai_commentary"] = commentary
+
+    if "_ai_commentary" in st.session_state:
+
+        st.info(
+
+            st.session_state["_ai_commentary"]
+
+        )
 
     g1, g2 = st.columns(2)
 
@@ -18318,6 +20194,23 @@ if st.session_state.page == "보고서" and report_mode == "설비별 CBM 월간
 
     )
 
+    use_ai_commentary_checkbox = st.checkbox(
+
+        "🤖 AI(Claude)가 종합소견을 직접 작성하도록 하기",
+
+        key="use_ai_commentary_checkbox"
+
+    )
+
+    st.caption(
+
+        "체크하면 미리 정해둔 문장 틀 대신, 실제 Claude API가 "
+        "이 설비 데이터를 보고 종합소견을 새로 씁니다 "
+        "(Streamlit Secrets에 ANTHROPIC_API_KEY 필요, 없으면 "
+        "기본 요약으로 자동 대체됩니다)."
+
+    )
+
     if st.button(
 
         "📝 Word 월간 보고서 생성",
@@ -18344,7 +20237,9 @@ if st.session_state.page == "보고서" and report_mode == "설비별 CBM 월간
 
                 df_history,
 
-                ALL_PUMPS
+                ALL_PUMPS,
+
+                use_ai_commentary=use_ai_commentary_checkbox
 
             )
 
@@ -20654,6 +22549,290 @@ elif st.session_state.page == "백업":
     st.write("")
 
     st.markdown(
+        "### 📊 종합 대시보드 PDF"
+    )
+
+    st.caption(
+
+        "설비 하나씩이 아니라, 이번 달 전체 사업장 현황을 "
+        "한 장으로 정리한 경영보고용 요약 PDF를 만듭니다."
+
+    )
+
+    if st.button(
+
+        "📊 종합 대시보드 PDF 생성",
+
+        type="primary",
+
+        use_container_width=True,
+
+        key="generate_dashboard_pdf_btn"
+
+    ):
+
+        with st.spinner(
+            "대시보드를 만드는 중입니다..."
+        ):
+
+            _dash_site_list = sorted(
+
+                set(
+                    p["site"] for p in ALL_PUMPS
+                )
+
+            )
+
+            dashboard_pdf_bytes = build_dashboard_summary_pdf(
+
+                ALL_PUMPS,
+
+                df_history,
+
+                _dash_site_list
+
+            )
+
+        st.session_state[
+
+            "_dashboard_pdf_bytes"
+
+        ] = dashboard_pdf_bytes
+
+    if "_dashboard_pdf_bytes" in st.session_state:
+
+        st.download_button(
+
+            "⬇️ 대시보드 PDF 다운로드",
+
+            data=st.session_state["_dashboard_pdf_bytes"],
+
+            file_name=(
+
+                f"{datetime.now().strftime('%Y%m')}_"
+                "종합대시보드.pdf"
+
+            ),
+
+            mime="application/pdf",
+
+            use_container_width=True,
+
+            key="download_dashboard_pdf_btn"
+
+        )
+
+    st.write("")
+
+    st.markdown(
+        "### ☁️ 구글시트 백업/복원"
+    )
+
+    st.caption(
+
+        "서버가 재배포되면 로컬 데이터가 사라질 수 있는 문제의 "
+        "안전장치입니다. 구글 서비스계정 연결이 되어있어야 "
+        "동작합니다 (Streamlit Secrets에 gcp_service_account, "
+        "GSHEET_BACKUP_URL 등록 필요)."
+
+    )
+
+    gcol1, gcol2 = st.columns(2)
+
+    with gcol1:
+
+        if st.button(
+
+            "☁️ 지금 구글시트로 백업",
+
+            use_container_width=True,
+
+            key="gsheet_backup_btn"
+
+        ):
+
+            with st.spinner(
+                "백업하는 중입니다..."
+            ):
+
+                ok, msg = backup_all_to_gsheet()
+
+            if ok:
+
+                st.success(
+                    msg
+                )
+
+            else:
+
+                st.error(
+                    msg
+                )
+
+    with gcol2:
+
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 복원할 수 없습니다."
+            )
+
+        elif st.button(
+
+            "⬇️ 구글시트에서 복원",
+
+            use_container_width=True,
+
+            key="gsheet_restore_btn"
+
+        ):
+
+            st.session_state["_confirm_gsheet_restore"] = True
+
+        if st.session_state.get(
+
+            "_confirm_gsheet_restore"
+
+        ):
+
+            st.warning(
+
+                "⚠️ 지금 로컬 데이터를 구글시트 내용으로 "
+                "덮어씁니다. 계속할까요?"
+
+            )
+
+            ccol1, ccol2 = st.columns(2)
+
+            if ccol1.button(
+
+                "예, 복원합니다",
+
+                key="confirm_restore_yes"
+
+            ):
+
+                with st.spinner(
+                    "복원하는 중입니다..."
+                ):
+
+                    ok, msg = restore_all_from_gsheet()
+
+                st.session_state["_confirm_gsheet_restore"] = False
+
+                if ok:
+
+                    st.success(
+                        msg
+                    )
+
+                else:
+
+                    st.error(
+                        msg
+                    )
+
+                st.rerun()
+
+            if ccol2.button(
+
+                "취소",
+
+                key="confirm_restore_no"
+
+            ):
+
+                st.session_state["_confirm_gsheet_restore"] = False
+
+                st.rerun()
+
+    st.write("")
+
+    st.markdown(
+        "### 📧 이메일 월간요약 발송"
+    )
+
+    st.caption(
+
+        "지금 버튼을 누르면 즉시 발송됩니다. 매달 자동으로 "
+        "보내려면 이 기능을 외부 스케줄러(예: GitHub Actions)가 "
+        "주기적으로 호출해야 합니다 — 앱 자체는 접속 없이 "
+        "혼자 실행되지 않습니다. (Streamlit Secrets에 "
+        "SMTP_USER, SMTP_PASSWORD 등록 필요)"
+
+    )
+
+    email_recipients_text = st.text_input(
+
+        "받는 사람 이메일 (쉼표로 구분)",
+
+        key="email_recipients_input"
+
+    )
+
+    if st.button(
+
+        "📧 지금 이메일 발송",
+
+        use_container_width=True,
+
+        key="send_email_now_btn"
+
+    ):
+
+        _recipients = [
+
+            e.strip()
+
+            for e in email_recipients_text.split(",")
+
+            if e.strip()
+
+        ]
+
+        if not _recipients:
+
+            st.error(
+                "받는 사람 이메일을 입력해주세요."
+            )
+
+        else:
+
+            _body = build_monthly_summary_email_body(
+
+                ALL_PUMPS,
+
+                df_history
+
+            )
+
+            ok, msg = send_monthly_summary_email(
+
+                _recipients,
+
+                f"[K-water tech] "
+                f"{datetime.now().strftime('%Y년 %m월')} "
+                "설비관리 월간요약",
+
+                _body
+
+            )
+
+            if ok:
+
+                st.success(
+                    msg
+                )
+
+            else:
+
+                st.error(
+                    msg
+                )
+
+    st.write("")
+
+    st.markdown(
         "### 📦 DB 백업"
     )
 
@@ -20774,6 +22953,187 @@ elif st.session_state.page == "백업":
         lambda: pd.DataFrame(ALL_PUMPS)
 
     )
+
+
+# ============================================================
+# 25-1. 통합검색
+# ============================================================
+
+elif st.session_state.page == "통합검색":
+
+    render_back_to_home_button("search")
+
+    st.markdown(
+        """
+        <div class="section-title">
+        🔎 통합검색
+        </div>
+
+        <div class="section-caption">
+        설비마스터·정밀진단·오버홀이력·소모품재고·일위대가·
+        기술노하우를 한 번에 검색합니다.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    search_keyword = st.text_input(
+
+        "검색어",
+
+        placeholder="예: 가압펌프 #3, 최진욱, 볼밸브 ...",
+
+        key="unified_search_keyword"
+
+    )
+
+    if "_recent_searches" not in st.session_state:
+
+        st.session_state["_recent_searches"] = []
+
+    if search_keyword.strip():
+
+        _recent = st.session_state["_recent_searches"]
+
+        if search_keyword.strip() in _recent:
+
+            _recent.remove(
+                search_keyword.strip()
+            )
+
+        _recent.insert(
+            0,
+            search_keyword.strip()
+        )
+
+        st.session_state["_recent_searches"] = _recent[:5]
+
+    if st.session_state["_recent_searches"]:
+
+        st.caption(
+            "🕘 최근 검색어"
+        )
+
+        recent_cols = st.columns(
+
+            len(st.session_state["_recent_searches"])
+
+        )
+
+        for i, kw in enumerate(
+
+            st.session_state["_recent_searches"]
+
+        ):
+
+            if recent_cols[i].button(
+
+                kw,
+
+                key=f"recent_search_{i}",
+
+                use_container_width=True
+
+            ):
+
+                st.session_state["unified_search_keyword"] = kw
+
+                st.rerun()
+
+    if search_keyword.strip():
+
+        search_results = run_unified_search(
+
+            search_keyword,
+
+            ALL_PUMPS
+
+        )
+
+        if not search_results:
+
+            st.info(
+                "검색 결과가 없습니다."
+            )
+
+        else:
+
+            total_hits = sum(
+
+                len(v)
+
+                for v in search_results.values()
+
+            )
+
+            st.caption(
+
+                f"'{search_keyword}' 검색 결과: 총 "
+                f"{total_hits}건"
+
+            )
+
+            if "설비" in search_results:
+
+                st.markdown(
+                    "##### 🏭 설비"
+                )
+
+                for p in search_results["설비"]:
+
+                    scol1, scol2 = st.columns(
+
+                        [4, 1]
+
+                    )
+
+                    scol1.write(
+
+                        f"**{p['equip']}** ({p['site']})"
+
+                    )
+
+                    if scol2.button(
+
+                        "열기",
+
+                        key=f"search_goto_{p['equip']}"
+
+                    ):
+
+                        st.session_state.page = "QR"
+
+                        st.query_params["page"] = "QR"
+
+                        st.query_params["equip"] = p["equip"]
+
+                        st.rerun()
+
+            for label, df_result in search_results.items():
+
+                if label == "설비":
+
+                    continue
+
+                st.markdown(
+                    f"##### {label} ({len(df_result)}건)"
+                )
+
+                st.dataframe(
+
+                    df_result,
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+    else:
+
+        st.info(
+            "검색어를 입력해주세요."
+        )
 
 
 # ============================================================

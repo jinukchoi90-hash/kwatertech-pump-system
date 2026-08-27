@@ -7,3 +7,7 @@ qrcode[pil]
 filelock
 python-docx
 reportlab
+requests
+gspread
+google-auth
+scikit-learn
