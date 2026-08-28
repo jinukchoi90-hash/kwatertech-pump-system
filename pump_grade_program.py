@@ -12,6 +12,7 @@ import urllib.request
 import requests
 import gspread
 import smtplib
+import time
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from email.mime.multipart import MIMEMultipart
@@ -5046,6 +5047,49 @@ def parse_unitprice_sheet(df):
 
 DEFAULT_UNITPRICE_ITEMS = [{'항목명': '터파기', '규격': '', '단위': '㎥', '노무비단가': 16064.0, '재료비단가': 626.0, '기계경비단가': 823.0, '외주경비단가': 0.0, '합계단가': 17513.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '터파기', '규격': '보통토사', '수량': 0.05555555555555556, '단위': '인', '노무비단가': 226122.0, '노무비금액': 12562.0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '터파기 및 상차', '규격': '', '수량': 0.05934718100890207, '단위': '인', '노무비단가': 59020.0, '노무비금액': 3502.0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '2. 재 료 비', '종별': '터파기 및 상차', '규격': '', '수량': 0.05934718100890207, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 10559.0, '재료비금액': 626.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '3. 기계 경비', '종별': '굴착기', '규격': '', '수량': 0.05934718100890207, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 13873.0, '기계경비금액': 823.0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '_붙임1_산출내역서__부곡_가__인라인펌프장_배수펌프_배관_재설치.xlsx'}, {'항목명': '되메우기', '규격': '', '단위': '㎥', '노무비단가': 11625.0, '재료비단가': 626.0, '기계경비단가': 619.0, '외주경비단가': 0.0, '합계단가': 12870.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '부설', '규격': '보통인부', '수량': 0.020000000000000004, '단위': '인', '노무비단가': 172068.0, '노무비금액': 3441.0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0.0}, {'구분': '1. 노 무 비', '종별': '기계부설', '규격': '', '수량': 0.03848003848003848, '단위': '인', '노무비단가': 59020.0, '노무비금액': 2271.0918710918713, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '다짐', '규격': '', '수량': 0.1631321370309951, '단위': '인', '노무비단가': 36248.0, '노무비금액': 5913.0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '2. 재 료 비', '종별': '기계부설', '규격': '', '수량': 0.03848003848003848, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 10559.0, '재료비금액': 406.31072631072635, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '2. 재 료 비', '종별': '다짐', '규격': '', '수량': 0.1631321370309951, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 1352.0, '재료비금액': 220.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '3. 기계 경비', '종별': '기계부설', '규격': '', '수량': 0.03848003848003848, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 13873.0, '기계경비금액': 533.8335738335738, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '3. 기계 경비', '종별': '다짐', '규격': '', '수량': 0.1631321370309951, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 525.0, '기계경비금액': 85.0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '_붙임1_산출내역서__부곡_가__인라인펌프장_배수펌프_배관_재설치.xlsx'}, {'항목명': '장비대기시간', '규격': '', '단위': '시간당', '노무비단가': 59020.0, '재료비단가': 10559.0, '기계경비단가': 13873.0, '외주경비단가': 0.0, '합계단가': 83452.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '건설기계운전사', '규격': '', '수량': 1.0, '단위': '인', '노무비단가': 59020.2, '노무비금액': 59020.2, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '2. 재 료 비', '종별': '경유', '규격': '', '수량': 5.0, '단위': 'L', '노무비단가': 0, '노무비금액': 0, '재료비단가': 1745.455, '재료비금액': 8727.275, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '2. 재 료 비', '종별': '잡품', '규격': '경유값의 21%', '수량': 21.0, '단위': '%', '노무비단가': 0, '노무비금액': 0, '재료비단가': 0, '재료비금액': 1831.72775, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '3. 기계 경비', '종별': '굴착기', '규격': '0.2 M3', '수량': 0.2085, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 66538.0, '기계경비금액': 13873.172999999999, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '_붙임1_산출내역서__부곡_가__인라인펌프장_배수펌프_배관_재설치.xlsx'}, {'항목명': '엘보 설치', '규격': '', '단위': '개당', '노무비단가': 27700.0, '재료비단가': 8536.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 36236.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '엘보 설치', '규격': '배관공', '수량': 0.11173999999999999, '단위': '인', '노무비단가': 247897.0, '노무비금액': 27700.0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '2. 재 료 비', '종별': '엘보', '규격': '', '수량': 1.0, '단위': '개', '노무비단가': 0, '노무비금액': 0, '재료비단가': 8536.0, '재료비금액': 8536.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '_붙임1_산출내역서__부곡_가__인라인펌프장_배수펌프_배관_재설치.xlsx'}, {'항목명': '배관 설치', '규격': '', '단위': '일당', '노무비단가': 915759.0, '재료비단가': 0.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 915759.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '용접 배관', '규격': '배관공', '수량': 3.0, '단위': '인', '노무비단가': 247897.0, '노무비금액': 743691.0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '_붙임1_산출내역서__부곡_가__인라인펌프장_배수펌프_배관_재설치.xlsx'}, {'항목명': '모래 채움', '규격': '', '단위': '식', '노무비단가': 0.0, '재료비단가': 177000.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 177000.0, '상세내역': [{'구분': '1. 재 료 비', '종별': '모래 자갈 채움', '규격': '', '수량': 3.0, '단위': '㎥', '노무비단가': 0, '노무비금액': 0, '재료비단가': 59000.0, '재료비금액': 177000.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '_붙임1_산출내역서__부곡_가__인라인펌프장_배수펌프_배관_재설치.xlsx'}, {'항목명': '배관 및 보온재', '규격': '', '단위': '식', '노무비단가': 0.0, '재료비단가': 606200.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 606200.0, '상세내역': [{'구분': '1. 재 료 비', '종별': '배관 설치', '규격': '', '수량': 3.0, '단위': '본', '노무비단가': 0, '노무비금액': 0, '재료비단가': 180000.0, '재료비금액': 540000.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 재 료 비', '종별': '보온재', '규격': '', '수량': 10.0, '단위': '매', '노무비단가': 0, '노무비금액': 0, '재료비단가': 6620.0, '재료비금액': 66200.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '_붙임1_산출내역서__부곡_가__인라인펌프장_배수펌프_배관_재설치.xlsx'}, {'항목명': '배관해체', '규격': '', '단위': '일당', '노무비단가': 272184.0, '재료비단가': 0.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 272184.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '배관공', '규격': '', '수량': 0.8119999999999999, '단위': '인', '노무비단가': 247897.0, '노무비금액': 201292.0, '재료비단가': 0.0, '재료비금액': 0.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '보통인부', '규격': '', '수량': 0.41200000000000003, '단위': '인', '노무비단가': 172068.0, '노무비금액': 70892.0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '_붙임1_산출내역서__부곡_가__인라인펌프장_배수펌프_배관_재설치.xlsx'}, {'항목명': '배관보온', '규격': '', '단위': '일당', '노무비단가': 606092.0, '재료비단가': 0.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 606092.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '보온공', '규격': '', '수량': 2.0, '단위': '인', '노무비단가': 217012.0, '노무비금액': 434024.0, '재료비단가': 0.0, '재료비금액': 0.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '보통인부', '규격': '', '수량': 1.0, '단위': '인', '노무비단가': 172068.0, '노무비금액': 172068.0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '_붙임1_산출내역서__부곡_가__인라인펌프장_배수펌프_배관_재설치.xlsx'}, {'항목명': '배관 해체 (32A)', '규격': '', '단위': 'M', '노무비단가': 6947.0, '재료비단가': 139.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 7086.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '배관 철거', '규격': '배관공(32A)', '수량': 0.019, '단위': '인', '노무비단가': 247897.0, '노무비금액': 4710.1, '재료비단가': 0, '재료비금액': 0.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '2. 공구손료', '규격': '', '수량': 0, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '노무비의', '규격': '0.02', '수량': 2.0, '단위': '%', '노무비단가': 0, '노무비금액': 0, '재료비단가': 139.0, '재료비금액': 139.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '산출내역서__밀양_정__방류수_샘플링_배관_교체.xlsx'}, {'항목명': '배관 해체 (50A)', '규격': '', '단위': 'M', '노무비단가': 9791.0, '재료비단가': 196.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 9987.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '배관 철거', '규격': '배관공(50A)', '수량': 0.027, '단위': '인', '노무비단가': 247897.0, '노무비금액': 6693.3, '재료비단가': 0, '재료비금액': 0.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '2. 공구손료', '규격': '', '수량': 0, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '노무비의', '규격': '0.02', '수량': 2.0, '단위': '%', '노무비단가': 0, '노무비금액': 0, '재료비단가': 196.0, '재료비금액': 196.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '산출내역서__밀양_정__방류수_샘플링_배관_교체.xlsx'}, {'항목명': '배관 설치 (32A)', '규격': '', '단위': '일당', '노무비단가': 1226298.0, '재료비단가': 24526.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 1250824.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '강관 설치', '규격': '배관공(32A) / 0.67배 반영', '수량': 2.0100000000000002, '단위': '인', '노무비단가': 247897.0, '노무비금액': 498273.0, '재료비단가': 0, '재료비금액': 0.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '2. 공구손료', '규격': '', '수량': 0, '단위': '', '노무비단가': 0, '노무비금액': 0, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '노무비의', '규격': '0.02', '수량': 2.0, '단위': '%', '노무비단가': 0, '노무비금액': 0, '재료비단가': 24526.0, '재료비금액': 24526.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '산출내역서__밀양_정__방류수_샘플링_배관_교체.xlsx'}, {'항목명': '배관 보온', '규격': '', '단위': '일당', '노무비단가': 454569.0, '재료비단가': 0.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': 454569.0, '상세내역': [{'구분': '1. 노 무 비', '종별': '보온 두께 25mm이하', '규격': '보온공(32A 이하) / 0.32배 반영', '수량': 0.64, '단위': '인', '노무비단가': 217012.0, '노무비금액': 138887.7, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}, {'구분': '1. 노 무 비', '종별': '(발포 폴리에틸렌)', '규격': '보통인부(32A 이하) / 0.32배 반영', '수량': 0.32, '단위': '인', '노무비단가': 172068.0, '노무비금액': 55061.799999999996, '재료비단가': 0, '재료비금액': 0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '산출내역서__밀양_정__방류수_샘플링_배관_교체.xlsx'}, {'항목명': '발생품 공제(고비철)', '규격': '', '단위': '식', '노무비단가': 0.0, '재료비단가': -1700.0, '기계경비단가': 0.0, '외주경비단가': 0.0, '합계단가': -1700.0, '상세내역': [{'구분': '1. 재 료 비', '종별': '발생품 고비철', '규격': '스테인리스', '수량': 1.0, '단위': 'kg', '노무비단가': 0, '노무비금액': 0.0, '재료비단가': -1700.0, '재료비금액': -1700.0, '기계경비단가': 0, '기계경비금액': 0, '외주경비단가': 0, '외주경비금액': 0}], '출처공사': '산출내역서__밀양_정__방류수_샘플링_배관_교체.xlsx'}]
 
+
+
+def find_similar_item_names(new_name, existing_names, threshold=0.82):
+
+    # 완전히 똑같은 이름은 자동으로 걸러지지만("배관해체" 두
+    # 번 등록 안 됨), "배관해체"와 "배관 해체 (32A)"처럼
+    # 사람이 봐도 헷갈리는 비슷한 이름은 그냥 다른 항목으로
+    # 등록되어 라이브러리가 지저분해질 수 있다. 등록 직전에
+    # 미리 알려준다.
+
+    import difflib
+
+    similar = []
+
+    for name in existing_names:
+
+        if name == new_name:
+
+            continue
+
+        ratio = difflib.SequenceMatcher(
+
+            None,
+            new_name,
+            name
+
+        ).ratio()
+
+        if ratio >= threshold:
+
+            similar.append(
+                (name, ratio)
+            )
+
+    return sorted(
+
+        similar,
+
+        key=lambda x: x[1],
+
+        reverse=True
+
+    )
 
 
 def import_unitprice_items_to_library(items, source_name=""):
@@ -10526,6 +10570,209 @@ def predict_failure_date_regression(pump, df_vib):
     return result
 
 
+PREDICTION_LOG_DB_PATH = "Pump_PredictionLog_DB.xlsx"
+
+
+def ensure_prediction_log_exists():
+
+    ensure_excel_file(
+
+        PREDICTION_LOG_DB_PATH,
+
+        "예측이력",
+
+        [
+            "기록일",
+            "설비명",
+            "예측위험도달일",
+            "예측시점진동값",
+            "R2",
+            "계절성반영"
+        ]
+
+    )
+
+
+ensure_prediction_log_exists()
+
+
+def log_prediction(pump, prediction):
+
+    # 예측이 얼마나 맞았는지 나중에 검증하려면, "그때 뭐라고
+    # 예측했었는지"가 남아있어야 한다. 같은 날 같은 설비로
+    # 중복 기록하지 않도록 확인 후 남긴다.
+
+    if (
+
+        prediction is None
+
+        or prediction.get("status") != "predicted"
+
+    ):
+
+        return
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    df_log = read_excel(
+
+        PREDICTION_LOG_DB_PATH,
+
+        "예측이력"
+
+    )
+
+    if not df_log.empty:
+
+        already = df_log[
+
+            (df_log["설비명"] == pump["equip"])
+
+            &
+            (df_log["기록일"].astype(str) == today_str)
+
+        ]
+
+        if not already.empty:
+
+            return
+
+    safe_append_row(
+
+        PREDICTION_LOG_DB_PATH,
+
+        "예측이력",
+
+        [
+            today_str,
+            pump["equip"],
+            str(prediction["predicted_date"]),
+            prediction["values"][-1],
+            round(prediction["r_squared"], 3),
+            "예" if prediction.get("seasonal_applied") else "아니오"
+        ]
+
+    )
+
+
+def verify_past_predictions(all_pumps, df_vib):
+
+    # 예측일이 이미 지난 과거 예측들을 모아서, 실제로 그
+    # 시점에 위험기준(8.5)에 도달했었는지 확인한다.
+
+    df_log = read_excel(
+
+        PREDICTION_LOG_DB_PATH,
+
+        "예측이력"
+
+    )
+
+    if df_log.empty:
+
+        return pd.DataFrame()
+
+    today = datetime.now().date()
+
+    rows = []
+
+    for _, log_row in df_log.iterrows():
+
+        try:
+
+            pred_date = datetime.strptime(
+
+                str(log_row["예측위험도달일"]),
+
+                "%Y-%m-%d"
+
+            ).date()
+
+        except Exception:
+
+            continue
+
+        if pred_date > today:
+
+            continue
+
+        equip_name = log_row["설비명"]
+
+        if (
+
+            df_vib is None
+
+            or df_vib.empty
+
+            or "설비명" not in df_vib.columns
+
+        ):
+
+            actual_status = "데이터없음"
+
+        else:
+
+            equip_hist = df_vib[
+
+                df_vib["설비명"] == equip_name
+
+            ]
+
+            window_start = (
+
+                pred_date - timedelta(days=20)
+
+            ).strftime("%Y-%m")
+
+            window_end = (
+
+                pred_date + timedelta(days=20)
+
+            ).strftime("%Y-%m")
+
+            near = equip_hist[
+
+                equip_hist["측정일자"].astype(
+                    str
+                ).str[:7].between(
+
+                    window_start,
+                    window_end
+
+                )
+
+            ]
+
+            if near.empty:
+
+                actual_status = "데이터없음"
+
+            else:
+
+                max_val = near["측정값"].max()
+
+                actual_status = (
+
+                    f"실측 {max_val:.1f} "
+                    f"({'적중' if max_val >= VIB_JUDGE_BAD else '미도달'})"
+
+                )
+
+        rows.append(
+
+            {
+                "설비명": equip_name,
+                "예측시점": log_row["기록일"],
+                "예측위험도달일": log_row["예측위험도달일"],
+                "당시 R²": log_row["R2"],
+                "검증결과": actual_status
+            }
+
+        )
+
+    return pd.DataFrame(rows)
+
+
 def build_failure_prediction_chart_fig(pump, pred):
 
     fig, ax = plt.subplots(
@@ -10863,6 +11110,8 @@ def backup_all_to_gsheet():
 
         backed_up = 0
 
+        verification_issues = []
+
         for local_path, sheet_name in GSHEET_BACKUP_TARGETS:
 
             df = read_excel(
@@ -10924,7 +11173,42 @@ def backup_all_to_gsheet():
 
             backed_up += 1
 
-        return True, f"{backed_up}개 시트를 백업했습니다."
+            # 백업 직후 실제로 구글시트에서 다시 읽어서
+            # 행 개수가 일치하는지 검증한다("눌렀는데 실제로
+            # 다 옮겨졌는지" 확신할 수 있게).
+
+            uploaded_rows = len(
+                ws.get_all_values()
+            ) - 1
+
+            local_rows = len(df)
+
+            if uploaded_rows != local_rows:
+
+                verification_issues.append(
+
+                    f"{sheet_name}: 로컬 {local_rows}행 vs "
+                    f"업로드확인 {uploaded_rows}행 불일치"
+
+                )
+
+        if verification_issues:
+
+            return True, (
+
+                f"{backed_up}개 시트를 백업했지만, 일부 검증에서 "
+                "행 개수가 안 맞았습니다:\n"
+                +
+                "\n".join(verification_issues)
+
+            )
+
+        return True, (
+
+            f"{backed_up}개 시트를 백업했고, 전부 행 개수까지 "
+            "확인했습니다."
+
+        )
 
     except Exception as e:
 
@@ -11066,57 +11350,89 @@ def send_monthly_summary_email(
 
         )
 
-    try:
+    msg = MIMEMultipart()
 
-        msg = MIMEMultipart()
+    msg["From"] = smtp_user
 
-        msg["From"] = smtp_user
+    msg["To"] = ", ".join(
+        recipient_list
+    )
 
-        msg["To"] = ", ".join(
-            recipient_list
+    msg["Subject"] = subject
+
+    msg.attach(
+
+        MIMEText(
+            body_text,
+            "plain",
+            "utf-8"
         )
 
-        msg["Subject"] = subject
+    )
 
-        msg.attach(
+    # 일시적인 네트워크 문제로 실패할 수 있어서, 바로 포기하지
+    # 않고 짧은 간격을 두고 한 번 더 시도한다.
 
-            MIMEText(
-                body_text,
-                "plain",
-                "utf-8"
+    last_error = None
+
+    for attempt in range(2):
+
+        try:
+
+            with smtplib.SMTP(
+
+                smtp_host,
+                smtp_port
+
+            ) as server:
+
+                server.starttls()
+
+                server.login(
+                    smtp_user,
+                    smtp_password
+                )
+
+                server.sendmail(
+
+                    smtp_user,
+
+                    recipient_list,
+
+                    msg.as_string()
+
+                )
+
+            return True, (
+
+                f"{len(recipient_list)}명에게 발송했습니다."
+                +
+                (
+                    " (1차 시도 실패 후 재시도로 성공)"
+
+                    if attempt > 0
+
+                    else ""
+                )
+
             )
 
-        )
+        except Exception as e:
 
-        with smtplib.SMTP(
+            last_error = e
 
-            smtp_host,
-            smtp_port
+            if attempt == 0:
 
-        ) as server:
+                time.sleep(3)
 
-            server.starttls()
+    return False, (
 
-            server.login(
-                smtp_user,
-                smtp_password
-            )
+        f"이메일 발송에 2회 시도했지만 실패했습니다: "
+        f"{last_error}\n"
+        "SMTP 계정 정보(SMTP_USER/SMTP_PASSWORD)나 네트워크 "
+        "상태를 확인해주세요."
 
-            server.sendmail(
-
-                smtp_user,
-
-                recipient_list,
-
-                msg.as_string()
-
-            )
-
-        return True, f"{len(recipient_list)}명에게 발송했습니다."
-
-    except Exception as e:
-
-        return False, f"이메일 발송 중 오류: {e}"
+    )
 
 
 def build_monthly_summary_email_body(all_pumps, df_history):
@@ -11293,7 +11609,86 @@ def find_similar_by_tfidf(
     return corpus_df.loc[picked]
 
 
-def run_unified_search(keyword, all_pumps):
+def render_highlighted_table_html(df, keyword):
+
+    # st.dataframe은 셀 안에 HTML을 못 넣어서 검색어 강조가
+    # 안 된다. 검색결과만큼은 표를 직접 HTML로 그려서, 찾은
+    # 키워드 부분을 노란색으로 강조 표시한다.
+
+    keyword_escaped = re.escape(
+        keyword.strip()
+    )
+
+    def _highlight(val):
+
+        text = str(val)
+
+        try:
+
+            return re.sub(
+
+                f"({keyword_escaped})",
+
+                r'<mark style="background:#FFE066; '
+                r'padding:0 2px; border-radius:3px;">'
+                r'\1</mark>',
+
+                text,
+
+                flags=re.IGNORECASE
+
+            )
+
+        except Exception:
+
+            return text
+
+    header_html = "".join(
+
+        f'<th style="padding:6px 10px; text-align:left; '
+        f'border-bottom:2px solid #dce8ef; '
+        f'background:#f4f9fc; font-size:0.85rem;">{col}</th>'
+
+        for col in df.columns
+
+    )
+
+    rows_html = []
+
+    for _, row in df.iterrows():
+
+        cells = "".join(
+
+            f'<td style="padding:6px 10px; '
+            f'border-bottom:1px solid #eef2f6; '
+            f'font-size:0.85rem;">{_highlight(v)}</td>'
+
+            for v in row.tolist()
+
+        )
+
+        rows_html.append(
+            f"<tr>{cells}</tr>"
+        )
+
+    return (
+
+        '<div style="overflow-x:auto;">'
+        '<table style="width:100%; border-collapse:collapse;">'
+        f"<thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{''.join(rows_html)}</tbody>"
+        "</table></div>"
+
+    )
+
+
+def run_unified_search(
+
+    keyword,
+    all_pumps,
+    similarity_threshold=0.12
+
+):
 
     keyword = keyword.strip()
 
@@ -11456,7 +11851,9 @@ def run_unified_search(keyword, all_pumps):
 
             text_columns=["현상및원인", "해결노하우"],
 
-            exclude_index=matched.index
+            exclude_index=matched.index,
+
+            min_similarity=similarity_threshold
 
         )
 
@@ -18078,13 +18475,44 @@ elif st.session_state.page == "CBM":
                 pred["predicted_date"]
             )
 
+            _days_until = (
+
+                pred["predicted_date"]
+
+                -
+                datetime.now().date()
+
+            ).days
+
+            if _days_until <= 90:
+
+                ai_urgency = "🔴 임박"
+
+            elif _days_until <= 180:
+
+                ai_urgency = "🟡 관찰"
+
+            else:
+
+                ai_urgency = "🟢 여유"
+
+            _sort_key = _days_until
+
         elif pred and pred.get("status") == "stable":
 
             ai_pred_text = "안정적"
 
+            ai_urgency = "🟢 여유"
+
+            _sort_key = 99999
+
         else:
 
             ai_pred_text = "예측불가"
+
+            ai_urgency = "-"
+
+            _sort_key = 100000
 
         ranking.append(
 
@@ -18098,7 +18526,9 @@ elif st.session_state.page == "CBM":
                 "진동": result["진동"],
                 "등급": result["등급"],
                 "정비판단": result["상태"],
-                "AI예측 위험도달일": ai_pred_text
+                "AI긴급도": ai_urgency,
+                "AI예측 위험도달일": ai_pred_text,
+                "_ai_sort_key": _sort_key
             }
 
         )
@@ -18198,8 +18628,30 @@ elif st.session_state.page == "CBM":
 
         ]
 
+    sort_by_ai = st.checkbox(
+
+        "🤖 AI예측 임박한 순으로 정렬",
+
+        key="sort_by_ai_prediction"
+
+    )
+
+    if sort_by_ai and "_ai_sort_key" in df_rank.columns:
+
+        df_rank = df_rank.sort_values(
+            "_ai_sort_key"
+        )
+
+    df_rank_display = df_rank.drop(
+
+        columns=["_ai_sort_key"],
+
+        errors="ignore"
+
+    )
+
     st.dataframe(
-        df_rank,
+        df_rank_display,
         use_container_width=True,
         hide_index=True
     )
@@ -18531,13 +18983,58 @@ elif st.session_state.page == "오버홀":
 
                     urgency = "🟢 여유"
 
+                _p_for_compare = next(
+
+                    p for p in ALL_PUMPS
+
+                    if p["equip"] == equip
+
+                )
+
+                _ai_pred = predict_failure_date_regression(
+
+                    _p_for_compare,
+
+                    df_vib_all
+
+                )
+
+                if _ai_pred and _ai_pred.get("status") == "predicted":
+
+                    _ai_date_text = str(
+
+                        _ai_pred["predicted_date"]
+
+                    )
+
+                    _gap_days = (
+
+                        est_date - _ai_pred["predicted_date"]
+
+                    ).days
+
+                    if _gap_days > 30:
+
+                        _ai_date_text += " (오버홀 예정보다 이름)"
+
+                elif _ai_pred and _ai_pred.get("status") == "stable":
+
+                    _ai_date_text = "안정적"
+
+                else:
+
+                    _ai_date_text = "예측불가"
+
                 table_rows.append(
 
                     {
                         "긴급도": urgency,
                         "사업장": site,
                         "설비명": equip,
-                        "예상일": est_date.strftime("%Y-%m-%d"),
+                        "예상일(가동률기반)": est_date.strftime(
+                            "%Y-%m-%d"
+                        ),
+                        "AI예측(진동추세기반)": _ai_date_text,
                         "남은일수": d_left,
                         "진동추세 반영": "✓" if vib_adj else "",
                         "산정 근거": basis
@@ -19039,6 +19536,53 @@ elif st.session_state.page == "AI":
 
             )
 
+        log_prediction(
+            pump,
+            prediction
+        )
+
+    with st.expander(
+
+        "📊 예측 검증 (지난 예측이 실제로 맞았는지)"
+
+    ):
+
+        st.caption(
+
+            "예측일이 이미 지난 과거 예측들을 모아서, 그 시점에 "
+            "실제로 위험기준에 도달했었는지 확인합니다. 예측이 "
+            "쌓일수록 이 표도 같이 쌓입니다."
+
+        )
+
+        verify_df = verify_past_predictions(
+
+            ALL_PUMPS,
+
+            df_vib_ai
+
+        )
+
+        if verify_df.empty:
+
+            st.info(
+
+                "아직 검증할 만큼 시간이 지난 예측이 없습니다."
+
+            )
+
+        else:
+
+            st.dataframe(
+
+                verify_df,
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
     st.write("---")
 
     st.markdown(
@@ -19063,9 +19607,25 @@ elif st.session_state.page == "AI":
 
     ):
 
-        with st.spinner(
-            "AI가 데이터를 분석하고 있습니다..."
-        ):
+        with st.status(
+
+            "AI 종합의견 생성 중...",
+
+            expanded=True
+
+        ) as status_box:
+
+            st.write("1/3 · 설비 데이터 정리 중...")
+
+            st.write(
+
+                f"CBM {result['점수']}점, "
+                f"진동 {result['진동']:.1f}mm/s 확인 완료"
+
+            )
+
+            st.write("2/3 · Claude API 호출 중... "
+                     "(몇 초 정도 걸릴 수 있습니다)")
 
             commentary, error = generate_ai_commentary_for_equipment(
 
@@ -19074,6 +19634,28 @@ elif st.session_state.page == "AI":
                 prediction
 
             )
+
+            if error:
+
+                status_box.update(
+
+                    label="AI 종합의견 생성 실패",
+
+                    state="error"
+
+                )
+
+            else:
+
+                st.write("3/3 · 완료")
+
+                status_box.update(
+
+                    label="AI 종합의견 생성 완료",
+
+                    state="complete"
+
+                )
 
         if error:
 
@@ -22651,11 +23233,44 @@ elif st.session_state.page == "백업":
 
         ):
 
-            with st.spinner(
-                "백업하는 중입니다..."
-            ):
+            with st.status(
+
+                "구글시트로 백업 중...",
+
+                expanded=True
+
+            ) as status_box:
+
+                st.write(
+
+                    f"총 {len(GSHEET_BACKUP_TARGETS)}개 시트 "
+                    "대상입니다."
+
+                )
+
+                st.write("구글 인증 확인 중...")
 
                 ok, msg = backup_all_to_gsheet()
+
+                if ok:
+
+                    status_box.update(
+
+                        label="백업 완료",
+
+                        state="complete"
+
+                    )
+
+                else:
+
+                    status_box.update(
+
+                        label="백업 실패",
+
+                        state="error"
+
+                    )
 
             if ok:
 
@@ -22987,6 +23602,29 @@ elif st.session_state.page == "통합검색":
 
     )
 
+    with st.expander(
+        "🔧 검색 설정"
+    ):
+
+        similarity_threshold = st.slider(
+
+            "AI 비슷한 사례 추천 민감도",
+
+            min_value=0.05,
+
+            max_value=0.40,
+
+            value=0.12,
+
+            step=0.01,
+
+            key="search_similarity_threshold",
+
+            help="낮을수록 느슨하게(더 많이) 추천하고, "
+            "높을수록 확실히 비슷한 것만 추천합니다."
+
+        )
+
     if "_recent_searches" not in st.session_state:
 
         st.session_state["_recent_searches"] = []
@@ -23046,7 +23684,9 @@ elif st.session_state.page == "통합검색":
 
             search_keyword,
 
-            ALL_PUMPS
+            ALL_PUMPS,
+
+            similarity_threshold=similarity_threshold
 
         )
 
@@ -23119,15 +23759,36 @@ elif st.session_state.page == "통합검색":
                     f"##### {label} ({len(df_result)}건)"
                 )
 
-                st.dataframe(
+                if "AI 추천" in label or "비슷한 사례" in label:
 
-                    df_result,
+                    # 의미기반 추천은 정확한 단어가 안 겹칠 수
+                    # 있어서 하이라이트를 강제로 하지 않는다.
 
-                    use_container_width=True,
+                    st.dataframe(
 
-                    hide_index=True
+                        df_result,
 
-                )
+                        use_container_width=True,
+
+                        hide_index=True
+
+                    )
+
+                else:
+
+                    st.markdown(
+
+                        render_highlighted_table_html(
+
+                            df_result,
+
+                            search_keyword
+
+                        ),
+
+                        unsafe_allow_html=True
+
+                    )
 
     else:
 
@@ -23253,6 +23914,56 @@ elif st.session_state.page == "설계적산":
                             use_container_width=True,
 
                             hide_index=True
+
+                        )
+
+                    _existing_names_for_check = set(
+
+                        get_unitprice_library()["항목명"].tolist()
+
+                        if not get_unitprice_library().empty
+
+                        else []
+
+                    )
+
+                    _similar_warnings = []
+
+                    for it in _parsed_items:
+
+                        _sims = find_similar_item_names(
+
+                            it["항목명"],
+
+                            _existing_names_for_check
+
+                        )
+
+                        if _sims:
+
+                            _similar_warnings.append(
+
+                                f"'{it['항목명']}' ↔ "
+                                f"'{_sims[0][0]}' "
+                                f"(유사도 {_sims[0][1]*100:.0f}%)"
+
+                            )
+
+                    if _similar_warnings:
+
+                        st.warning(
+
+                            "⚠️ 기존 라이브러리에 비슷한 이름이 "
+                            "이미 있습니다. 오타나 표기 차이로 "
+                            "중복 등록되는 건 아닌지 확인해주세요:\n"
+                            +
+                            "\n".join(
+
+                                f"- {w}"
+
+                                for w in _similar_warnings
+
+                            )
 
                         )
 
