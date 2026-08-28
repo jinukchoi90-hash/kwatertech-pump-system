@@ -14767,26 +14767,32 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
+    home_menu_item = ("홈", "🏠 설비관리 홈")
+
+    st.button(
+
+        home_menu_item[1],
+
+        key=f"menu_{home_menu_item[0]}",
+
+        use_container_width=True,
+
+        on_click=go_to_page,
+
+        args=(home_menu_item[0],)
+
+    )
+
     st.markdown(
-        "<div class='menu-caption'>MAIN</div>",
+        "<div class='menu-caption'>📍 현장 업무</div>",
         unsafe_allow_html=True
     )
 
     main_menus = [
 
-        ("홈", "🏠 설비관리 홈"),
-
         ("통합검색", "🔎 통합검색"),
 
-        ("설비", "🏭 설비 관리"),
-
-        ("QR", "📱 QR 설비 포털"),
-
-        ("진단", "🔍 정밀 진단"),
-
-        ("CBM", "🎯 CBM 정비판단"),
-
-        ("오버홀", "🛠️ 오버홀 관리")
+        ("QR", "📱 QR 설비 포털")
 
     ]
 
@@ -14801,19 +14807,17 @@ with st.sidebar:
         )
 
     st.markdown(
-        "<div class='menu-caption'>ANALYSIS</div>",
+        "<div class='menu-caption'>🔍 진단 · 판단</div>",
         unsafe_allow_html=True
     )
 
     analysis_menus = [
 
-        ("AI", "📈 AI 이상징후"),
+        ("진단", "🔍 정밀 진단"),
 
-        ("전사트렌드", "🌐 전사 트렌드"),
+        ("CBM", "🎯 CBM 정비판단"),
 
-        ("ROI", "💰 정비효과·ROI"),
-
-        ("KPI", "📊 성과관리")
+        ("오버홀", "🛠️ 오버홀 관리")
 
     ]
 
@@ -14828,15 +14832,44 @@ with st.sidebar:
         )
 
     st.markdown(
-        "<div class='menu-caption'>KNOWLEDGE</div>",
+        "<div class='menu-caption'>📊 분석 · 리포트</div>",
         unsafe_allow_html=True
     )
 
     knowledge_menus = [
 
-        ("노하우", "💡 기술 노하우"),
+        ("AI", "📈 AI 이상징후"),
 
-        ("보고서", "📄 진단 보고서"),
+        ("전사트렌드", "🌐 전사 트렌드"),
+
+        ("ROI", "💰 정비효과·ROI"),
+
+        ("KPI", "📊 성과관리"),
+
+        ("보고서", "📄 진단 보고서")
+
+    ]
+
+    for key, label in knowledge_menus:
+
+        st.button(
+            label,
+            key=f"menu_{key}",
+            use_container_width=True,
+            on_click=go_to_page,
+            args=(key,)
+        )
+
+    st.markdown(
+        "<div class='menu-caption'>⚙️ 관리</div>",
+        unsafe_allow_html=True
+    )
+
+    manage_menus = [
+
+        ("설비", "🏭 설비 관리"),
+
+        ("노하우", "💡 기술 노하우"),
 
         ("설계적산", "📐 설계적산"),
 
@@ -14844,7 +14877,7 @@ with st.sidebar:
 
     ]
 
-    for key, label in knowledge_menus:
+    for key, label in manage_menus:
 
         st.button(
             label,
@@ -15073,11 +15106,15 @@ with st.sidebar:
 # ============================================================
 
 ALL_MENUS = (
+    [home_menu_item]
+    +
     main_menus
     +
     analysis_menus
     +
     knowledge_menus
+    +
+    manage_menus
     +
     dept_menus
 )
