@@ -7949,7 +7949,13 @@ def seed_sample_data():
         )
 
 
-seed_sample_data()
+# seed_sample_data()
+
+# 예전엔 앱을 처음 켰을 때 코드에 박힌 가짜 설비 10대와,
+# 그에 딸린 가짜 진단점수 이력을 자동으로 채워 넣었다.
+# 실제 회사 데이터를 쓰기 시작하면서 더는 필요 없어져서
+# 자동 실행을 껐다(함수 자체는 남겨뒀으니 나중에 데모용으로
+# 다시 필요하면 이 줄의 주석만 풀면 된다).
 
 
 
@@ -8123,7 +8129,9 @@ def seed_equipment_if_empty():
         )
 
 
-seed_equipment_if_empty()
+# seed_equipment_if_empty()
+
+# 위와 같은 이유로 가짜 설비 10대 자동 채우기도 껐다.
 
 
 def get_all_pumps():
@@ -13876,7 +13884,7 @@ def build_status_donut_fig(
     normal,
     watch,
     repair,
-    figsize=(2.7, 2.7)
+    figsize=(1.8, 1.8)
 ):
 
     # 홈 화면 상단의 정상/관찰/정비검토 비율 도넛차트
@@ -13904,7 +13912,8 @@ def build_status_donut_fig(
             colors.append(color)
 
     fig, ax = plt.subplots(
-        figsize=figsize
+        figsize=figsize,
+        dpi=100
     )
 
     if sizes:
@@ -13936,7 +13945,7 @@ def build_status_donut_fig(
 
             va="center",
 
-            fontsize=15,
+            fontsize=11,
 
             fontweight="bold",
 
@@ -13950,11 +13959,11 @@ def build_status_donut_fig(
 
             loc="lower center",
 
-            bbox_to_anchor=(0.5, -0.18),
+            bbox_to_anchor=(0.5, -0.22),
 
             ncol=1,
 
-            fontsize=9,
+            fontsize=7,
 
             frameon=False
 
@@ -14887,34 +14896,37 @@ with st.sidebar:
             args=(key,)
         )
 
-    st.markdown(
-        "<div class='menu-caption'>부서별 관리 (개발예정)</div>",
-        unsafe_allow_html=True
-    )
+    with st.expander(
 
-    dept_menus = [
+        "🏗️ 부서별 관리 (개발예정)",
 
-        ("토목", "🏗️ 토목"),
+        expanded=False
 
-        ("전기", "⚡ 전기"),
+    ):
 
-        ("전자", "💻 전자"),
+        dept_menus = [
 
-        ("행정", "📋 행정"),
+            ("토목", "🏗️ 토목"),
 
-        ("안전", "🦺 안전")
+            ("전기", "⚡ 전기"),
 
-    ]
+            ("전자", "💻 전자"),
 
-    for key, label in dept_menus:
+            ("행정", "📋 행정"),
 
-        st.button(
-            label,
-            key=f"menu_{key}",
-            use_container_width=True,
-            on_click=go_to_page,
-            args=(key,)
-        )
+            ("안전", "🦺 안전")
+
+        ]
+
+        for key, label in dept_menus:
+
+            st.button(
+                label,
+                key=f"menu_{key}",
+                use_container_width=True,
+                on_click=go_to_page,
+                args=(key,)
+            )
 
     st.markdown("---")
 
