@@ -177,6 +177,57 @@ st.set_page_config(
 
 
 # ============================================================
+# 2-0. 긴급 차단 스위치
+#
+# 회사에서 "당장 내려라"는 지시가 오면, 코드를 다시 배포할
+# 필요 없이 Streamlit Secrets에서 MAINTENANCE_MODE = true 만
+# 켜면 즉시 이 화면으로 대체된다. 뒤에 나오는 로그인/데이터
+# 로직은 아예 실행되지 않는다.
+# ============================================================
+
+try:
+
+    _maintenance_mode = st.secrets.get(
+        "MAINTENANCE_MODE",
+        False
+    )
+
+except Exception:
+
+    _maintenance_mode = False
+
+if str(_maintenance_mode).lower() in ("true", "1", "yes"):
+
+    st.markdown(
+
+        """
+        <div style="
+        text-align:center; margin-top:15vh;
+        color:#0f3552;">
+
+        <div style="font-size:3rem;">🛠️</div>
+
+        <div style="font-size:1.3rem; font-weight:800;
+        margin-top:10px;">
+        점검 중입니다
+        </div>
+
+        <div style="font-size:0.95rem; color:#64748b;
+        margin-top:8px;">
+        잠시 후 다시 접속해주세요.
+        </div>
+
+        </div>
+        """,
+
+        unsafe_allow_html=True
+
+    )
+
+    st.stop()
+
+
+# ============================================================
 # 2-1. HTML 렌더링 버그 수정 패치
 #
 # Streamlit의 st.markdown(unsafe_allow_html=True)은 내부적으로
@@ -14548,6 +14599,62 @@ def is_read_only():
     return st.session_state.read_only
 
 
+SESSION_TIMEOUT_MINUTES = 60
+
+if (
+
+    st.session_state.authenticated
+
+    and "_login_time" in st.session_state
+
+):
+
+    _elapsed_minutes = (
+
+        datetime.now()
+
+        -
+        datetime.fromisoformat(
+            st.session_state["_login_time"]
+        )
+
+    ).total_seconds() / 60
+
+    if _elapsed_minutes > SESSION_TIMEOUT_MINUTES:
+
+        st.session_state.authenticated = False
+
+        log_audit(
+
+            "세션 자동 로그아웃",
+
+            st.session_state.user_name,
+
+            f"{SESSION_TIMEOUT_MINUTES}분 비활동"
+
+        )
+
+        st.info(
+
+            f"🔒 {SESSION_TIMEOUT_MINUTES}분 이상 활동이 "
+            "없어 자동으로 로그아웃되었습니다. 다시 "
+            "로그인해주세요."
+
+        )
+
+if st.session_state.authenticated:
+
+    # 활동(페이지 조작)이 있을 때마다 기준 시각을 지금으로
+    # 갱신한다. 다음 요청이 SESSION_TIMEOUT_MINUTES보다 늦게
+    # 들어오면 위 검사에서 자동 로그아웃된다.
+
+    st.session_state["_login_time"] = (
+
+        datetime.now().isoformat()
+
+    )
+
+
 if LOGIN_GATE_ENABLED and not st.session_state.authenticated:
 
     _login_logo_html = get_logo_base64_html(
@@ -14620,67 +14727,60 @@ if LOGIN_GATE_ENABLED and not st.session_state.authenticated:
 
         )
 
-        col_a, col_b = st.columns(2)
+        if st.button(
 
-        with col_a:
+            "🔓 접속",
 
-            if st.button(
-                "🔓 접속",
-                type="primary",
-                use_container_width=True
-            ):
+            type="primary",
 
-                if pin_input == AUTH_PIN:
+            use_container_width=True
 
-                    st.session_state.authenticated = True
+        ):
 
-                    st.session_state.entered_as_viewer = False
-
-                    st.session_state.user_name = (
-
-                        name_input.strip()
-
-                        or
-                        "최진욱"
-
-                    )
-
-                    st.rerun()
-
-                else:
-
-                    st.error(
-                        "PIN 번호가 올바르지 않습니다."
-                    )
-
-        with col_b:
-
-            if st.button(
-                "👀 보기 전용으로 둘러보기",
-                use_container_width=True
-            ):
+            if pin_input == AUTH_PIN:
 
                 st.session_state.authenticated = True
 
-                st.session_state.read_only = True
-
-                # 보기전용으로 들어온 사람은 사이드바에서
-                # 스스로 보기전용을 해제할 수 없게 잠근다.
-                # (태블릿만 넘기면 토글 하나로 수정권한이
-                #  생기던 문제에 대한 보완)
-
-                st.session_state.entered_as_viewer = True
+                st.session_state.entered_as_viewer = False
 
                 st.session_state.user_name = (
 
                     name_input.strip()
 
                     or
-                    "방문자"
+                    "최진욱"
+
+                )
+
+                st.session_state["_login_time"] = (
+
+                    datetime.now().isoformat()
+
+                )
+
+                log_audit(
+
+                    "로그인 성공",
+
+                    st.session_state.user_name
 
                 )
 
                 st.rerun()
+
+            else:
+
+                log_audit(
+
+                    "로그인 실패",
+
+                    name_input.strip() or "(이름 미입력)"
+
+                )
+
+                st.error(
+                    "PIN 번호가 올바르지 않습니다."
+                )
 
     st.stop()
 
