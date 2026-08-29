@@ -534,6 +534,116 @@ section[data-testid="stSidebar"] .stDownloadButton > button:hover {
    카드
 ======================================================== */
 
+/* ========================================================
+   등장 애니메이션 (카드/섹션이 딱딱하게 툭 나타나는 대신
+   살짝 떠오르며 나타나서 화면 전환이 더 부드럽게 느껴지게)
+======================================================== */
+
+@keyframes fadeInUp {
+
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+}
+
+.platform-card,
+.equip-card,
+.kpi-card,
+.feature-card,
+.story-card {
+
+    animation: fadeInUp 0.35s ease;
+
+}
+
+
+/* ========================================================
+   설비 스토리 카드 (QR포털 "설비 스토리" 탭)
+======================================================== */
+
+.story-card {
+
+    background:
+        linear-gradient(135deg, #f4f9fc, #ffffff);
+
+    border: 1px solid #dce8ef;
+
+    border-radius: 14px;
+
+    padding: 22px;
+
+    box-shadow:
+        0 3px 14px rgba(10, 70, 100, 0.06);
+
+}
+
+
+/* ========================================================
+   통합검색 하이라이트 표
+======================================================== */
+
+.search-result-wrap {
+
+    animation: fadeInUp 0.3s ease;
+
+    overflow-x: auto;
+
+    border-radius: 10px;
+
+    border: 1px solid #dce8ef;
+
+}
+
+.search-result-wrap table {
+
+    width: 100%;
+
+    border-collapse: collapse;
+
+}
+
+.search-result-wrap th {
+
+    padding: 8px 12px;
+
+    text-align: left;
+
+    background: #f4f9fc;
+
+    font-size: 0.85rem;
+
+    border-bottom: 2px solid #dce8ef;
+
+}
+
+.search-result-wrap td {
+
+    padding: 8px 12px;
+
+    font-size: 0.85rem;
+
+    border-bottom: 1px solid #eef2f6;
+
+}
+
+.search-result-wrap mark {
+
+    background: #ffe066;
+
+    padding: 0 2px;
+
+    border-radius: 3px;
+
+}
+
+
 .platform-card {
 
     background: white;
@@ -542,9 +652,9 @@ section[data-testid="stSidebar"] .stDownloadButton > button:hover {
 
     border-radius: 15px;
 
-    padding: 18px;
+    padding: 20px 22px;
 
-    margin-bottom: 14px;
+    margin-bottom: 16px;
 
     box-shadow:
         0 3px 14px rgba(10, 70, 100, 0.055);
@@ -1029,6 +1139,17 @@ section[data-testid="stSidebar"] .stDownloadButton > button:hover {
 
     min-height: 38px;
 
+    transition:
+        transform 0.1s ease,
+        box-shadow 0.15s ease,
+        background 0.15s ease;
+
+}
+
+.stButton > button:active {
+
+    transform: scale(0.97);
+
 }
 
 
@@ -1071,6 +1192,23 @@ button[data-baseweb="tab"] {
         padding-left: 0.65rem !important;
 
         padding-right: 0.65rem !important;
+
+    }
+
+    /* 손가락 터치 기준 버튼 최소 높이 확보 (44px 권장) */
+
+    .stButton > button,
+    .stDownloadButton > button {
+
+        min-height: 46px !important;
+
+        font-size: 0.95rem !important;
+
+    }
+
+    .story-card {
+
+        padding: 16px !important;
 
     }
 
@@ -5908,6 +6046,66 @@ def get_logo_base64_html(
         return ""
 
 
+def find_mascot_file(name="mascot"):
+
+    for pattern in (
+        f"{name}.png",
+        f"{name}.jpg",
+        f"[{name[0].upper()}{name[0].lower()}]{name[1:]}.png"
+    ):
+
+        matches = glob.glob(pattern)
+
+        if matches:
+
+            return matches[0]
+
+    return None
+
+
+def get_mascot_base64_html(
+
+    max_height_px=90,
+    name="mascot"
+
+):
+
+    mascot_path = find_mascot_file(name)
+
+    if not mascot_path:
+
+        return ""
+
+    try:
+
+        with open(
+
+            mascot_path,
+
+            "rb"
+
+        ) as f:
+
+            b64 = base64.b64encode(
+
+                f.read()
+
+            ).decode("utf-8")
+
+        return (
+
+            f'<img src="data:image/png;base64,{b64}" '
+            f'style="max-height:{max_height_px}px; '
+            f'width:auto; filter:drop-shadow(0 6px 12px '
+            f'rgba(0,0,0,0.25));" />'
+
+        )
+
+    except Exception:
+
+        return ""
+
+
 def build_report_qr_image_bytes(
     pump,
     all_pumps
@@ -7715,6 +7913,53 @@ def ensure_excel_file(
         wb.close()
 
 
+def _migrate_overhaul_cost_column():
+
+    # 오버홀이력에 "비용" 컬럼이 없던 예전 버전으로 이미 파일이
+    # 만들어져 있으면(ensure_excel_file은 파일이 없을 때만
+    # 헤더를 새로 만들기 때문에), 여기서 한 번 열어서 "비용"
+    # 컬럼이 없으면 뒤에 추가해준다. TCO(총소유비용) 계산에
+    # 이 컬럼이 필요하다.
+
+    if not os.path.exists(OVERHAUL_DB_PATH):
+
+        return
+
+    try:
+
+        wb = load_workbook(
+            OVERHAUL_DB_PATH
+        )
+
+        ws = wb["오버홀이력"]
+
+        headers = [
+
+            cell.value
+
+            for cell in ws[1]
+
+        ]
+
+        if "비용" not in headers:
+
+            ws.cell(
+                1,
+                len(headers) + 1,
+                "비용"
+            )
+
+            wb.save(
+                OVERHAUL_DB_PATH
+            )
+
+        wb.close()
+
+    except Exception:
+
+        pass
+
+
 def ensure_db_exists():
 
     ensure_excel_file(
@@ -7804,10 +8049,13 @@ def ensure_db_exists():
             "작업내용",
             "사진파일명",
             "전후효율",
-            "전후진동"
+            "전후진동",
+            "비용"
         ]
 
     )
+
+    _migrate_overhaul_cost_column()
 
     ensure_excel_file(
 
@@ -8795,7 +9043,8 @@ def bulk_append_overhaul(overhaul_rows):
                 row["작업내용"],
                 "",
                 "",
-                row.get("전후진동", "")
+                row.get("전후진동", ""),
+                row.get("비용", 0)
             ]
 
         )
@@ -9697,7 +9946,8 @@ def parse_unified_import_workbook(file_bytes):
                     ),
                     "",
                     "",
-                    vib_note
+                    vib_note,
+                    0
                 ]
 
             )
@@ -11494,6 +11744,45 @@ def send_monthly_summary_email(
     )
 
 
+def calculate_equipment_tco(equip_name, df_overhaul):
+
+    # 총소유비용(TCO): 이 설비에 지금까지 실제로 들어간
+    # 오버홀 비용을 전부 더한다. "비용" 컬럼이 비어있는 예전
+    # 기록은 0으로 취급한다.
+
+    if (
+
+        df_overhaul is None
+
+        or df_overhaul.empty
+
+        or "설비명" not in df_overhaul.columns
+
+    ):
+
+        return 0, 0
+
+    equip_hist = df_overhaul[
+
+        df_overhaul["설비명"] == equip_name
+
+    ]
+
+    if equip_hist.empty:
+
+        return 0, 0
+
+    costs = pd.to_numeric(
+
+        equip_hist.get("비용", 0),
+
+        errors="coerce"
+
+    ).fillna(0)
+
+    return float(costs.sum()), len(equip_hist)
+
+
 def build_monthly_summary_email_body(all_pumps, df_history):
 
     normal = watch = repair = 0
@@ -11672,7 +11961,9 @@ def render_highlighted_table_html(df, keyword):
 
     # st.dataframe은 셀 안에 HTML을 못 넣어서 검색어 강조가
     # 안 된다. 검색결과만큼은 표를 직접 HTML로 그려서, 찾은
-    # 키워드 부분을 노란색으로 강조 표시한다.
+    # 키워드 부분을 노란색으로 강조 표시한다. 스타일은 CSS
+    # 클래스(.search-result-wrap)로 분리해서 다크모드에서도
+    # 색이 자연스럽게 바뀌도록 한다.
 
     keyword_escaped = re.escape(
         keyword.strip()
@@ -11688,9 +11979,7 @@ def render_highlighted_table_html(df, keyword):
 
                 f"({keyword_escaped})",
 
-                r'<mark style="background:#FFE066; '
-                r'padding:0 2px; border-radius:3px;">'
-                r'\1</mark>',
+                r"<mark>\1</mark>",
 
                 text,
 
@@ -11704,9 +11993,7 @@ def render_highlighted_table_html(df, keyword):
 
     header_html = "".join(
 
-        f'<th style="padding:6px 10px; text-align:left; '
-        f'border-bottom:2px solid #dce8ef; '
-        f'background:#f4f9fc; font-size:0.85rem;">{col}</th>'
+        f"<th>{col}</th>"
 
         for col in df.columns
 
@@ -11718,9 +12005,7 @@ def render_highlighted_table_html(df, keyword):
 
         cells = "".join(
 
-            f'<td style="padding:6px 10px; '
-            f'border-bottom:1px solid #eef2f6; '
-            f'font-size:0.85rem;">{_highlight(v)}</td>'
+            f"<td>{_highlight(v)}</td>"
 
             for v in row.tolist()
 
@@ -11732,8 +12017,8 @@ def render_highlighted_table_html(df, keyword):
 
     return (
 
-        '<div style="overflow-x:auto;">'
-        '<table style="width:100%; border-collapse:collapse;">'
+        '<div class="search-result-wrap">'
+        "<table>"
         f"<thead><tr>{header_html}</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody>"
         "</table></div>"
@@ -14661,6 +14946,11 @@ if LOGIN_GATE_ENABLED and not st.session_state.authenticated:
         max_height_px=52
     )
 
+    _login_mascot_html = get_mascot_base64_html(
+        max_height_px=110,
+        name="mascot_safety"
+    )
+
     st.markdown(
 
         f"""
@@ -14673,7 +14963,10 @@ if LOGIN_GATE_ENABLED and not st.session_state.authenticated:
         padding: 46px 36px 40px 36px;
         margin-bottom: 22px;
         text-align: center;
-        box-shadow: 0 14px 34px rgba(3, 65, 100, 0.22);">
+        box-shadow: 0 14px 34px rgba(3, 65, 100, 0.22);
+        position: relative;">
+
+            {f'<div style="position:absolute; top:14px; right:22px;">{_login_mascot_html}</div>' if _login_mascot_html else ''}
 
             <div style="
             background:white; border-radius:14px;
@@ -15115,9 +15408,29 @@ with st.sidebar:
 
             .kpi-card,
             .equip-card,
-            .feature-card {
+            .feature-card,
+            .platform-card,
+            .story-card {
                 background: #1e293b !important;
                 box-shadow: 0 3px 12px rgba(0,0,0,0.5) !important;
+            }
+
+            .search-result-wrap {
+                border-color: #334155 !important;
+            }
+
+            .search-result-wrap th {
+                background: #1e293b !important;
+                border-bottom-color: #334155 !important;
+            }
+
+            .search-result-wrap td {
+                border-bottom-color: #334155 !important;
+            }
+
+            .search-result-wrap mark {
+                background: #a16207 !important;
+                color: #fff8e1 !important;
             }
 
             .cbm-bar-track { background: #334155 !important; }
@@ -15420,6 +15733,10 @@ if st.session_state.page == "홈":
         max_height_px=44
     )
 
+    _hero_mascot_html = get_mascot_base64_html(
+        max_height_px=96
+    )
+
     st.markdown(
 
         f"""
@@ -15433,7 +15750,7 @@ if st.session_state.page == "홈":
             {_hero_logo_html if _hero_logo_html else '<span style="font-size:2rem;">💧</span>'}
             </div>
 
-            <div>
+            <div style="flex:1;">
                 <div class="hero-title">
                 설비를 <span class="hl-cyan">살아있게</span>
                 관리하는 <span class="hl-amber">기술</span>
@@ -15447,6 +15764,8 @@ if st.session_state.page == "홈":
                 오늘도 설비 현황을 한눈에 확인해보세요.
                 </div>
             </div>
+
+            {f'<div style="flex-shrink:0; margin-left:auto;">{_hero_mascot_html}</div>' if _hero_mascot_html else ''}
 
         </div>
         </div>
@@ -17043,19 +17362,36 @@ elif st.session_state.page == "QR":
 
         st.rerun()
 
-    st.markdown(
-        """
-        <div class="section-title">
-        📱 QR 설비 디지털 포털
-        </div>
+    _qr_mascot_html = get_mascot_base64_html(
+        max_height_px=100,
+        name="mascot_patrol"
+    )
 
-        <div class="section-caption">
-        펌프 옆 QR코드를 스마트폰으로 스캔하면
-        해당 설비의 제원·도면·이력·AI진단을
-        한 화면에서 바로 확인합니다.
+    st.markdown(
+
+        f"""
+        <div style="display:flex; align-items:center;
+        justify-content:space-between;">
+
+            <div>
+                <div class="section-title">
+                📱 QR 설비 디지털 포털
+                </div>
+
+                <div class="section-caption">
+                펌프 옆 QR코드를 스마트폰으로 스캔하면
+                해당 설비의 제원·도면·이력·AI진단을
+                한 화면에서 바로 확인합니다.
+                </div>
+            </div>
+
+            {f'<div style="flex-shrink:0;">{_qr_mascot_html}</div>' if _qr_mascot_html else ''}
+
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
     if not ALL_PUMPS:
@@ -17204,13 +17540,14 @@ elif st.session_state.page == "QR":
 
     st.write("")
 
-    t1, t2, t3, t4 = st.tabs(
+    t1, t2, t3, t4, t5 = st.tabs(
 
         [
             "제원",
             "도면",
             "이력",
-            "AI진단"
+            "AI진단",
+            "📖 설비 스토리"
         ]
 
     )
@@ -17770,6 +18107,179 @@ elif st.session_state.page == "QR":
 
             )
 
+    with t5:
+
+        st.caption(
+
+            "설비 하나의 일생을 이야기 형식으로 정리합니다. "
+            "경진대회나 보고 자리에서 설비 하나만 보여줘도 "
+            "전체 시스템이 어떻게 돌아가는지 보여주기 좋습니다."
+
+        )
+
+        df_overhaul_story = read_excel(
+
+            OVERHAUL_DB_PATH,
+
+            "오버홀이력"
+
+        )
+
+        _story_overhaul = (
+
+            df_overhaul_story[
+
+                df_overhaul_story["설비명"] == pump["equip"]
+
+            ]
+
+            if not df_overhaul_story.empty
+            and "설비명" in df_overhaul_story.columns
+
+            else pd.DataFrame()
+
+        )
+
+        _story_diag_count = (
+
+            len(
+
+                df_history[
+
+                    df_history["설비명"] == pump["equip"]
+
+                ]
+
+            )
+
+            if not df_history.empty
+            and "설비명" in df_history.columns
+
+            else 0
+
+        )
+
+        _tco, _overhaul_count = calculate_equipment_tco(
+
+            pump["equip"],
+
+            df_overhaul_story
+
+        )
+
+        try:
+
+            _build_date = datetime.strptime(
+
+                str(pump.get("build_date", ""))[:10],
+
+                "%Y-%m-%d"
+
+            ).date()
+
+            _age_years = round(
+
+                (datetime.now().date() - _build_date).days
+
+                / 365,
+
+                1
+
+            )
+
+            _age_text = f"{_build_date} 준공, 약 {_age_years}년째 가동 중"
+
+        except Exception:
+
+            _age_text = "준공일 정보 없음"
+
+        _df_vib_story = read_excel(
+
+            VIBRATION_DB_PATH,
+
+            "진동측정이력"
+
+        )
+
+        _story_pred = predict_failure_date_regression(
+
+            pump,
+
+            _df_vib_story
+
+        )
+
+        if _story_pred and _story_pred.get("status") == "predicted":
+
+            _pred_text = (
+
+                f"AI 회귀분석 결과, 약 {_story_pred['predicted_date']}"
+                f"경 위험기준에 도달할 것으로 예측됩니다."
+
+            )
+
+        elif _story_pred and _story_pred.get("status") == "stable":
+
+            _pred_text = "AI 분석 결과 현재 진동 추세는 안정적입니다."
+
+        else:
+
+            _pred_text = "AI 예측을 위한 진동 데이터가 아직 부족합니다."
+
+        st.markdown(
+
+            f"""
+            <div class="story-card">
+
+            <div style="font-size:1.1rem; font-weight:800;
+            color:#0f3552; margin-bottom:10px;">
+            📖 {pump['equip']} ({pump['site']})의 이야기
+            </div>
+
+            <p style="line-height:1.9; font-size:0.95rem;
+            color:#334155;">
+            이 설비는 <b>{_age_text}</b>입니다.<br>
+            지금까지 <b>정밀진단 {_story_diag_count}회</b>,
+            <b>오버홀 {_overhaul_count}회</b>를 거쳤고,
+            누적된 오버홀 비용은
+            <b>{_tco:,.0f}원</b>입니다.<br>
+            현재 CBM Score는 <b>{result['점수']}점
+            ({result['등급']}등급)</b>이며,
+            {_pred_text}
+            </p>
+
+            </div>
+            """,
+
+            unsafe_allow_html=True
+
+        )
+
+        if not _story_overhaul.empty:
+
+            st.markdown(
+                "##### 오버홀 이력"
+            )
+
+            st.dataframe(
+
+                _story_overhaul[
+
+                    [
+                        "작업일자",
+                        "작업내용",
+                        "작업자",
+                        "비용"
+                    ]
+
+                ],
+
+                use_container_width=True,
+
+                hide_index=True
+
+            )
+
     def _build_qr_export_sheets():
 
         sheets = build_equipment_export_sheets(
@@ -17819,18 +18329,35 @@ elif st.session_state.page == "진단":
 
     render_back_to_home_button("diag")
 
-    st.markdown(
-        """
-        <div class="section-title">
-        🔍 펌프 정밀 상태진단
-        </div>
+    _diag_mascot_html = get_mascot_base64_html(
+        max_height_px=100,
+        name="mascot_control"
+    )
 
-        <div class="section-caption">
-        17개 핵심 진단항목을 기반으로 설비 상태를 점수화하고
-        CBM 정비판단에 활용합니다.
+    st.markdown(
+
+        f"""
+        <div style="display:flex; align-items:center;
+        justify-content:space-between;">
+
+            <div>
+                <div class="section-title">
+                🔍 펌프 정밀 상태진단
+                </div>
+
+                <div class="section-caption">
+                17개 핵심 진단항목을 기반으로 설비 상태를
+                점수화하고 CBM 정비판단에 활용합니다.
+                </div>
+            </div>
+
+            {f'<div style="flex-shrink:0;">{_diag_mascot_html}</div>' if _diag_mascot_html else ''}
+
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
     if not ALL_PUMPS:
@@ -18563,19 +19090,36 @@ elif st.session_state.page == "CBM":
 
     render_back_to_home_button("cbm")
 
-    st.markdown(
-        """
-        <div class="section-title">
-        🎯 CBM 정비판단
-        </div>
+    _cbm_mascot_html = get_mascot_base64_html(
+        max_height_px=100,
+        name="mascot_water"
+    )
 
-        <div class="section-caption">
-        운전시간만으로 오버홀을 결정하지 않고
-        성능·진동·내부상태·정비이력을 종합하여
-        정비 우선순위를 판단합니다.
+    st.markdown(
+
+        f"""
+        <div style="display:flex; align-items:center;
+        justify-content:space-between;">
+
+            <div>
+                <div class="section-title">
+                🎯 CBM 정비판단
+                </div>
+
+                <div class="section-caption">
+                운전시간만으로 오버홀을 결정하지 않고
+                성능·진동·내부상태·정비이력을 종합하여
+                정비 우선순위를 판단합니다.
+                </div>
+            </div>
+
+            {f'<div style="flex-shrink:0;">{_cbm_mascot_html}</div>' if _cbm_mascot_html else ''}
+
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
     if not ALL_PUMPS:
@@ -19026,18 +19570,35 @@ elif st.session_state.page == "오버홀":
 
     render_back_to_home_button("overhaul")
 
-    st.markdown(
-        """
-        <div class="section-title">
-        🛠️ 오버홀 관리
-        </div>
+    _overhaul_mascot_html = get_mascot_base64_html(
+        max_height_px=100,
+        name="mascot_pump"
+    )
 
-        <div class="section-caption">
-        진단 결과를 실제 정비활동과 연결하고
-        오버홀 전·후 상태변화를 데이터로 축적합니다.
+    st.markdown(
+
+        f"""
+        <div style="display:flex; align-items:center;
+        justify-content:space-between;">
+
+            <div>
+                <div class="section-title">
+                🛠️ 오버홀 관리
+                </div>
+
+                <div class="section-caption">
+                진단 결과를 실제 정비활동과 연결하고
+                오버홀 전·후 상태변화를 데이터로 축적합니다.
+                </div>
+            </div>
+
+            {f'<div style="flex-shrink:0;">{_overhaul_mascot_html}</div>' if _overhaul_mascot_html else ''}
+
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
     if not ALL_PUMPS:
@@ -19390,6 +19951,24 @@ elif st.session_state.page == "오버홀":
 
         )
 
+        work_cost = st.number_input(
+
+            "이번 작업 비용(원)",
+
+            min_value=0,
+
+            value=0,
+
+            step=100000,
+
+            disabled=is_read_only(),
+
+            help="부품비+인건비+외주비 등 이번 오버홀에 실제로 "
+            "든 총비용. 나중에 설비별 총소유비용(TCO) 계산에 "
+            "쓰입니다."
+
+        )
+
         if is_read_only():
 
             st.info(
@@ -19466,7 +20045,9 @@ elif st.session_state.page == "오버홀":
 
                     "",
 
-                    ""
+                    "",
+
+                    work_cost
 
                 ]
 
@@ -20200,6 +20781,110 @@ elif st.session_state.page == "ROI":
         """,
         unsafe_allow_html=True
     )
+
+    st.markdown(
+        "### 🏆 종합 성과 요약"
+    )
+
+    st.caption(
+
+        "이 플랫폼을 도입한 뒤 지금까지 누적된 실제 활동 "
+        "지표입니다. 경진대회·보고 자료에 그대로 쓰셔도 됩니다."
+
+    )
+
+    _df_diag_all = read_excel(
+
+        DB_FILE_PATH,
+        "진단이력"
+
+    )
+
+    _df_overhaul_all_roi = read_excel(
+
+        OVERHAUL_DB_PATH,
+        "오버홀이력"
+
+    )
+
+    _total_tco = 0
+
+    if (
+
+        not _df_overhaul_all_roi.empty
+
+        and "비용" in _df_overhaul_all_roi.columns
+
+    ):
+
+        _total_tco = pd.to_numeric(
+
+            _df_overhaul_all_roi["비용"],
+
+            errors="coerce"
+
+        ).fillna(0).sum()
+
+    _df_vib_all_roi = read_excel(
+
+        VIBRATION_DB_PATH,
+        "진동측정이력"
+
+    )
+
+    _ai_predicted_count = 0
+
+    for _p_roi in ALL_PUMPS:
+
+        _pred_roi = predict_failure_date_regression(
+
+            _p_roi,
+
+            _df_vib_all_roi
+
+        )
+
+        if _pred_roi and _pred_roi.get("status") == "predicted":
+
+            _ai_predicted_count += 1
+
+    s1, s2 = st.columns(2)
+
+    s1.metric(
+
+        "관리 설비 수",
+
+        f"{len(ALL_PUMPS)}대"
+
+    )
+
+    s2.metric(
+
+        "누적 정밀진단",
+
+        f"{len(_df_diag_all)}건"
+
+    )
+
+    s3, s4 = st.columns(2)
+
+    s3.metric(
+
+        "AI 조기예측 설비",
+
+        f"{_ai_predicted_count}대"
+
+    )
+
+    s4.metric(
+
+        "누적 오버홀 비용",
+
+        f"{_total_tco/10000:,.0f}만원"
+
+    )
+
+    st.write("---")
 
     # 결과 카드를 입력값보다 먼저 화면에 보여주기 위해
     # 자리(placeholder)를 미리 만들어 둔다.
