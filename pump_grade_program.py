@@ -586,6 +586,41 @@ section[data-testid="stSidebar"] .stDownloadButton > button:hover {
 
 
 /* ========================================================
+   페이지 제목 + 마스코트 (QR/정밀진단/CBM/오버홀 헤더)
+   가로배치가 기본이지만, 모바일에서는 미디어쿼리로
+   세로배치로 전환한다(히어로배너와 같은 원리).
+======================================================== */
+
+.page-header-mascot {
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 16px;
+
+    flex-wrap: wrap;
+
+}
+
+.page-header-mascot > .page-header-text {
+
+    flex: 1 1 260px;
+
+    min-width: 0;
+
+}
+
+.page-header-mascot > .page-header-mascot-img {
+
+    flex-shrink: 0;
+
+}
+
+
+/* ========================================================
    통합검색 하이라이트 표
 ======================================================== */
 
@@ -1128,6 +1163,17 @@ section[data-testid="stSidebar"] .stDownloadButton > button:hover {
 
 
 /* ========================================================
+   진행바 (KPI 실적 등) — 기본 빨간색 대신 브랜드 청록색으로
+======================================================== */
+
+[data-testid="stProgress"] > div > div > div {
+
+    background-color: #087ea4 !important;
+
+}
+
+
+/* ========================================================
    버튼
 ======================================================== */
 
@@ -1192,6 +1238,59 @@ button[data-baseweb="tab"] {
         padding-left: 0.65rem !important;
 
         padding-right: 0.65rem !important;
+
+    }
+
+    /* 히어로 배너: 좁은 화면에서는 가로 배치(로고-텍스트-
+       마스코트)가 짓눌려서 텍스트가 세로로 길게 깨지므로,
+       세로로 쌓이는 배치로 전환한다. */
+
+    .hero-inner {
+
+        flex-direction: column !important;
+
+        align-items: flex-start !important;
+
+    }
+
+    .hero-inner > div {
+
+        margin-left: 0 !important;
+
+        width: 100%;
+
+    }
+
+    .hero-inner > div:last-child {
+
+        display: flex !important;
+        justify-content: center;
+        margin-top: 4px;
+
+    }
+
+    .hero-title {
+
+        font-size: 1.25rem !important;
+
+    }
+
+    /* QR/정밀진단/CBM/오버홀 페이지 헤더의 제목+마스코트도
+       같은 원리로 좁은 화면에서 세로로 쌓이게 한다. */
+
+    .page-header-mascot {
+
+        flex-direction: column !important;
+
+        align-items: flex-start !important;
+
+    }
+
+    .page-header-mascot > .page-header-mascot-img {
+
+        align-self: center;
+
+        margin-top: 4px;
 
     }
 
@@ -2456,6 +2555,124 @@ def estimate_next_overhaul_advanced(
                         )
 
     return est_date, " · ".join(basis), vib_adjusted
+
+
+def build_month_calendar_html(year, month, events_by_day):
+
+    # events_by_day: {day(int): [설비명, ...]} 형태.
+    # 한 달치 정비 예정을 달력 격자로 그린다(외부 라이브러리
+    # 없이 순수 HTML/CSS로).
+
+    import calendar as _cal
+
+    cal = _cal.Calendar(firstweekday=6)  # 일요일 시작
+
+    weeks = cal.monthdayscalendar(year, month)
+
+    weekday_names = ["일", "월", "화", "수", "목", "금", "토"]
+
+    today = datetime.now().date()
+
+    header_cells = "".join(
+
+        f'<th style="padding:6px; font-size:0.8rem; '
+        f'color:{"#c62828" if i == 0 else ("#087ea4" if i == 6 else "#334155")};">'
+        f'{name}</th>'
+
+        for i, name in enumerate(weekday_names)
+
+    )
+
+    rows_html = []
+
+    for week in weeks:
+
+        cells = []
+
+        for i, day in enumerate(week):
+
+            if day == 0:
+
+                cells.append(
+
+                    '<td style="padding:4px; height:70px; '
+                    'vertical-align:top; background:#fafbfc; '
+                    'border:1px solid #eef2f6;"></td>'
+
+                )
+
+                continue
+
+            is_today = (
+
+                day == today.day
+
+                and month == today.month
+
+                and year == today.year
+
+            )
+
+            events = events_by_day.get(day, [])
+
+            event_html = "".join(
+
+                f'<div style="background:#fff3cd; '
+                f'color:#7a5c00; font-size:0.68rem; '
+                f'padding:1px 4px; border-radius:4px; '
+                f'margin-top:2px; white-space:nowrap; '
+                f'overflow:hidden; text-overflow:ellipsis;" '
+                f'title="{e}">🔧 {e}</div>'
+
+                for e in events[:3]
+
+            )
+
+            if len(events) > 3:
+
+                event_html += (
+
+                    f'<div style="font-size:0.65rem; '
+                    f'color:#94a3b8;">+{len(events)-3}건 더</div>'
+
+                )
+
+            day_color = (
+
+                "#c62828" if i == 0
+
+                else ("#087ea4" if i == 6 else "#334155")
+
+            )
+
+            cell_bg = "#e6f7fb" if is_today else "white"
+
+            cells.append(
+
+                f'<td style="padding:4px; height:70px; '
+                f'vertical-align:top; background:{cell_bg}; '
+                f'border:1px solid #eef2f6;">'
+                f'<div style="font-size:0.78rem; font-weight:700; '
+                f'color:{day_color};">{day}</div>'
+                f'{event_html}'
+                f'</td>'
+
+            )
+
+        rows_html.append(
+            f"<tr>{''.join(cells)}</tr>"
+        )
+
+    return (
+
+        '<div style="overflow-x:auto;">'
+        '<table style="width:100%; border-collapse:collapse; '
+        'table-layout:fixed;">'
+        f"<thead><tr>{header_cells}</tr></thead>"
+        f"<tbody>{''.join(rows_html)}</tbody>"
+        "</table></div>"
+
+    )
 
 
 def build_overhaul_ics_bytes(schedule_rows):
@@ -10879,6 +11096,405 @@ def predict_failure_date_regression(pump, df_vib):
     return result
 
 
+FAVORITE_DB_PATH = "Pump_Favorite_DB.xlsx"
+
+RECENT_VIEW_DB_PATH = "Pump_RecentView_DB.xlsx"
+
+
+def ensure_favorite_recent_dbs_exist():
+
+    ensure_excel_file(
+
+        FAVORITE_DB_PATH,
+
+        "즐겨찾기",
+
+        ["설비명", "등록일시"]
+
+    )
+
+    ensure_excel_file(
+
+        RECENT_VIEW_DB_PATH,
+
+        "최근조회",
+
+        ["설비명", "조회일시"]
+
+    )
+
+
+CHECKLIST_TEMPLATE_DB_PATH = "Pump_ChecklistTemplate_DB.xlsx"
+
+DEFAULT_CHECKLIST_TEMPLATES = {
+
+    "원심펌프용": [
+
+        "베어링 이상 소음 여부",
+        "축봉부(메커니컬씰) 누유 여부",
+        "커플링 정렬 상태",
+        "임펠러 마모·부식 상태",
+        "케이싱 부식·크랙 여부",
+        "흡입·토출 배관 이상진동",
+        "모터 온도(과열) 확인",
+        "윤활유·그리스 상태",
+        "기초볼트 풀림 여부"
+
+    ],
+
+    "제어반용": [
+
+        "외함 부식·손상 여부",
+        "단자대 접속 상태(풀림·변색)",
+        "차단기·계전기 동작 이상",
+        "절연저항 측정값",
+        "접지선 연결 상태",
+        "내부 발열·이취 여부",
+        "표시등·경보 정상 동작"
+
+    ],
+
+    "배수펌프용": [
+
+        "임펠러 이물질 끼임 여부",
+        "케이블·전선 피복 손상",
+        "부력스위치(플로트) 동작",
+        "펌프 하우징 부식 상태",
+        "체크밸브 역류 여부",
+        "설치 앵커 고정 상태"
+
+    ]
+
+}
+
+
+def ensure_checklist_template_db_exists():
+
+    ensure_excel_file(
+
+        CHECKLIST_TEMPLATE_DB_PATH,
+
+        "체크리스트템플릿",
+
+        ["템플릿명", "순번", "점검항목"]
+
+    )
+
+
+def seed_default_checklist_templates():
+
+    df = read_excel(
+
+        CHECKLIST_TEMPLATE_DB_PATH,
+
+        "체크리스트템플릿"
+
+    )
+
+    if not df.empty:
+
+        return
+
+    with get_lock(CHECKLIST_TEMPLATE_DB_PATH):
+
+        wb = load_workbook(
+            CHECKLIST_TEMPLATE_DB_PATH
+        )
+
+        ws = wb["체크리스트템플릿"]
+
+        for template_name, items in (
+
+            DEFAULT_CHECKLIST_TEMPLATES.items()
+
+        ):
+
+            for idx, item in enumerate(items, start=1):
+
+                ws.append(
+
+                    [template_name, idx, item]
+
+                )
+
+        wb.save(
+            CHECKLIST_TEMPLATE_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+
+def get_checklist_template_names():
+
+    df = read_excel(
+
+        CHECKLIST_TEMPLATE_DB_PATH,
+
+        "체크리스트템플릿"
+
+    )
+
+    if df.empty:
+
+        return []
+
+    return df["템플릿명"].drop_duplicates().tolist()
+
+
+def get_checklist_template_items(template_name):
+
+    df = read_excel(
+
+        CHECKLIST_TEMPLATE_DB_PATH,
+
+        "체크리스트템플릿"
+
+    )
+
+    if df.empty:
+
+        return []
+
+    matched = df[
+
+        df["템플릿명"] == template_name
+
+    ].sort_values("순번")
+
+    return matched["점검항목"].tolist()
+
+
+def save_checklist_template(template_name, items):
+
+    with get_lock(CHECKLIST_TEMPLATE_DB_PATH):
+
+        wb = load_workbook(
+            CHECKLIST_TEMPLATE_DB_PATH
+        )
+
+        ws = wb["체크리스트템플릿"]
+
+        # 같은 이름의 기존 템플릿은 지우고 새로 저장
+
+        for r in list(
+
+            ws.iter_rows(min_row=2)
+
+        ):
+
+            if r[0].value == template_name:
+
+                ws.delete_rows(
+                    r[0].row
+                )
+
+        for idx, item in enumerate(items, start=1):
+
+            ws.append(
+
+                [template_name, idx, item]
+
+            )
+
+        wb.save(
+            CHECKLIST_TEMPLATE_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+
+def delete_checklist_template(template_name):
+
+    with get_lock(CHECKLIST_TEMPLATE_DB_PATH):
+
+        wb = load_workbook(
+            CHECKLIST_TEMPLATE_DB_PATH
+        )
+
+        ws = wb["체크리스트템플릿"]
+
+        for r in list(
+
+            ws.iter_rows(min_row=2)
+
+        ):
+
+            if r[0].value == template_name:
+
+                ws.delete_rows(
+                    r[0].row
+                )
+
+        wb.save(
+            CHECKLIST_TEMPLATE_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+
+def is_favorite_equipment(equip_name):
+
+    df = read_excel(
+        FAVORITE_DB_PATH,
+        "즐겨찾기"
+    )
+
+    if df.empty:
+
+        return False
+
+    return equip_name in df["설비명"].values
+
+
+def toggle_favorite_equipment(equip_name):
+
+    if is_favorite_equipment(equip_name):
+
+        with get_lock(FAVORITE_DB_PATH):
+
+            wb = load_workbook(
+                FAVORITE_DB_PATH
+            )
+
+            ws = wb["즐겨찾기"]
+
+            for r in list(
+
+                ws.iter_rows(min_row=2)
+
+            ):
+
+                if r[0].value == equip_name:
+
+                    ws.delete_rows(
+                        r[0].row
+                    )
+
+                    break
+
+            wb.save(
+                FAVORITE_DB_PATH
+            )
+
+            wb.close()
+
+    else:
+
+        safe_append_row(
+
+            FAVORITE_DB_PATH,
+
+            "즐겨찾기",
+
+            [
+                equip_name,
+                datetime.now().strftime(
+                    "%Y-%m-%d %H:%M"
+                )
+            ]
+
+        )
+
+    _read_excel_cached.clear()
+
+
+def get_favorite_equipment_list():
+
+    df = read_excel(
+        FAVORITE_DB_PATH,
+        "즐겨찾기"
+    )
+
+    if df.empty:
+
+        return []
+
+    return df["설비명"].tolist()
+
+
+def log_recent_view(equip_name):
+
+    df = read_excel(
+        RECENT_VIEW_DB_PATH,
+        "최근조회"
+    )
+
+    with get_lock(RECENT_VIEW_DB_PATH):
+
+        wb = load_workbook(
+            RECENT_VIEW_DB_PATH
+        )
+
+        ws = wb["최근조회"]
+
+        # 같은 설비의 예전 기록은 지우고 맨 위로(최신으로) 갱신
+
+        for r in list(
+
+            ws.iter_rows(min_row=2)
+
+        ):
+
+            if r[0].value == equip_name:
+
+                ws.delete_rows(
+                    r[0].row
+                )
+
+        ws.append(
+
+            [
+                equip_name,
+                datetime.now().strftime(
+                    "%Y-%m-%d %H:%M"
+                )
+            ]
+
+        )
+
+        # 최근 20개만 유지(파일이 무한정 커지지 않게)
+
+        all_rows = list(
+            ws.iter_rows(min_row=2)
+        )
+
+        if len(all_rows) > 20:
+
+            for r in all_rows[:-20]:
+
+                ws.delete_rows(
+                    r[0].row
+                )
+
+        wb.save(
+            RECENT_VIEW_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+
+def get_recent_view_list(limit=5):
+
+    df = read_excel(
+        RECENT_VIEW_DB_PATH,
+        "최근조회"
+    )
+
+    if df.empty:
+
+        return []
+
+    return df["설비명"].tolist()[::-1][:limit]
+
+
 PREDICTION_LOG_DB_PATH = "Pump_PredictionLog_DB.xlsx"
 
 
@@ -10903,6 +11519,12 @@ def ensure_prediction_log_exists():
 
 
 ensure_prediction_log_exists()
+
+ensure_favorite_recent_dbs_exist()
+
+ensure_checklist_template_db_exists()
+
+seed_default_checklist_templates()
 
 
 def log_prediction(pump, prediction):
@@ -15020,13 +15642,55 @@ if LOGIN_GATE_ENABLED and not st.session_state.authenticated:
 
         )
 
+        LOGIN_LOCKOUT_THRESHOLD = 5
+
+        LOGIN_LOCKOUT_MINUTES = 5
+
+        _locked_until = st.session_state.get(
+            "_login_locked_until"
+        )
+
+        _is_locked = False
+
+        if _locked_until:
+
+            _remaining = (
+
+                datetime.fromisoformat(_locked_until)
+
+                -
+                datetime.now()
+
+            ).total_seconds()
+
+            if _remaining > 0:
+
+                _is_locked = True
+
+                st.error(
+
+                    f"🔒 PIN을 너무 많이 틀려서 "
+                    f"{int(_remaining // 60) + 1}분간 "
+                    "접속이 잠겼습니다. 잠시 후 다시 "
+                    "시도해주세요."
+
+                )
+
+            else:
+
+                st.session_state["_login_locked_until"] = None
+
+                st.session_state["_login_fail_count"] = 0
+
         if st.button(
 
             "🔓 접속",
 
             type="primary",
 
-            use_container_width=True
+            use_container_width=True,
+
+            disabled=_is_locked
 
         ):
 
@@ -15035,6 +15699,10 @@ if LOGIN_GATE_ENABLED and not st.session_state.authenticated:
                 st.session_state.authenticated = True
 
                 st.session_state.entered_as_viewer = False
+
+                st.session_state["_login_fail_count"] = 0
+
+                st.session_state["_login_locked_until"] = None
 
                 st.session_state.user_name = (
 
@@ -15071,9 +15739,52 @@ if LOGIN_GATE_ENABLED and not st.session_state.authenticated:
 
                 )
 
-                st.error(
-                    "PIN 번호가 올바르지 않습니다."
-                )
+                _fail_count = st.session_state.get(
+
+                    "_login_fail_count",
+                    0
+
+                ) + 1
+
+                st.session_state["_login_fail_count"] = _fail_count
+
+                if _fail_count >= LOGIN_LOCKOUT_THRESHOLD:
+
+                    st.session_state["_login_locked_until"] = (
+
+                        (
+                            datetime.now()
+                            +
+                            timedelta(
+                                minutes=LOGIN_LOCKOUT_MINUTES
+                            )
+                        ).isoformat()
+
+                    )
+
+                    log_audit(
+
+                        "로그인 잠금",
+
+                        name_input.strip() or "(이름 미입력)",
+
+                        f"{LOGIN_LOCKOUT_THRESHOLD}회 연속 실패로 "
+                        f"{LOGIN_LOCKOUT_MINUTES}분 잠금"
+
+                    )
+
+                    st.rerun()
+
+                else:
+
+                    st.error(
+
+                        f"PIN 번호가 올바르지 않습니다. "
+                        f"({_fail_count}/{LOGIN_LOCKOUT_THRESHOLD}회, "
+                        f"{LOGIN_LOCKOUT_THRESHOLD}회 실패 시 "
+                        f"{LOGIN_LOCKOUT_MINUTES}분간 잠깁니다)"
+
+                    )
 
     st.stop()
 
@@ -15275,7 +15986,9 @@ with st.sidebar:
 
         ("설계적산", "📐 설계적산"),
 
-        ("백업", "💾 데이터 관리")
+        ("백업", "💾 데이터 관리"),
+
+        ("업데이트내역", "📋 업데이트 내역")
 
     ]
 
@@ -15826,13 +16539,30 @@ if st.session_state.page == "홈":
 
     qc1, qc2, qc3 = st.columns(3)
 
+    _qc_mascot_diag = get_mascot_base64_html(
+        max_height_px=56,
+        name="mascot_control"
+    )
+
+    _qc_mascot_report = get_mascot_base64_html(
+        max_height_px=56,
+        name="mascot"
+    )
+
+    _qc_mascot_qr = get_mascot_base64_html(
+        max_height_px=56,
+        name="mascot_patrol"
+    )
+
     with qc1:
 
         st.markdown(
 
-            """
+            f"""
             <div class="feature-card" style="
-            background: linear-gradient(135deg, #063b63, #0891b2);">
+            background: linear-gradient(135deg, #063b63, #0891b2);
+            position: relative;">
+                {f'<div style="position:absolute; top:8px; right:10px; opacity:0.9;">{_qc_mascot_diag}</div>' if _qc_mascot_diag else ''}
                 <div class="feature-card-icon">🔍</div>
                 <div class="feature-card-title">정밀진단</div>
                 <div class="feature-card-desc">
@@ -15865,9 +16595,11 @@ if st.session_state.page == "홈":
 
         st.markdown(
 
-            """
+            f"""
             <div class="feature-card" style="
-            background: linear-gradient(135deg, #0f5132, #2f9e44);">
+            background: linear-gradient(135deg, #0f5132, #2f9e44);
+            position: relative;">
+                {f'<div style="position:absolute; top:8px; right:10px; opacity:0.9;">{_qc_mascot_report}</div>' if _qc_mascot_report else ''}
                 <div class="feature-card-icon">📝</div>
                 <div class="feature-card-title">월간 보고서</div>
                 <div class="feature-card-desc">
@@ -15900,9 +16632,11 @@ if st.session_state.page == "홈":
 
         st.markdown(
 
-            """
+            f"""
             <div class="feature-card" style="
-            background: linear-gradient(135deg, #9a3412, #f08c00);">
+            background: linear-gradient(135deg, #9a3412, #f08c00);
+            position: relative;">
+                {f'<div style="position:absolute; top:8px; right:10px; opacity:0.9;">{_qc_mascot_qr}</div>' if _qc_mascot_qr else ''}
                 <div class="feature-card-icon">📱</div>
                 <div class="feature-card-title">QR 설비 포털</div>
                 <div class="feature-card-desc">
@@ -16097,7 +16831,7 @@ if st.session_state.page == "홈":
 
     _recent_viewed = [
 
-        e for e in st.session_state.get("_recent_viewed", [])
+        e for e in get_recent_view_list(limit=10)
 
         if e in {p["equip"] for p in ALL_PUMPS}
 
@@ -16353,12 +17087,13 @@ if st.session_state.page == "홈":
         # ---------------- 즐겨찾기 ----------------
         #
         # 관리하는 설비가 늘어나면 자주 보는 몇 대만 따로
-        # 모아보고 싶어질 수 있다. 세션 동안 유지되는
-        # 간단한 즐겨찾기 기능.
+        # 모아보고 싶어질 수 있다. 예전엔 세션 동안만 유지되는
+        # 임시 목록이라 재접속하면 사라졌는데, 이제 파일로
+        # 저장해서 다음에 다시 들어와도 그대로 남는다.
 
-        if "favorite_equips" not in st.session_state:
-
-            st.session_state.favorite_equips = set()
+        _favorite_equips = set(
+            get_favorite_equipment_list()
+        )
 
         fav_c1, fav_c2 = st.columns(
             [2, 1]
@@ -16374,7 +17109,7 @@ if st.session_state.page == "홈":
 
                 default=[
 
-                    e for e in st.session_state.favorite_equips
+                    e for e in _favorite_equips
 
                     if e in [p["equip"] for p in _filtered_pumps]
 
@@ -16384,9 +17119,21 @@ if st.session_state.page == "홈":
 
             )
 
-            st.session_state.favorite_equips = set(
+            _new_favorite_set = set(
                 selected_favorites
             )
+
+            if _new_favorite_set != _favorite_equips:
+
+                for _added in _new_favorite_set - _favorite_equips:
+
+                    toggle_favorite_equipment(_added)
+
+                for _removed in _favorite_equips - _new_favorite_set:
+
+                    toggle_favorite_equipment(_removed)
+
+                _favorite_equips = _new_favorite_set
 
         with fav_c2:
 
@@ -16396,7 +17143,7 @@ if st.session_state.page == "홈":
 
                 key="home_favorites_only_toggle",
 
-                disabled=len(st.session_state.favorite_equips) == 0
+                disabled=len(_favorite_equips) == 0
 
             )
 
@@ -16484,7 +17231,7 @@ if st.session_state.page == "홈":
                 show_favorites_only
 
                 and
-                pump["equip"] not in st.session_state.favorite_equips
+                pump["equip"] not in _favorite_equips
 
             ):
 
@@ -16551,7 +17298,7 @@ if st.session_state.page == "홈":
                     border-left:4px solid {text_color};">
 
                         <div class="equip-card-title">
-                        {'⭐ ' if pump['equip'] in st.session_state.favorite_equips else ''}{pump['equip']}
+                        {'⭐ ' if pump['equip'] in _favorite_equips else ''}{pump['equip']}
                         </div>
 
                         <span style="
@@ -16987,7 +17734,7 @@ elif st.session_state.page == "설비":
         if p["equip"] == selected
     )
 
-    track_recent_view(
+    log_recent_view(
         pump["equip"]
     )
 
@@ -17370,10 +18117,9 @@ elif st.session_state.page == "QR":
     st.markdown(
 
         f"""
-        <div style="display:flex; align-items:center;
-        justify-content:space-between;">
+        <div class="page-header-mascot">
 
-            <div>
+            <div class="page-header-text">
                 <div class="section-title">
                 📱 QR 설비 디지털 포털
                 </div>
@@ -17385,7 +18131,7 @@ elif st.session_state.page == "QR":
                 </div>
             </div>
 
-            {f'<div style="flex-shrink:0;">{_qr_mascot_html}</div>' if _qr_mascot_html else ''}
+            {f'<div class="page-header-mascot-img">{_qr_mascot_html}</div>' if _qr_mascot_html else ''}
 
         </div>
         """,
@@ -17439,7 +18185,7 @@ elif st.session_state.page == "QR":
         if p["equip"] == selected
     )
 
-    track_recent_view(
+    log_recent_view(
         pump["equip"]
     )
 
@@ -18337,10 +19083,9 @@ elif st.session_state.page == "진단":
     st.markdown(
 
         f"""
-        <div style="display:flex; align-items:center;
-        justify-content:space-between;">
+        <div class="page-header-mascot">
 
-            <div>
+            <div class="page-header-text">
                 <div class="section-title">
                 🔍 펌프 정밀 상태진단
                 </div>
@@ -18351,7 +19096,7 @@ elif st.session_state.page == "진단":
                 </div>
             </div>
 
-            {f'<div style="flex-shrink:0;">{_diag_mascot_html}</div>' if _diag_mascot_html else ''}
+            {f'<div class="page-header-mascot-img">{_diag_mascot_html}</div>' if _diag_mascot_html else ''}
 
         </div>
         """,
@@ -18359,6 +19104,47 @@ elif st.session_state.page == "진단":
         unsafe_allow_html=True
 
     )
+
+    with st.expander(
+
+        "📋 점검 전 체크리스트 템플릿 보기"
+
+    ):
+
+        _checklist_names = get_checklist_template_names()
+
+        if not _checklist_names:
+
+            st.caption(
+
+                "등록된 체크리스트 템플릿이 없습니다."
+
+            )
+
+        else:
+
+            _selected_checklist = st.selectbox(
+
+                "설비 종류에 맞는 템플릿 선택",
+
+                _checklist_names,
+
+                key="diag_checklist_select"
+
+            )
+
+            _checklist_items = get_checklist_template_items(
+
+                _selected_checklist
+
+            )
+
+            for _item in _checklist_items:
+
+                st.checkbox(
+                    _item,
+                    key=f"diag_checklist_{_selected_checklist}_{_item}"
+                )
 
     if not ALL_PUMPS:
 
@@ -18387,7 +19173,7 @@ elif st.session_state.page == "진단":
         if p["equip"] == selected
     )
 
-    track_recent_view(
+    log_recent_view(
         pump["equip"]
     )
 
@@ -19098,10 +19884,9 @@ elif st.session_state.page == "CBM":
     st.markdown(
 
         f"""
-        <div style="display:flex; align-items:center;
-        justify-content:space-between;">
+        <div class="page-header-mascot">
 
-            <div>
+            <div class="page-header-text">
                 <div class="section-title">
                 🎯 CBM 정비판단
                 </div>
@@ -19113,7 +19898,7 @@ elif st.session_state.page == "CBM":
                 </div>
             </div>
 
-            {f'<div style="flex-shrink:0;">{_cbm_mascot_html}</div>' if _cbm_mascot_html else ''}
+            {f'<div class="page-header-mascot-img">{_cbm_mascot_html}</div>' if _cbm_mascot_html else ''}
 
         </div>
         """,
@@ -19578,10 +20363,9 @@ elif st.session_state.page == "오버홀":
     st.markdown(
 
         f"""
-        <div style="display:flex; align-items:center;
-        justify-content:space-between;">
+        <div class="page-header-mascot">
 
-            <div>
+            <div class="page-header-text">
                 <div class="section-title">
                 🛠️ 오버홀 관리
                 </div>
@@ -19592,7 +20376,7 @@ elif st.session_state.page == "오버홀":
                 </div>
             </div>
 
-            {f'<div style="flex-shrink:0;">{_overhaul_mascot_html}</div>' if _overhaul_mascot_html else ''}
+            {f'<div class="page-header-mascot-img">{_overhaul_mascot_html}</div>' if _overhaul_mascot_html else ''}
 
         </div>
         """,
@@ -19672,6 +20456,87 @@ elif st.session_state.page == "오버홀":
         )
 
         if schedule_rows:
+
+            _cal_view = st.toggle(
+
+                "🗓️ 캘린더로 보기",
+
+                key="overhaul_calendar_toggle"
+
+            )
+
+            if _cal_view:
+
+                _today = datetime.now().date()
+
+                _cal_col1, _cal_col2 = st.columns(2)
+
+                _cal_year = _cal_col1.selectbox(
+
+                    "연도",
+
+                    list(range(_today.year - 1, _today.year + 2)),
+
+                    index=1,
+
+                    key="overhaul_cal_year"
+
+                )
+
+                _cal_month = _cal_col2.selectbox(
+
+                    "월",
+
+                    list(range(1, 13)),
+
+                    index=_today.month - 1,
+
+                    key="overhaul_cal_month"
+
+                )
+
+                _events_by_day = {}
+
+                for equip, site, est_date, basis, vib_adj in (
+
+                    schedule_rows
+
+                ):
+
+                    if (
+
+                        est_date.year == _cal_year
+
+                        and est_date.month == _cal_month
+
+                    ):
+
+                        _events_by_day.setdefault(
+
+                            est_date.day,
+                            []
+
+                        ).append(equip)
+
+                st.markdown(
+
+                    build_month_calendar_html(
+
+                        _cal_year,
+                        _cal_month,
+                        _events_by_day
+
+                    ),
+
+                    unsafe_allow_html=True
+
+                )
+
+                st.caption(
+
+                    "🔧 표시는 그 날짜에 예정된 오버홀 설비입니다."
+
+                )
 
             today_d = datetime.now().date()
 
@@ -19852,7 +20717,7 @@ elif st.session_state.page == "오버홀":
         if p["equip"] == selected
     )
 
-    track_recent_view(
+    log_recent_view(
         pump["equip"]
     )
 
@@ -20063,21 +20928,27 @@ elif st.session_state.page == "오버홀":
 
         before_eff = c1.number_input(
             "정비 전 효율 (%)",
+            min_value=0.0,
+            max_value=100.0,
             value=72.3
         )
 
         after_eff = c2.number_input(
             "정비 후 효율 (%)",
+            min_value=0.0,
+            max_value=100.0,
             value=77.7
         )
 
         before_vib = c1.number_input(
             "정비 전 진동",
+            min_value=0.0,
             value=5.8
         )
 
         after_vib = c2.number_input(
             "정비 후 진동",
+            min_value=0.0,
             value=3.7
         )
 
@@ -20167,7 +21038,7 @@ elif st.session_state.page == "AI":
         if p["equip"] == selected
     )
 
-    track_recent_view(
+    log_recent_view(
         pump["equip"]
     )
 
@@ -20901,11 +21772,14 @@ elif st.session_state.page == "ROI":
 
         rated_kw = c1.number_input(
             "모터 정격출력(kW)",
+            min_value=0.0,
             value=110.0
         )
 
         load = c2.number_input(
             "평균 부하율(%)",
+            min_value=0.0,
+            max_value=100.0,
             value=80.0
         )
 
@@ -20913,11 +21787,15 @@ elif st.session_state.page == "ROI":
 
         before = c1.number_input(
             "정비 전 효율(%)",
+            min_value=0.0,
+            max_value=100.0,
             value=73.0
         )
 
         after = c2.number_input(
             "정비 후 효율(%)",
+            min_value=0.0,
+            max_value=100.0,
             value=82.0
         )
 
@@ -20925,16 +21803,19 @@ elif st.session_state.page == "ROI":
 
         hours = c1.number_input(
             "연간 운전시간",
+            min_value=0,
             value=6000
         )
 
         price = c2.number_input(
             "전력단가(원/kWh)",
+            min_value=0,
             value=140
         )
 
         repair = st.number_input(
             "오버홀 비용(원)",
+            min_value=0,
             value=35_000_000
         )
 
@@ -21230,6 +22111,158 @@ elif st.session_state.page == "노하우":
         unsafe_allow_html=True
     )
 
+    with st.expander(
+
+        "📋 정비 체크리스트 템플릿 관리"
+
+    ):
+
+        st.caption(
+
+            "설비 종류별로 표준화된 점검항목을 만들어두면, "
+            "정밀진단 페이지에서 누구나 빠짐없이 점검할 수 "
+            "있습니다."
+
+        )
+
+        _template_names = get_checklist_template_names()
+
+        if _template_names:
+
+            _manage_template = st.selectbox(
+
+                "수정할 템플릿 선택",
+
+                ["(새 템플릿 만들기)"] + _template_names,
+
+                key="knowhow_template_manage_select"
+
+            )
+
+        else:
+
+            _manage_template = "(새 템플릿 만들기)"
+
+        if _manage_template == "(새 템플릿 만들기)":
+
+            _template_name_input = st.text_input(
+
+                "새 템플릿 이름",
+
+                placeholder="예: 원심펌프용",
+
+                key="new_template_name_input"
+
+            )
+
+            _existing_items = []
+
+        else:
+
+            _template_name_input = _manage_template
+
+            _existing_items = get_checklist_template_items(
+
+                _manage_template
+
+            )
+
+        _items_text = st.text_area(
+
+            "점검항목 (한 줄에 하나씩)",
+
+            value="\n".join(_existing_items),
+
+            height=180,
+
+            key="template_items_textarea"
+
+        )
+
+        tcol1, tcol2 = st.columns(2)
+
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 저장할 수 없습니다."
+            )
+
+        else:
+
+            if tcol1.button(
+
+                "💾 템플릿 저장",
+
+                type="primary",
+
+                use_container_width=True,
+
+                key="save_template_btn"
+
+            ):
+
+                if not _template_name_input.strip():
+
+                    st.error(
+                        "템플릿 이름을 입력해주세요."
+                    )
+
+                else:
+
+                    _new_items = [
+
+                        line.strip()
+
+                        for line in _items_text.split("\n")
+
+                        if line.strip()
+
+                    ]
+
+                    save_checklist_template(
+
+                        _template_name_input.strip(),
+
+                        _new_items
+
+                    )
+
+                    st.success(
+
+                        f"'{_template_name_input}' 템플릿을 "
+                        f"저장했습니다 ({len(_new_items)}개 항목)."
+
+                    )
+
+                    st.rerun()
+
+            if (
+
+                _manage_template != "(새 템플릿 만들기)"
+
+                and tcol2.button(
+
+                    "🗑️ 이 템플릿 삭제",
+
+                    use_container_width=True,
+
+                    key="delete_template_btn"
+
+                )
+
+            ):
+
+                delete_checklist_template(
+                    _manage_template
+                )
+
+                st.success(
+                    f"'{_manage_template}' 템플릿을 삭제했습니다."
+                )
+
+                st.rerun()
+
+
     df_knowhow = read_excel(
         KNOWHOW_DB_PATH,
         "노하우DB"
@@ -21374,7 +22407,9 @@ elif st.session_state.page == "노하우":
     else:
 
         st.info(
-            "등록된 노하우가 아직 없습니다."
+            "등록된 노하우가 아직 없습니다. "
+            "아래 '새로운 기술 노하우 등록'에서 첫 사례를 "
+            "남겨보세요."
         )
 
     st.write("")
@@ -21490,867 +22525,853 @@ elif st.session_state.page == "보고서":
         unsafe_allow_html=True
     )
 
-    report_mode = st.radio(
-
-        "보고서 종류",
-
-        ["설비별 CBM 월간보고서", "월간 진동측정 보고서"],
-
-        horizontal=True,
-
-        key="report_mode_select"
-
+    report_tab1, report_tab2 = st.tabs(
+        [
+            "📄 설비별 CBM 월간보고서",
+            "📈 월간 진동측정 보고서"
+        ]
     )
 
-    st.write("---")
+    with report_tab1:
 
-if st.session_state.page == "보고서" and report_mode == "설비별 CBM 월간보고서":
+        st.markdown(
+            """
+            <div class="section-title">
+            📄 설비별 월간 보고서
+            </div>
 
-    st.markdown(
-        """
-        <div class="section-title">
-        📄 설비별 월간 보고서
-        </div>
+            <div class="section-caption">
+            설비 하나를 골라 그 달의 점검·오버홀 이력, 점수, 추세 그래프까지
+            담은 Word 월간 보고서를 만듭니다.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-        <div class="section-caption">
-        설비 하나를 골라 그 달의 점검·오버홀 이력, 점수, 추세 그래프까지
-        담은 Word 월간 보고서를 만듭니다.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        if not ALL_PUMPS:
 
-    if not ALL_PUMPS:
+            st.info(
 
-        st.info(
+                "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
+                "설비를 추가하거나 엑셀을 업로드해주세요."
 
-            "등록된 설비가 없습니다. '데이터 관리' 메뉴에서 "
-            "설비를 추가하거나 엑셀을 업로드해주세요."
+            )
+
+            st.stop()
+
+        report_pump_name = st.selectbox(
+
+            "설비 선택",
+
+            [
+                p["equip"]
+                for p in ALL_PUMPS
+            ],
+
+            key="report_pump_select"
 
         )
 
-        st.stop()
+        report_pump = next(
 
-    report_pump_name = st.selectbox(
+            p for p in ALL_PUMPS
 
-        "설비 선택",
+            if p["equip"] == report_pump_name
 
-        [
-            p["equip"]
-            for p in ALL_PUMPS
-        ],
+        )
 
-        key="report_pump_select"
+        today = datetime.now()
 
-    )
+        rc1, rc2 = st.columns(2)
 
-    report_pump = next(
+        report_year = rc1.selectbox(
 
-        p for p in ALL_PUMPS
+            "보고 연도",
 
-        if p["equip"] == report_pump_name
+            list(range(today.year - 2, today.year + 1)),
 
-    )
+            index=2,
 
-    today = datetime.now()
+            key="report_year_select"
 
-    rc1, rc2 = st.columns(2)
+        )
 
-    report_year = rc1.selectbox(
+        report_month = rc2.selectbox(
 
-        "보고 연도",
+            "보고 월",
 
-        list(range(today.year - 2, today.year + 1)),
+            list(range(1, 13)),
 
-        index=2,
+            index=today.month - 1,
 
-        key="report_year_select"
+            key="report_month_select"
 
-    )
+        )
 
-    report_month = rc2.selectbox(
+        month_label = f"{report_year}-{report_month:02d}"
 
-        "보고 월",
+        report_result = pump_status(
+            report_pump,
+            df_history
+        )
 
-        list(range(1, 13)),
+        st.markdown(
 
-        index=today.month - 1,
+            f"""
+            <div class="platform-card">
 
-        key="report_month_select"
+            <div class="card-title">
+            보고서 미리보기 — {report_pump['equip']} · {month_label}
+            </div>
 
-    )
+            <b>사업장</b> : {report_pump['site']}<br>
+            <b>CBM Score</b> : {report_result['점수']}점 ({report_result['등급']}등급)<br>
+            <b>상태</b> : {report_result['상태']}<br>
+            <b>구성</b> : 표지(문서번호) · 종합소견 · 설비스펙 · 펌프점수(전월비교) ·
+            점검이력 · 오버홀내역(작업사진) · 정비권고사항 · 등급판정기준 ·
+            추세그래프(진동·효율·온도·운전시간·설비비교) · 용어부록
 
-    month_label = f"{report_year}-{report_month:02d}"
+            </div>
+            """,
 
-    report_result = pump_status(
-        report_pump,
-        df_history
-    )
+            unsafe_allow_html=True
 
-    st.markdown(
+        )
 
-        f"""
-        <div class="platform-card">
+        use_ai_commentary_checkbox = st.checkbox(
 
-        <div class="card-title">
-        보고서 미리보기 — {report_pump['equip']} · {month_label}
-        </div>
+            "🤖 AI(Claude)가 종합소견을 직접 작성하도록 하기",
 
-        <b>사업장</b> : {report_pump['site']}<br>
-        <b>CBM Score</b> : {report_result['점수']}점 ({report_result['등급']}등급)<br>
-        <b>상태</b> : {report_result['상태']}<br>
-        <b>구성</b> : 표지(문서번호) · 종합소견 · 설비스펙 · 펌프점수(전월비교) ·
-        점검이력 · 오버홀내역(작업사진) · 정비권고사항 · 등급판정기준 ·
-        추세그래프(진동·효율·온도·운전시간·설비비교) · 용어부록
+            key="use_ai_commentary_checkbox"
 
-        </div>
-        """,
+        )
 
-        unsafe_allow_html=True
+        st.caption(
 
-    )
+            "체크하면 미리 정해둔 문장 틀 대신, 실제 Claude API가 "
+            "이 설비 데이터를 보고 종합소견을 새로 씁니다 "
+            "(Streamlit Secrets에 ANTHROPIC_API_KEY 필요, 없으면 "
+            "기본 요약으로 자동 대체됩니다)."
 
-    use_ai_commentary_checkbox = st.checkbox(
+        )
 
-        "🤖 AI(Claude)가 종합소견을 직접 작성하도록 하기",
+        if st.button(
 
-        key="use_ai_commentary_checkbox"
+            "📝 Word 월간 보고서 생성",
 
-    )
+            type="primary",
 
-    st.caption(
+            use_container_width=True,
 
-        "체크하면 미리 정해둔 문장 틀 대신, 실제 Claude API가 "
-        "이 설비 데이터를 보고 종합소견을 새로 씁니다 "
-        "(Streamlit Secrets에 ANTHROPIC_API_KEY 필요, 없으면 "
-        "기본 요약으로 자동 대체됩니다)."
+            key="generate_word_report_btn"
 
-    )
-
-    if st.button(
-
-        "📝 Word 월간 보고서 생성",
-
-        type="primary",
-
-        use_container_width=True,
-
-        key="generate_word_report_btn"
-
-    ):
-
-        with st.spinner(
-            "보고서를 만드는 중입니다..."
         ):
 
-            docx_bytes = build_pump_monthly_report_docx(
+            with st.spinner(
+                "보고서를 만드는 중입니다..."
+            ):
+
+                docx_bytes = build_pump_monthly_report_docx(
+
+                    report_pump,
+
+                    report_result,
+
+                    month_label,
+
+                    df_history,
+
+                    ALL_PUMPS,
+
+                    use_ai_commentary=use_ai_commentary_checkbox
+
+                )
+
+            st.session_state[
+                "_word_report_bytes"
+            ] = docx_bytes
+
+            st.session_state[
+                "_word_report_filename"
+            ] = f"{report_pump['equip']}_{month_label}_월간보고서.docx"
+
+        if "_word_report_bytes" in st.session_state:
+
+            st.download_button(
+
+                "⬇️ Word 보고서 다운로드",
+
+                data=st.session_state["_word_report_bytes"],
+
+                file_name=st.session_state["_word_report_filename"],
+
+                mime=(
+                    "application/vnd.openxmlformats-"
+                    "officedocument.wordprocessingml.document"
+                ),
+
+                type="primary",
+
+                use_container_width=True,
+
+                key="download_word_report_btn"
+
+            )
+
+            if st.button(
+
+                "🖨️ PDF로 변환해서 받기",
+
+                use_container_width=True,
+
+                key="convert_word_report_pdf_btn"
+
+            ):
+
+                with st.spinner(
+                    "PDF로 변환하는 중입니다..."
+                ):
+
+                    _pdf_bytes = convert_docx_bytes_to_pdf_bytes(
+
+                        st.session_state["_word_report_bytes"]
+
+                    )
+
+                if _pdf_bytes:
+
+                    st.session_state["_word_report_pdf_bytes"] = _pdf_bytes
+
+                else:
+
+                    st.error(
+
+                        "PDF 변환에 실패했습니다. 서버에 "
+                        "LibreOffice가 설치돼 있는지 확인해주세요 "
+                        "(packages.txt에 libreoffice-writer 필요)."
+
+                    )
+
+            if "_word_report_pdf_bytes" in st.session_state:
+
+                st.download_button(
+
+                    "⬇️ PDF 보고서 다운로드",
+
+                    data=st.session_state["_word_report_pdf_bytes"],
+
+                    file_name=st.session_state[
+
+                        "_word_report_filename"
+
+                    ].replace(".docx", ".pdf"),
+
+                    mime="application/pdf",
+
+                    use_container_width=True,
+
+                    key="download_word_report_pdf_btn"
+
+                )
+
+        st.write("---")
+
+        st.markdown(
+            "##### 📦 전체 설비 일괄 생성"
+        )
+
+        st.caption(
+
+            f"{month_label} 기준으로 등록된 설비 {len(ALL_PUMPS)}대의 "
+            "월간 보고서를 한 번에 만들어 zip으로 받습니다. "
+            "설비 수가 많으면 시간이 다소 걸릴 수 있습니다."
+
+        )
+
+        if st.button(
+
+            "📦 전체 설비 일괄 생성 (zip)",
+
+            use_container_width=True,
+
+            key="generate_all_reports_btn"
+
+        ):
+
+            with st.spinner(
+
+                f"{len(ALL_PUMPS)}대 설비 보고서를 만드는 중입니다..."
+
+            ):
+
+                zip_buffer = io.BytesIO()
+
+                with zipfile.ZipFile(
+
+                    zip_buffer,
+
+                    "w",
+
+                    zipfile.ZIP_DEFLATED
+
+                ) as zf:
+
+                    progress = st.progress(
+                        0.0
+                    )
+
+                    for i, one_pump in enumerate(
+                        ALL_PUMPS
+                    ):
+
+                        one_result = pump_status(
+
+                            one_pump,
+
+                            df_history
+
+                        )
+
+                        one_bytes = build_pump_monthly_report_docx(
+
+                            one_pump,
+
+                            one_result,
+
+                            month_label,
+
+                            df_history,
+
+                            ALL_PUMPS
+
+                        )
+
+                        zf.writestr(
+
+                            f"{one_pump['equip']}_{month_label}_월간보고서.docx",
+
+                            one_bytes
+
+                        )
+
+                        progress.progress(
+
+                            (i + 1) / len(ALL_PUMPS)
+
+                        )
+
+            st.session_state[
+                "_all_reports_zip_bytes"
+            ] = zip_buffer.getvalue()
+
+            st.session_state[
+                "_all_reports_zip_filename"
+            ] = f"전체설비_{month_label}_월간보고서.zip"
+
+        if "_all_reports_zip_bytes" in st.session_state:
+
+            st.download_button(
+
+                "⬇️ 전체 보고서 zip 다운로드",
+
+                data=st.session_state["_all_reports_zip_bytes"],
+
+                file_name=st.session_state["_all_reports_zip_filename"],
+
+                mime="application/zip",
+
+                type="primary",
+
+                use_container_width=True,
+
+                key="download_all_reports_zip_btn"
+
+            )
+
+        render_excel_export_section(
+
+            f"report_{report_pump['equip']}_{month_label}",
+
+            f"{report_pump['equip']}_{month_label}_보고서데이터.xlsx",
+
+            lambda: build_equipment_export_sheets(
 
                 report_pump,
 
                 report_result,
 
-                month_label,
-
-                df_history,
-
-                ALL_PUMPS,
-
-                use_ai_commentary=use_ai_commentary_checkbox
+                df_history
 
             )
-
-        st.session_state[
-            "_word_report_bytes"
-        ] = docx_bytes
-
-        st.session_state[
-            "_word_report_filename"
-        ] = f"{report_pump['equip']}_{month_label}_월간보고서.docx"
-
-    if "_word_report_bytes" in st.session_state:
-
-        st.download_button(
-
-            "⬇️ Word 보고서 다운로드",
-
-            data=st.session_state["_word_report_bytes"],
-
-            file_name=st.session_state["_word_report_filename"],
-
-            mime=(
-                "application/vnd.openxmlformats-"
-                "officedocument.wordprocessingml.document"
-            ),
-
-            type="primary",
-
-            use_container_width=True,
-
-            key="download_word_report_btn"
 
         )
 
-        if st.button(
+    with report_tab2:
 
-            "🖨️ PDF로 변환해서 받기",
+        st.markdown(
+            """
+            <div class="section-title">
+            📈 월간 진동측정 보고서
+            </div>
 
-            use_container_width=True,
+            <div class="section-caption">
+            매달 받는 "정기점검 실적목록" 엑셀을 그대로 올리면
+            누적 DB에 쌓이고, 그걸로 실제 사업소 양식 그대로
+            월간 진동측정 분석 보고서(Word)를 만듭니다.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-            key="convert_word_report_pdf_btn"
+        st.markdown(
+            "#### 1. 이번 달 정기점검 실적목록 업로드"
+        )
 
-        ):
+        vib_upload_file = st.file_uploader(
 
-            with st.spinner(
-                "PDF로 변환하는 중입니다..."
-            ):
+            "정기점검 실적목록 엑셀",
 
-                _pdf_bytes = convert_docx_bytes_to_pdf_bytes(
+            type=["xlsx"],
 
-                    st.session_state["_word_report_bytes"]
+            key="vib_measure_uploader"
 
-                )
+        )
 
-            if _pdf_bytes:
+        if vib_upload_file is not None:
 
-                st.session_state["_word_report_pdf_bytes"] = _pdf_bytes
+            try:
 
-            else:
+                _vib_rows, _vib_skipped, _vib_unmatched = parse_vibration_measure_upload(
 
-                st.error(
+                    vib_upload_file.getvalue(),
 
-                    "PDF 변환에 실패했습니다. 서버에 "
-                    "LibreOffice가 설치돼 있는지 확인해주세요 "
-                    "(packages.txt에 libreoffice-writer 필요)."
-
-                )
-
-        if "_word_report_pdf_bytes" in st.session_state:
-
-            st.download_button(
-
-                "⬇️ PDF 보고서 다운로드",
-
-                data=st.session_state["_word_report_pdf_bytes"],
-
-                file_name=st.session_state[
-
-                    "_word_report_filename"
-
-                ].replace(".docx", ".pdf"),
-
-                mime="application/pdf",
-
-                use_container_width=True,
-
-                key="download_word_report_pdf_btn"
-
-            )
-
-    st.write("---")
-
-    st.markdown(
-        "##### 📦 전체 설비 일괄 생성"
-    )
-
-    st.caption(
-
-        f"{month_label} 기준으로 등록된 설비 {len(ALL_PUMPS)}대의 "
-        "월간 보고서를 한 번에 만들어 zip으로 받습니다. "
-        "설비 수가 많으면 시간이 다소 걸릴 수 있습니다."
-
-    )
-
-    if st.button(
-
-        "📦 전체 설비 일괄 생성 (zip)",
-
-        use_container_width=True,
-
-        key="generate_all_reports_btn"
-
-    ):
-
-        with st.spinner(
-
-            f"{len(ALL_PUMPS)}대 설비 보고서를 만드는 중입니다..."
-
-        ):
-
-            zip_buffer = io.BytesIO()
-
-            with zipfile.ZipFile(
-
-                zip_buffer,
-
-                "w",
-
-                zipfile.ZIP_DEFLATED
-
-            ) as zf:
-
-                progress = st.progress(
-                    0.0
-                )
-
-                for i, one_pump in enumerate(
                     ALL_PUMPS
+
+                )
+
+                st.success(
+
+                    f"{len(_vib_rows)}건의 측정점을 확인했습니다."
+                    +
+                    (
+
+                        f" ({_vib_skipped}건은 매칭 실패/누락으로 제외)"
+
+                        if _vib_skipped
+
+                        else ""
+                    )
+
+                )
+
+                if _vib_unmatched:
+
+                    st.warning(
+
+                        "설비 매칭에 실패한 사업장/호기: "
+                        +
+                        ", ".join(sorted(_vib_unmatched))
+
+                    )
+
+                with st.expander(
+
+                    f"업로드 데이터 미리보기 ({len(_vib_rows)}건)"
+
                 ):
 
-                    one_result = pump_status(
+                    st.dataframe(
 
-                        one_pump,
+                        pd.DataFrame(
 
-                        df_history
+                            _vib_rows,
 
-                    )
+                            columns=[
+                                "측정일자", "사업장", "설비명",
+                                "펌프모터구분", "부하구분", "측정방향",
+                                "측정값", "평가코드내역", "측정인"
+                            ]
 
-                    one_bytes = build_pump_monthly_report_docx(
+                        ),
 
-                        one_pump,
+                        use_container_width=True,
 
-                        one_result,
-
-                        month_label,
-
-                        df_history,
-
-                        ALL_PUMPS
+                        hide_index=True
 
                     )
 
-                    zf.writestr(
+                if is_read_only():
 
-                        f"{one_pump['equip']}_{month_label}_월간보고서.docx",
-
-                        one_bytes
-
+                    st.info(
+                        "🔒 보기 전용 모드에서는 반영할 수 없습니다."
                     )
 
-                    progress.progress(
+                elif st.button(
 
-                        (i + 1) / len(ALL_PUMPS)
+                    "📥 진동측정 데이터 반영하기",
 
-                    )
-
-        st.session_state[
-            "_all_reports_zip_bytes"
-        ] = zip_buffer.getvalue()
-
-        st.session_state[
-            "_all_reports_zip_filename"
-        ] = f"전체설비_{month_label}_월간보고서.zip"
-
-    if "_all_reports_zip_bytes" in st.session_state:
-
-        st.download_button(
-
-            "⬇️ 전체 보고서 zip 다운로드",
-
-            data=st.session_state["_all_reports_zip_bytes"],
-
-            file_name=st.session_state["_all_reports_zip_filename"],
-
-            mime="application/zip",
-
-            type="primary",
-
-            use_container_width=True,
-
-            key="download_all_reports_zip_btn"
-
-        )
-
-    render_excel_export_section(
-
-        f"report_{report_pump['equip']}_{month_label}",
-
-        f"{report_pump['equip']}_{month_label}_보고서데이터.xlsx",
-
-        lambda: build_equipment_export_sheets(
-
-            report_pump,
-
-            report_result,
-
-            df_history
-
-        )
-
-    )
-
-
-if (
-
-    st.session_state.page == "보고서"
-
-    and report_mode == "월간 진동측정 보고서"
-
-):
-
-    st.markdown(
-        """
-        <div class="section-title">
-        📈 월간 진동측정 보고서
-        </div>
-
-        <div class="section-caption">
-        매달 받는 "정기점검 실적목록" 엑셀을 그대로 올리면
-        누적 DB에 쌓이고, 그걸로 실제 사업소 양식 그대로
-        월간 진동측정 분석 보고서(Word)를 만듭니다.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        "#### 1. 이번 달 정기점검 실적목록 업로드"
-    )
-
-    vib_upload_file = st.file_uploader(
-
-        "정기점검 실적목록 엑셀",
-
-        type=["xlsx"],
-
-        key="vib_measure_uploader"
-
-    )
-
-    if vib_upload_file is not None:
-
-        try:
-
-            _vib_rows, _vib_skipped, _vib_unmatched = parse_vibration_measure_upload(
-
-                vib_upload_file.getvalue(),
-
-                ALL_PUMPS
-
-            )
-
-            st.success(
-
-                f"{len(_vib_rows)}건의 측정점을 확인했습니다."
-                +
-                (
-
-                    f" ({_vib_skipped}건은 매칭 실패/누락으로 제외)"
-
-                    if _vib_skipped
-
-                    else ""
-                )
-
-            )
-
-            if _vib_unmatched:
-
-                st.warning(
-
-                    "설비 매칭에 실패한 사업장/호기: "
-                    +
-                    ", ".join(sorted(_vib_unmatched))
-
-                )
-
-            with st.expander(
-
-                f"업로드 데이터 미리보기 ({len(_vib_rows)}건)"
-
-            ):
-
-                st.dataframe(
-
-                    pd.DataFrame(
-
-                        _vib_rows,
-
-                        columns=[
-                            "측정일자", "사업장", "설비명",
-                            "펌프모터구분", "부하구분", "측정방향",
-                            "측정값", "평가코드내역", "측정인"
-                        ]
-
-                    ),
+                    type="primary",
 
                     use_container_width=True,
 
-                    hide_index=True
+                    key="vib_upload_apply_btn"
 
+                ):
+
+                    apply_vibration_measure_upload(
+                        _vib_rows
+                    )
+
+                    st.success(
+
+                        f"{len(_vib_rows)}건이 누적 DB에 저장되었습니다."
+
+                    )
+
+            except Exception as e:
+
+                st.error(
+                    f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
                 )
 
-            if is_read_only():
+        st.markdown(
+            "#### 1-2. 과거 이력 일괄 업로드 (진동 그래프 엑셀, 선택)"
+        )
 
-                st.info(
-                    "🔒 보기 전용 모드에서는 반영할 수 없습니다."
-                )
+        st.caption(
 
-            elif st.button(
+            "설비마다 시트 하나씩, 월별로 이미 집계된 값이 담긴 "
+            "'진동 그래프' 엑셀이 있으면 여기 올리세요. 정기점검 "
+            "실적목록을 매달 올리는 대신, 과거 1년치를 한 번에 "
+            "채울 수 있습니다."
 
-                "📥 진동측정 데이터 반영하기",
+        )
 
-                type="primary",
+        vib_graph_file = st.file_uploader(
 
-                use_container_width=True,
+            "진동 그래프 엑셀",
 
-                key="vib_upload_apply_btn"
+            type=["xlsx"],
 
-            ):
+            key="vib_graph_uploader"
 
-                apply_vibration_measure_upload(
-                    _vib_rows
+        )
+
+        if vib_graph_file is not None:
+
+            try:
+
+                _graph_rows, _graph_unmatched, _graph_month_counts = parse_vibration_graph_workbook(
+
+                    vib_graph_file.getvalue(),
+
+                    ALL_PUMPS
+
                 )
 
                 st.success(
 
-                    f"{len(_vib_rows)}건이 누적 DB에 저장되었습니다."
+                    f"{len(_graph_rows)}건(측정점 기준)을 확인했습니다."
 
                 )
 
-        except Exception as e:
+                with st.expander(
 
-            st.error(
-                f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
-            )
+                    "시트별 인식된 개월 수"
 
-    st.markdown(
-        "#### 1-2. 과거 이력 일괄 업로드 (진동 그래프 엑셀, 선택)"
-    )
+                ):
 
-    st.caption(
+                    st.dataframe(
 
-        "설비마다 시트 하나씩, 월별로 이미 집계된 값이 담긴 "
-        "'진동 그래프' 엑셀이 있으면 여기 올리세요. 정기점검 "
-        "실적목록을 매달 올리는 대신, 과거 1년치를 한 번에 "
-        "채울 수 있습니다."
+                        pd.DataFrame(
 
-    )
+                            [
 
-    vib_graph_file = st.file_uploader(
+                                {"시트": k, "인식된 개월 수": v}
 
-        "진동 그래프 엑셀",
+                                for k, v in _graph_month_counts.items()
 
-        type=["xlsx"],
+                            ]
 
-        key="vib_graph_uploader"
+                        ),
 
-    )
+                        use_container_width=True,
 
-    if vib_graph_file is not None:
+                        hide_index=True
 
-        try:
+                    )
 
-            _graph_rows, _graph_unmatched, _graph_month_counts = parse_vibration_graph_workbook(
+                if _graph_unmatched:
 
-                vib_graph_file.getvalue(),
+                    st.warning(
 
-                ALL_PUMPS
+                        "설비 매칭에 실패한 시트: "
+                        +
+                        ", ".join(sorted(_graph_unmatched))
 
-            )
+                    )
 
-            st.success(
+                if is_read_only():
 
-                f"{len(_graph_rows)}건(측정점 기준)을 확인했습니다."
+                    st.info(
+                        "🔒 보기 전용 모드에서는 반영할 수 없습니다."
+                    )
 
-            )
+                elif st.button(
 
-            with st.expander(
+                    "📥 과거 이력 반영하기",
 
-                "시트별 인식된 개월 수"
-
-            ):
-
-                st.dataframe(
-
-                    pd.DataFrame(
-
-                        [
-
-                            {"시트": k, "인식된 개월 수": v}
-
-                            for k, v in _graph_month_counts.items()
-
-                        ]
-
-                    ),
+                    type="primary",
 
                     use_container_width=True,
 
-                    hide_index=True
+                    key="vib_graph_apply_btn"
 
+                ):
+
+                    apply_vibration_measure_upload(
+                        _graph_rows
+                    )
+
+                    st.success(
+
+                        f"{len(_graph_rows)}건이 누적 DB에 저장되었습니다."
+
+                    )
+
+            except Exception as e:
+
+                st.error(
+                    f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
                 )
 
-            if _graph_unmatched:
+        st.markdown(
+            "#### 2. 보고서 생성"
+        )
 
-                st.warning(
+        vib_site_list = sorted(
 
-                    "설비 매칭에 실패한 시트: "
-                    +
-                    ", ".join(sorted(_graph_unmatched))
-
-                )
-
-            if is_read_only():
-
-                st.info(
-                    "🔒 보기 전용 모드에서는 반영할 수 없습니다."
-                )
-
-            elif st.button(
-
-                "📥 과거 이력 반영하기",
-
-                type="primary",
-
-                use_container_width=True,
-
-                key="vib_graph_apply_btn"
-
-            ):
-
-                apply_vibration_measure_upload(
-                    _graph_rows
-                )
-
-                st.success(
-
-                    f"{len(_graph_rows)}건이 누적 DB에 저장되었습니다."
-
-                )
-
-        except Exception as e:
-
-            st.error(
-                f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
+            set(
+                p["site"] for p in ALL_PUMPS
             )
 
-    st.markdown(
-        "#### 2. 보고서 생성"
-    )
-
-    vib_site_list = sorted(
-
-        set(
-            p["site"] for p in ALL_PUMPS
         )
 
-    )
+        selected_sites = st.multiselect(
 
-    selected_sites = st.multiselect(
+            "대상 사업장",
 
-        "대상 사업장",
+            vib_site_list,
 
-        vib_site_list,
+            default=vib_site_list,
 
-        default=vib_site_list,
-
-        key="vib_report_sites"
-
-    )
-
-    vmc1, vmc2 = st.columns(2)
-
-    vib_today = datetime.now()
-
-    def _sync_vib_work_period():
-
-        # 보고 연/월이 바뀌면 "작업 기간 문구"도 자동으로
-        # 그 달의 1일~말일로 맞춰준다. (예전엔 월을 바꿔도
-        # 문구가 안 따라와서 8월로 그대로 남아있던 문제가 있었음)
-
-        y = st.session_state["vib_report_year"]
-
-        m = st.session_state["vib_report_month"]
-
-        last_day = calendar.monthrange(
-            y,
-            m
-        )[1]
-
-        st.session_state["vib_work_period"] = (
-
-            f"'{str(y)[2:]}.{m:02d}.01. ~ {last_day}."
+            key="vib_report_sites"
 
         )
 
-    vib_year = vmc1.selectbox(
+        vmc1, vmc2 = st.columns(2)
 
-        "보고 연도",
+        vib_today = datetime.now()
 
-        list(range(vib_today.year - 2, vib_today.year + 1)),
+        def _sync_vib_work_period():
 
-        index=2,
+            # 보고 연/월이 바뀌면 "작업 기간 문구"도 자동으로
+            # 그 달의 1일~말일로 맞춰준다. (예전엔 월을 바꿔도
+            # 문구가 안 따라와서 8월로 그대로 남아있던 문제가 있었음)
 
-        key="vib_report_year",
+            y = st.session_state["vib_report_year"]
 
-        on_change=_sync_vib_work_period
+            m = st.session_state["vib_report_month"]
 
-    )
+            last_day = calendar.monthrange(
+                y,
+                m
+            )[1]
 
-    vib_month = vmc2.selectbox(
+            st.session_state["vib_work_period"] = (
 
-        "보고 월",
-
-        list(range(1, 13)),
-
-        index=vib_today.month - 1,
-
-        key="vib_report_month",
-
-        on_change=_sync_vib_work_period
-
-    )
-
-    vib_month_label = f"{vib_year}-{vib_month:02d}"
-
-    if "vib_work_period" not in st.session_state:
-
-        _last_day_init = calendar.monthrange(
-            vib_year,
-            vib_month
-        )[1]
-
-        st.session_state["vib_work_period"] = (
-
-            f"'{str(vib_year)[2:]}.{vib_month:02d}.01. "
-            f"~ {_last_day_init}."
-
-        )
-
-    work_period_text = st.text_input(
-
-        "작업 기간 문구",
-
-        key="vib_work_period"
-
-    )
-
-    work_members_text = st.text_input(
-
-        "작업 인원 문구",
-
-        value="조원기, 김광일, 정현철",
-
-        key="vib_work_members"
-
-    )
-
-    if st.button(
-
-        "📝 월간 진동측정 보고서 생성",
-
-        type="primary",
-
-        use_container_width=True,
-
-        key="generate_vib_report_btn"
-
-    ):
-
-        with st.spinner(
-            "보고서를 만드는 중입니다..."
-        ):
-
-            vib_docx_bytes = build_vibration_monthly_report_docx(
-
-                selected_sites,
-
-                vib_month_label,
-
-                ALL_PUMPS,
-
-                work_period_text,
-
-                work_members_text
+                f"'{str(y)[2:]}.{m:02d}.01. ~ {last_day}."
 
             )
 
-        st.session_state["_vib_report_bytes"] = vib_docx_bytes
+        vib_year = vmc1.selectbox(
 
-        st.session_state["_vib_report_filename"] = (
+            "보고 연도",
 
-            f"{vib_month_label}_월간진동측정보고서.docx"
+            list(range(vib_today.year - 2, vib_today.year + 1)),
+
+            index=2,
+
+            key="vib_report_year",
+
+            on_change=_sync_vib_work_period
 
         )
 
-    if "_vib_report_bytes" in st.session_state:
+        vib_month = vmc2.selectbox(
 
-        st.download_button(
+            "보고 월",
 
-            "⬇️ Word 보고서 다운로드",
+            list(range(1, 13)),
 
-            data=st.session_state["_vib_report_bytes"],
+            index=vib_today.month - 1,
 
-            file_name=st.session_state["_vib_report_filename"],
+            key="vib_report_month",
 
-            mime=(
-                "application/vnd.openxmlformats-"
-                "officedocument.wordprocessingml.document"
-            ),
+            on_change=_sync_vib_work_period
 
-            type="primary",
+        )
 
-            use_container_width=True,
+        vib_month_label = f"{vib_year}-{vib_month:02d}"
 
-            key="download_vib_report_btn"
+        if "vib_work_period" not in st.session_state:
+
+            _last_day_init = calendar.monthrange(
+                vib_year,
+                vib_month
+            )[1]
+
+            st.session_state["vib_work_period"] = (
+
+                f"'{str(vib_year)[2:]}.{vib_month:02d}.01. "
+                f"~ {_last_day_init}."
+
+            )
+
+        work_period_text = st.text_input(
+
+            "작업 기간 문구",
+
+            key="vib_work_period"
+
+        )
+
+        work_members_text = st.text_input(
+
+            "작업 인원 문구",
+
+            value="조원기, 김광일, 정현철",
+
+            key="vib_work_members"
 
         )
 
         if st.button(
 
-            "🖨️ PDF로 변환해서 받기",
+            "📝 월간 진동측정 보고서 생성",
+
+            type="primary",
 
             use_container_width=True,
 
-            key="convert_vib_report_pdf_btn"
+            key="generate_vib_report_btn"
 
         ):
 
             with st.spinner(
-                "PDF로 변환하는 중입니다..."
+                "보고서를 만드는 중입니다..."
             ):
 
-                _vib_pdf_bytes = convert_docx_bytes_to_pdf_bytes(
+                vib_docx_bytes = build_vibration_monthly_report_docx(
 
-                    st.session_state["_vib_report_bytes"]
+                    selected_sites,
 
-                )
+                    vib_month_label,
 
-            if _vib_pdf_bytes:
+                    ALL_PUMPS,
 
-                st.session_state["_vib_report_pdf_bytes"] = _vib_pdf_bytes
+                    work_period_text,
 
-            else:
-
-                st.error(
-
-                    "PDF 변환에 실패했습니다. 서버에 "
-                    "LibreOffice가 설치돼 있는지 확인해주세요 "
-                    "(packages.txt에 libreoffice-writer 필요)."
+                    work_members_text
 
                 )
 
-        if "_vib_report_pdf_bytes" in st.session_state:
+            st.session_state["_vib_report_bytes"] = vib_docx_bytes
+
+            st.session_state["_vib_report_filename"] = (
+
+                f"{vib_month_label}_월간진동측정보고서.docx"
+
+            )
+
+        if "_vib_report_bytes" in st.session_state:
 
             st.download_button(
 
-                "⬇️ PDF 보고서 다운로드",
+                "⬇️ Word 보고서 다운로드",
 
-                data=st.session_state["_vib_report_pdf_bytes"],
+                data=st.session_state["_vib_report_bytes"],
 
-                file_name=st.session_state[
+                file_name=st.session_state["_vib_report_filename"],
 
-                    "_vib_report_filename"
+                mime=(
+                    "application/vnd.openxmlformats-"
+                    "officedocument.wordprocessingml.document"
+                ),
 
-                ].replace(".docx", ".pdf"),
-
-                mime="application/pdf",
+                type="primary",
 
                 use_container_width=True,
 
-                key="download_vib_report_pdf_btn"
+                key="download_vib_report_btn"
 
             )
+
+            if st.button(
+
+                "🖨️ PDF로 변환해서 받기",
+
+                use_container_width=True,
+
+                key="convert_vib_report_pdf_btn"
+
+            ):
+
+                with st.spinner(
+                    "PDF로 변환하는 중입니다..."
+                ):
+
+                    _vib_pdf_bytes = convert_docx_bytes_to_pdf_bytes(
+
+                        st.session_state["_vib_report_bytes"]
+
+                    )
+
+                if _vib_pdf_bytes:
+
+                    st.session_state["_vib_report_pdf_bytes"] = _vib_pdf_bytes
+
+                else:
+
+                    st.error(
+
+                        "PDF 변환에 실패했습니다. 서버에 "
+                        "LibreOffice가 설치돼 있는지 확인해주세요 "
+                        "(packages.txt에 libreoffice-writer 필요)."
+
+                    )
+
+            if "_vib_report_pdf_bytes" in st.session_state:
+
+                st.download_button(
+
+                    "⬇️ PDF 보고서 다운로드",
+
+                    data=st.session_state["_vib_report_pdf_bytes"],
+
+                    file_name=st.session_state[
+
+                        "_vib_report_filename"
+
+                    ].replace(".docx", ".pdf"),
+
+                    mime="application/pdf",
+
+                    use_container_width=True,
+
+                    key="download_vib_report_pdf_btn"
+
+                )
 
 
 # ============================================================
@@ -22380,256 +23401,856 @@ elif st.session_state.page == "백업":
         "3단계(API 연계)는 향후 추진 예정"
     )
 
-    st.markdown(
-        "### 🌐 배포 주소 설정 (QR 코드용)"
+    _databack_tab1, _databack_tab2, _databack_tab3, _databack_tab4, _databack_tab5 = st.tabs(
+        [
+            "📥 설비 데이터 관리",
+            "📱 QR 관리",
+            "🔔 알림 · 보안",
+            "💾 백업 · 리포트",
+            "💰 비용 참고",
+        ]
     )
 
-    st.caption(
-        "QR 포털의 QR 이미지가 가리키는 주소입니다. "
-        "실제로 이 앱을 배포한 주소와 다르면 QR을 스캔해도 "
-        "연결되지 않으니, 배포 후 반드시 실제 주소로 바꿔주세요."
-    )
+    with _databack_tab1:
 
-    current_url = get_app_base_url()
-
-    new_url = st.text_input(
-
-        "배포 주소 (예: https://kwatertech-pump.streamlit.app)",
-
-        value=current_url,
-
-        key="app_base_url_input",
-
-        disabled=is_read_only()
-
-    )
-
-    if is_read_only():
-
-        st.info(
-            "🔒 보기 전용 모드에서는 변경할 수 없습니다."
+        st.markdown(
+            "### 🧾 통합 업로드 양식 (설비+정밀진단+오버홀 한번에)"
         )
 
-    elif st.button(
-        "배포 주소 저장",
-        key="save_app_url_btn"
-    ):
+        st.caption(
 
-        set_app_base_url(
-            new_url
-        )
-
-        st.success(
-            "배포 주소가 저장되었습니다. "
-            "QR 포털 화면을 다시 열면 반영됩니다."
-        )
-
-    st.markdown(
-        "### 🚨 알림 기준값 설정"
-    )
-
-    st.caption(
-
-        "AI 이상징후·정비권고사항·홈 화면에서 쓰는 "
-        "'관찰/주의' 보조 알림 기준입니다. "
-        "정밀진단 17개 항목의 A~E 등급 계산 기준(ISO 10816-3 등)은 "
-        "여기서 바뀌지 않고 그대로 유지됩니다."
-
-    )
-
-    _cur_th = get_alert_thresholds()
-
-    th_c1, th_c2 = st.columns(2)
-
-    new_vib_watch = th_c1.number_input(
-
-        "진동 관찰 기준(mm/s)",
-
-        value=float(_cur_th["vib_watch"]),
-
-        key="th_vib_watch",
-
-        disabled=is_read_only()
-
-    )
-
-    new_vib_danger = th_c2.number_input(
-
-        "진동 주의 기준(mm/s)",
-
-        value=float(_cur_th["vib_danger"]),
-
-        key="th_vib_danger",
-
-        disabled=is_read_only()
-
-    )
-
-    new_eff_watch = th_c1.number_input(
-
-        "효율 관찰 기준(%)",
-
-        value=float(_cur_th["eff_watch"]),
-
-        key="th_eff_watch",
-
-        disabled=is_read_only()
-
-    )
-
-    new_eff_danger = th_c2.number_input(
-
-        "효율 주의 기준(%)",
-
-        value=float(_cur_th["eff_danger"]),
-
-        key="th_eff_danger",
-
-        disabled=is_read_only()
-
-    )
-
-    new_temp_watch = th_c1.number_input(
-
-        "온도 관찰 기준(°C)",
-
-        value=float(_cur_th["temp_watch"]),
-
-        key="th_temp_watch",
-
-        disabled=is_read_only()
-
-    )
-
-    new_temp_danger = th_c2.number_input(
-
-        "온도 주의 기준(°C)",
-
-        value=float(_cur_th["temp_danger"]),
-
-        key="th_temp_danger",
-
-        disabled=is_read_only()
-
-    )
-
-    if is_read_only():
-
-        st.info(
-            "🔒 보기 전용 모드에서는 변경할 수 없습니다."
-        )
-
-    elif st.button(
-        "알림 기준값 저장",
-        key="save_thresholds_btn"
-    ):
-
-        save_alert_thresholds(
-
-            {
-                "vib_watch": new_vib_watch,
-                "vib_danger": new_vib_danger,
-                "eff_watch": new_eff_watch,
-                "eff_danger": new_eff_danger,
-                "temp_watch": new_temp_watch,
-                "temp_danger": new_temp_danger
-            }
+            "엑셀 파일 하나에 설비정보·정밀진단·오버홀이력을 "
+            "전부 담아서 한 번에 올리는 양식입니다. "
+            "빈 양식을 받아서 채운 뒤 그대로 다시 올리시면 됩니다."
 
         )
 
-        log_audit(
+        template_bytes = build_unified_import_template_bytes()
 
-            "알림 기준값 변경",
+        st.download_button(
 
-            "전체",
+            "📄 통합 업로드 양식 다운로드",
 
-            f"진동({new_vib_watch}/{new_vib_danger}) "
-            f"효율({new_eff_watch}/{new_eff_danger}) "
-            f"온도({new_temp_watch}/{new_temp_danger})"
+            data=template_bytes,
+
+            file_name="통합업로드_양식.xlsx",
+
+            mime=(
+                "application/vnd.openxmlformats-"
+                "officedocument.spreadsheetml.sheet"
+            ),
+
+            use_container_width=True,
+
+            key="download_unified_template_btn"
 
         )
 
-        st.success(
-            "알림 기준값이 저장되었습니다."
+        unified_file = st.file_uploader(
+
+            "작성한 통합 양식 업로드",
+
+            type=["xlsx"],
+
+            key="unified_import_uploader"
+
         )
 
-    st.markdown(
-        "### 🔔 알림 웹훅 설정 (Slack 등)"
-    )
+        if unified_file is not None:
 
-    st.caption(
+            try:
 
-        "정밀진단 결과가 D/E등급으로 저장되면 아래 웹훅 주소로 "
-        "자동 알림을 보냅니다. Slack의 'Incoming Webhook' 주소를 "
-        "그대로 붙여넣으면 됩니다. 비워두면 알림을 보내지 않습니다. "
-        "⚠️ 실제 알림이 도착하는지는 워크스페이스에 웹훅을 "
-        "등록하신 뒤 직접 확인해주세요."
+                _parsed = parse_unified_import_workbook(
 
-    )
+                    unified_file.getvalue()
 
-    current_webhook = get_webhook_url()
+                )
 
-    new_webhook = st.text_input(
+                st.success(
 
-        "웹훅 URL",
+                    f"설비 {len(_parsed['equip_rows'])}건 · "
+                    f"정밀진단 {len(_parsed['diag_rows'])}건 · "
+                    f"오버홀 {len(_parsed['overhaul_rows'])}건을 "
+                    "확인했습니다."
 
-        value=current_webhook,
+                )
 
-        key="webhook_url_input",
+                if _parsed["diag_skipped"]:
 
-        type="password",
+                    st.warning(
 
-        disabled=is_read_only()
+                        "정밀진단 시트에서 설비정보와 매칭 안 되어 "
+                        "제외된 항목: "
+                        +
+                        ", ".join(_parsed["diag_skipped"])
 
-    )
+                    )
 
-    if is_read_only():
+                if _parsed["overhaul_skipped"]:
 
-        st.info(
-            "🔒 보기 전용 모드에서는 변경할 수 없습니다."
+                    st.warning(
+
+                        f"오버홀이력 시트에서 {_parsed['overhaul_skipped']}건이 "
+                        "설비 매칭 실패 또는 필수값 누락으로 제외되었습니다."
+
+                    )
+
+                if _parsed["equip_rows"]:
+
+                    with st.expander(
+                        f"설비정보 미리보기 ({len(_parsed['equip_rows'])}건)"
+                    ):
+
+                        st.dataframe(
+
+                            pd.DataFrame(_parsed["equip_rows"]),
+
+                            use_container_width=True,
+
+                            hide_index=True
+
+                        )
+
+                if _parsed["diag_rows"]:
+
+                    with st.expander(
+                        f"정밀진단 미리보기 ({len(_parsed['diag_rows'])}건)"
+                    ):
+
+                        _diag_preview_cols = (
+
+                            ["점검일","사업장","설비명","제조사","모델명",
+                             "마력","양정","준공일","점검자","종합점수","최종등급"]
+
+                            +
+                            [item[1] for item in EVAL_ITEMS]
+
+                            +
+                            ["효율측정값(%)","진동측정값(mm/s)",
+                             "온도측정값(°C)","전류측정값(A)"]
+
+                        )
+
+                        st.dataframe(
+
+                            pd.DataFrame(
+                                _parsed["diag_rows"],
+                                columns=_diag_preview_cols
+                            ),
+
+                            use_container_width=True,
+
+                            hide_index=True
+
+                        )
+
+                if _parsed["overhaul_rows"]:
+
+                    with st.expander(
+                        f"오버홀이력 미리보기 ({len(_parsed['overhaul_rows'])}건)"
+                    ):
+
+                        st.dataframe(
+
+                            pd.DataFrame(
+
+                                _parsed["overhaul_rows"],
+
+                                columns=[
+                                    "작업일자","사업장","설비명","공정단계",
+                                    "작업자","작업내용","사진파일명",
+                                    "전후효율","전후진동"
+                                ]
+
+                            ),
+
+                            use_container_width=True,
+
+                            hide_index=True
+
+                        )
+
+                if is_read_only():
+
+                    st.info(
+                        "🔒 보기 전용 모드에서는 반영할 수 없습니다."
+                    )
+
+                elif st.button(
+
+                    "📥 통합 업로드 반영하기",
+
+                    type="primary",
+
+                    use_container_width=True,
+
+                    key="unified_import_open_btn"
+
+                ):
+
+                    st.session_state["_show_unified_import_confirm"] = True
+
+                if st.session_state.get("_show_unified_import_confirm"):
+
+                    @st.dialog("통합 업로드 반영 확인")
+                    def _confirm_unified_import():
+
+                        st.write(
+
+                            f"설비 {len(_parsed['equip_rows'])}건, "
+                            f"정밀진단 {len(_parsed['diag_rows'])}건, "
+                            f"오버홀 {len(_parsed['overhaul_rows'])}건을 "
+                            "반영하시겠습니까?"
+
+                        )
+
+                        st.caption(
+
+                            "이미 등록된 설비명은 건드리지 않고, "
+                            "새로운 설비명만 추가됩니다. "
+                            "정밀진단·오버홀은 항상 새 기록으로 "
+                            "추가됩니다(기존 이력은 지워지지 않습니다)."
+
+                        )
+
+                        uc1, uc2 = st.columns(2)
+
+                        with uc1:
+
+                            if st.button(
+
+                                "예, 반영합니다",
+
+                                type="primary",
+
+                                use_container_width=True,
+
+                                key="unified_import_confirm_yes"
+
+                            ):
+
+                                apply_unified_import(
+                                    _parsed
+                                )
+
+                                st.session_state[
+                                    "_show_unified_import_confirm"
+                                ] = False
+
+                                st.session_state[
+                                    "_unified_import_done"
+                                ] = True
+
+                                st.rerun()
+
+                        with uc2:
+
+                            if st.button(
+
+                                "아니오",
+
+                                use_container_width=True,
+
+                                key="unified_import_confirm_no"
+
+                            ):
+
+                                st.session_state[
+                                    "_show_unified_import_confirm"
+                                ] = False
+
+                                st.rerun()
+
+                    _confirm_unified_import()
+
+                if st.session_state.get("_unified_import_done"):
+
+                    st.success(
+
+                        "통합 업로드가 반영되었습니다. "
+                        "메뉴를 다시 열면 확인할 수 있습니다."
+
+                    )
+
+            except Exception as e:
+
+                st.error(
+
+                    f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
+
+                )
+
+
+        st.markdown(
+            "### 📥 실제 설비 데이터 일괄 업로드"
         )
 
-    elif st.button(
-        "웹훅 주소 저장",
-        key="save_webhook_btn"
-    ):
+        st.caption(
 
-        set_webhook_url(
-            new_webhook
+            "사업소에서 받은 '설비 기본정보' 엑셀과 '오버홀 실적' "
+            "엑셀을 그대로 올리면 설비마스터와 오버홀이력이 한 번에 "
+            "채워집니다. 원본에 없는 값(제조사·모델·정격출력 등)은 "
+            "억지로 채우지 않고 빈칸으로 둡니다. "
+            "⚠️ 기존에 등록된 설비 목록은 전부 지워지고 "
+            "새로 올리는 목록으로 교체됩니다."
+
         )
 
-        log_audit(
-            "웹훅 설정 변경",
-            "알림설정"
+        bulk_c1, bulk_c2 = st.columns(2)
+
+        equip_excel_file = bulk_c1.file_uploader(
+
+            "설비 기본정보 엑셀",
+
+            type=["xlsx"],
+
+            key="bulk_equip_excel"
+
         )
 
-        st.success(
-            "웹훅 주소가 저장되었습니다."
+        overhaul_excel_file = bulk_c2.file_uploader(
+
+            "오버홀 실적 엑셀",
+
+            type=["xlsx"],
+
+            key="bulk_overhaul_excel"
+
         )
 
-    st.markdown(
-        "### 🕵️ 감사 로그 (누가 언제 무엇을 했는지)"
-    )
+        if equip_excel_file is not None:
 
-    df_audit = read_excel(
+            try:
 
-        AUDIT_LOG_PATH,
+                _df1 = pd.read_excel(equip_excel_file)
 
-        "감사로그"
+                _equip_rows, _equip_map, _site_map = parse_equipment_import_excel(
+                    _df1
+                )
 
-    )
+                st.success(
 
-    if not df_audit.empty:
+                    f"설비 {len(_equip_rows)}건을 확인했습니다."
+
+                )
+
+                with st.expander(
+
+                    f"설비 미리보기 ({len(_equip_rows)}건)"
+
+                ):
+
+                    st.dataframe(
+
+                        pd.DataFrame(_equip_rows),
+
+                        use_container_width=True,
+
+                        hide_index=True
+
+                    )
+
+                _overhaul_rows = []
+
+                if overhaul_excel_file is not None:
+
+                    _df2 = pd.read_excel(
+                        overhaul_excel_file
+                    )
+
+                    _overhaul_rows, _skipped = parse_overhaul_import_excel(
+
+                        _df2,
+
+                        _equip_map,
+
+                        _site_map
+
+                    )
+
+                    st.success(
+
+                        f"오버홀 실적 {len(_overhaul_rows)}건을 "
+                        f"확인했습니다"
+                        +
+                        (
+                            f" ({_skipped}건은 설비 매칭 실패 또는 "
+                            f"날짜 오류로 제외)"
+
+                            if _skipped
+
+                            else ""
+                        )
+
+                    )
+
+                    with st.expander(
+
+                        f"오버홀 실적 미리보기 ({len(_overhaul_rows)}건)"
+
+                    ):
+
+                        st.dataframe(
+
+                            pd.DataFrame(_overhaul_rows),
+
+                            use_container_width=True,
+
+                            hide_index=True
+
+                        )
+
+                if is_read_only():
+
+                    st.info(
+                        "🔒 보기 전용 모드에서는 반영할 수 없습니다."
+                    )
+
+                elif st.button(
+
+                    "📥 일괄 업로드 확인 팝업 열기",
+
+                    type="primary",
+
+                    use_container_width=True,
+
+                    key="bulk_import_open_btn"
+
+                ):
+
+                    st.session_state["_show_bulk_import_confirm"] = True
+
+                if st.session_state.get("_show_bulk_import_confirm"):
+
+                    @st.dialog("일괄 업로드 확인")
+                    def _confirm_bulk_import():
+
+                        st.write(
+
+                            f"설비 {len(_equip_rows)}건으로 "
+                            "**기존 설비 목록을 전부 교체**하고, "
+                            f"오버홀 실적 {len(_overhaul_rows)}건을 "
+                            "추가하시겠습니까?"
+
+                        )
+
+                        st.warning(
+
+                            "기존에 등록돼 있던 설비는 삭제되고 "
+                            "새 목록으로 바뀝니다. 기존 오버홀·"
+                            "정밀진단 이력은 그대로 남지만, "
+                            "삭제된 설비 이름과 연결이 끊깁니다."
+
+                        )
+
+                        dc1, dc2 = st.columns(2)
+
+                        with dc1:
+
+                            if st.button(
+
+                                "예, 진행합니다",
+
+                                type="primary",
+
+                                use_container_width=True,
+
+                                key="bulk_import_confirm_yes"
+
+                            ):
+
+                                replace_all_equipment(
+                                    _equip_rows
+                                )
+
+                                if _overhaul_rows:
+
+                                    bulk_append_overhaul(
+                                        _overhaul_rows
+                                    )
+
+                                st.session_state[
+                                    "_show_bulk_import_confirm"
+                                ] = False
+
+                                st.session_state[
+                                    "_bulk_import_done"
+                                ] = True
+
+                                st.rerun()
+
+                        with dc2:
+
+                            if st.button(
+
+                                "아니오",
+
+                                use_container_width=True,
+
+                                key="bulk_import_confirm_no"
+
+                            ):
+
+                                st.session_state[
+                                    "_show_bulk_import_confirm"
+                                ] = False
+
+                                st.rerun()
+
+                    _confirm_bulk_import()
+
+                if st.session_state.get("_bulk_import_done"):
+
+                    st.success(
+
+                        "설비 목록과 오버홀 실적이 반영되었습니다. "
+                        "메뉴를 다시 열면 확인할 수 있습니다."
+
+                    )
+
+            except Exception as e:
+
+                st.error(
+
+                    f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
+
+                )
+
+
+        st.markdown(
+            "### ⚙️ 설비 마스터 관리"
+        )
+
+        st.caption(
+            "설비 목록이 코드에 고정되어 있지 않고 여기서 "
+            "추가·삭제할 수 있습니다. 설비별로 진동·효율 기준을 "
+            "다르게 두고 싶으면 기준값도 함께 입력하세요 "
+            "(비워두면 공통 기준 적용)."
+        )
+
+        _sample_names_now = {
+            p["equip"] for p in DEFAULT_PUMPS
+        } & {
+            p["equip"] for p in get_all_pumps()
+        }
+
+        if _sample_names_now:
+
+            st.warning(
+
+                f"코드에 예시로 들어있던 샘플(가짜) 설비가 "
+                f"{len(_sample_names_now)}대 남아있습니다: "
+                +
+                ", ".join(sorted(_sample_names_now))
+
+            )
+
+            if is_read_only():
+
+                st.info(
+                    "🔒 보기 전용 모드에서는 삭제할 수 없습니다."
+                )
+
+            elif st.button(
+
+                "🗑️ 샘플(가짜) 설비 전체 삭제",
+
+                type="primary",
+
+                use_container_width=True,
+
+                key="delete_sample_btn"
+
+            ):
+
+                st.session_state["_show_delete_sample_confirm"] = True
+
+            if st.session_state.get("_show_delete_sample_confirm"):
+
+                @st.dialog("샘플 설비 삭제 확인")
+                def _confirm_delete_sample():
+
+                    st.write(
+
+                        f"코드 예시용 샘플 설비 {len(_sample_names_now)}대를 "
+                        "삭제하시겠습니까?"
+
+                    )
+
+                    st.caption(
+
+                        "실제로 업로드해서 등록한 설비는 이름이 달라서 "
+                        "영향받지 않습니다."
+
+                    )
+
+                    sc1, sc2 = st.columns(2)
+
+                    with sc1:
+
+                        if st.button(
+
+                            "예, 삭제합니다",
+
+                            type="primary",
+
+                            use_container_width=True,
+
+                            key="delete_sample_confirm_yes"
+
+                        ):
+
+                            deleted_count = delete_sample_default_equipment()
+
+                            st.session_state[
+                                "_show_delete_sample_confirm"
+                            ] = False
+
+                            st.session_state[
+                                "_sample_delete_done"
+                            ] = deleted_count
+
+                            st.rerun()
+
+                    with sc2:
+
+                        if st.button(
+
+                            "아니오",
+
+                            use_container_width=True,
+
+                            key="delete_sample_confirm_no"
+
+                        ):
+
+                            st.session_state[
+                                "_show_delete_sample_confirm"
+                            ] = False
+
+                            st.rerun()
+
+                _confirm_delete_sample()
+
+            if st.session_state.get("_sample_delete_done"):
+
+                st.success(
+
+                    f"샘플 설비 {st.session_state['_sample_delete_done']}대가 "
+                    "삭제되었습니다."
+
+                )
+
+        else:
+
+            st.caption(
+                "✅ 코드 예시용 샘플(가짜) 설비는 남아있지 않습니다."
+            )
 
         with st.expander(
-
-            f"최근 감사 로그 (총 {len(df_audit)}건)"
-
+            "➕ 새 설비 추가"
         ):
+
+            nc1, nc2 = st.columns(2)
+
+            new_site = nc1.text_input(
+                "사업장",
+                "밀양정수장",
+                key="new_equip_site"
+            )
+
+            new_equip = nc2.text_input(
+                "설비명",
+                key="new_equip_name"
+            )
+
+            new_maker = nc1.text_input(
+                "제조사",
+                key="new_equip_maker"
+            )
+
+            new_model = nc2.text_input(
+                "모델명",
+                key="new_equip_model"
+            )
+
+            new_hp = nc1.number_input(
+                "정격출력(HP)",
+                min_value=0.0,
+                value=150.0,
+                key="new_equip_hp"
+            )
+
+            new_head = nc2.number_input(
+                "정격양정(m)",
+                min_value=0.0,
+                value=45.0,
+                key="new_equip_head"
+            )
+
+            new_flow = nc1.number_input(
+                "정격유량(m³/h)",
+                min_value=0.0,
+                value=1200.0,
+                key="new_equip_flow"
+            )
+
+            new_rpm = nc2.number_input(
+                "회전수(RPM)",
+                min_value=0.0,
+                value=1780.0,
+                key="new_equip_rpm"
+            )
+
+            new_build = nc1.text_input(
+                "준공일 (YYYY-MM-DD)",
+                "2024-01-01",
+                key="new_equip_build"
+            )
+
+            new_hours = nc2.number_input(
+                "누적 운전시간",
+                min_value=0.0,
+                value=0.0,
+                key="new_equip_hours"
+            )
+
+            nc1, nc2 = st.columns(2)
+
+            new_vib_limit = nc1.number_input(
+                "기준진동(mm/s) — 선택사항, 0이면 공통기준",
+                min_value=0.0,
+                value=0.0,
+                key="new_equip_vib"
+            )
+
+            new_eff_target = nc2.number_input(
+                "기준효율(%) — 선택사항, 0이면 공통기준",
+                min_value=0.0,
+                max_value=100.0,
+                value=0.0,
+                key="new_equip_eff"
+            )
+
+            if is_read_only():
+
+                st.info(
+                    "🔒 보기 전용 모드에서는 설비를 추가할 수 없습니다."
+                )
+
+            elif st.button(
+                "설비 추가",
+                type="primary",
+                key="add_equip_btn"
+            ):
+
+                existing_names = [
+
+                    p["equip"].strip()
+
+                    for p in ALL_PUMPS
+
+                ]
+
+                if not new_equip.strip():
+
+                    st.error(
+                        "설비명을 입력해주세요."
+                    )
+
+                elif new_equip.strip() in existing_names:
+
+                    st.error(
+
+                        f"'{new_equip.strip()}'는 이미 등록된 설비명입니다. "
+                        "같은 이름이 있으면 QR포털·정밀진단 등에서 "
+                        "어느 설비인지 구분할 수 없으니, "
+                        "다른 이름(예: 번호를 다르게)으로 등록해주세요."
+
+                    )
+
+                else:
+
+                    add_equipment(
+
+                        {
+                            "site": new_site,
+                            "equip": new_equip.strip(),
+                            "maker": new_maker,
+                            "model": new_model,
+                            "hp": new_hp,
+                            "head": new_head,
+                            "flow": new_flow,
+                            "rpm": new_rpm,
+                            "build_date": new_build,
+                            "op_hours": new_hours,
+                            "기준진동": new_vib_limit if new_vib_limit > 0 else None,
+                            "기준효율": new_eff_target if new_eff_target > 0 else None
+                        }
+
+                    )
+
+                    st.success(
+                        f"{new_equip} 설비가 추가되었습니다. "
+                        "메뉴를 다시 열면 목록에 반영됩니다."
+                    )
+
+        with st.expander(
+            "🗑️ 설비 삭제"
+        ):
+
+            del_target = st.selectbox(
+
+                "삭제할 설비",
+
+                [
+                    p["equip"]
+                    for p in ALL_PUMPS
+                ],
+
+                key="del_equip_select"
+
+            )
+
+            if is_read_only():
+
+                st.info(
+                    "🔒 보기 전용 모드에서는 삭제할 수 없습니다."
+                )
+
+            elif st.button(
+                "선택한 설비 삭제",
+                key="del_equip_btn"
+            ):
+
+                delete_equipment(
+                    del_target
+                )
+
+                st.success(
+                    f"{del_target} 설비가 삭제되었습니다. "
+                    "정밀진단·오버홀 이력은 그대로 남아있습니다."
+                )
+
+
+        st.markdown(
+            "### 📦 소모품 재고관리"
+        )
+
+        st.caption(
+
+            "그랜드패킹·베어링·축슬리브 같은 소모품의 현재고를 "
+            "관리합니다. 안전재고보다 부족하면 경고가 뜹니다."
+
+        )
+
+        df_consumables = get_consumables()
+
+        if not df_consumables.empty:
 
             st.dataframe(
 
-                df_audit.tail(30).iloc[::-1],
+                df_consumables,
 
                 use_container_width=True,
 
@@ -22637,239 +24258,202 @@ elif st.session_state.page == "백업":
 
             )
 
-    else:
+            _low_stock = get_low_stock_consumables()
 
-        st.caption(
-            "아직 기록된 감사 로그가 없습니다."
-        )
-
-    st.markdown(
-        "### 🧾 통합 업로드 양식 (설비+정밀진단+오버홀 한번에)"
-    )
-
-    st.caption(
-
-        "엑셀 파일 하나에 설비정보·정밀진단·오버홀이력을 "
-        "전부 담아서 한 번에 올리는 양식입니다. "
-        "빈 양식을 받아서 채운 뒤 그대로 다시 올리시면 됩니다."
-
-    )
-
-    template_bytes = build_unified_import_template_bytes()
-
-    st.download_button(
-
-        "📄 통합 업로드 양식 다운로드",
-
-        data=template_bytes,
-
-        file_name="통합업로드_양식.xlsx",
-
-        mime=(
-            "application/vnd.openxmlformats-"
-            "officedocument.spreadsheetml.sheet"
-        ),
-
-        use_container_width=True,
-
-        key="download_unified_template_btn"
-
-    )
-
-    unified_file = st.file_uploader(
-
-        "작성한 통합 양식 업로드",
-
-        type=["xlsx"],
-
-        key="unified_import_uploader"
-
-    )
-
-    if unified_file is not None:
-
-        try:
-
-            _parsed = parse_unified_import_workbook(
-
-                unified_file.getvalue()
-
-            )
-
-            st.success(
-
-                f"설비 {len(_parsed['equip_rows'])}건 · "
-                f"정밀진단 {len(_parsed['diag_rows'])}건 · "
-                f"오버홀 {len(_parsed['overhaul_rows'])}건을 "
-                "확인했습니다."
-
-            )
-
-            if _parsed["diag_skipped"]:
+            if not _low_stock.empty:
 
                 st.warning(
 
-                    "정밀진단 시트에서 설비정보와 매칭 안 되어 "
-                    "제외된 항목: "
+                    "🔴 안전재고 미달 소모품: "
                     +
-                    ", ".join(_parsed["diag_skipped"])
+                    ", ".join(
+
+                        f"{r['소모품명']}(현재고 {r['현재고']}/"
+                        f"안전재고 {r['안전재고']})"
+
+                        for _, r in _low_stock.iterrows()
+
+                    )
 
                 )
 
-            if _parsed["overhaul_skipped"]:
+        else:
 
-                st.warning(
+            st.caption(
+                "등록된 소모품이 없습니다."
+            )
 
-                    f"오버홀이력 시트에서 {_parsed['overhaul_skipped']}건이 "
-                    "설비 매칭 실패 또는 필수값 누락으로 제외되었습니다."
+        with st.expander(
+            "➕ 소모품 등록"
+        ):
 
-                )
+            cc1, cc2 = st.columns(2)
 
-            if _parsed["equip_rows"]:
+            new_cons_name = cc1.text_input(
 
-                with st.expander(
-                    f"설비정보 미리보기 ({len(_parsed['equip_rows'])}건)"
-                ):
+                "소모품명",
 
-                    st.dataframe(
+                key="new_cons_name"
 
-                        pd.DataFrame(_parsed["equip_rows"]),
+            )
 
-                        use_container_width=True,
+            new_cons_spec = cc2.text_input(
 
-                        hide_index=True
+                "규격",
 
-                    )
+                key="new_cons_spec"
 
-            if _parsed["diag_rows"]:
+            )
 
-                with st.expander(
-                    f"정밀진단 미리보기 ({len(_parsed['diag_rows'])}건)"
-                ):
+            cc3, cc4 = st.columns(2)
 
-                    _diag_preview_cols = (
+            new_cons_qty = cc3.number_input(
 
-                        ["점검일","사업장","설비명","제조사","모델명",
-                         "마력","양정","준공일","점검자","종합점수","최종등급"]
+                "현재고",
 
-                        +
-                        [item[1] for item in EVAL_ITEMS]
+                min_value=0,
 
-                        +
-                        ["효율측정값(%)","진동측정값(mm/s)",
-                         "온도측정값(°C)","전류측정값(A)"]
+                step=1,
 
-                    )
+                key="new_cons_qty"
 
-                    st.dataframe(
+            )
 
-                        pd.DataFrame(
-                            _parsed["diag_rows"],
-                            columns=_diag_preview_cols
-                        ),
+            new_cons_safety = cc4.number_input(
 
-                        use_container_width=True,
+                "안전재고",
 
-                        hide_index=True
+                min_value=0,
 
-                    )
+                step=1,
 
-            if _parsed["overhaul_rows"]:
+                key="new_cons_safety"
 
-                with st.expander(
-                    f"오버홀이력 미리보기 ({len(_parsed['overhaul_rows'])}건)"
-                ):
+            )
 
-                    st.dataframe(
+            new_cons_date = st.text_input(
 
-                        pd.DataFrame(
+                "최근입고일 (YYYY-MM-DD)",
 
-                            _parsed["overhaul_rows"],
+                value=datetime.now().strftime("%Y-%m-%d"),
 
-                            columns=[
-                                "작업일자","사업장","설비명","공정단계",
-                                "작업자","작업내용","사진파일명",
-                                "전후효율","전후진동"
-                            ]
+                key="new_cons_date"
 
-                        ),
-
-                        use_container_width=True,
-
-                        hide_index=True
-
-                    )
+            )
 
             if is_read_only():
 
                 st.info(
-                    "🔒 보기 전용 모드에서는 반영할 수 없습니다."
+                    "🔒 보기 전용 모드에서는 등록할 수 없습니다."
                 )
 
             elif st.button(
 
-                "📥 통합 업로드 반영하기",
+                "소모품 등록",
 
-                type="primary",
-
-                use_container_width=True,
-
-                key="unified_import_open_btn"
+                key="add_consumable_btn"
 
             ):
 
-                st.session_state["_show_unified_import_confirm"] = True
+                if not new_cons_name.strip():
 
-            if st.session_state.get("_show_unified_import_confirm"):
+                    st.error(
+                        "소모품명을 입력해주세요."
+                    )
 
-                @st.dialog("통합 업로드 반영 확인")
-                def _confirm_unified_import():
+                else:
 
-                    st.write(
+                    add_consumable(
 
-                        f"설비 {len(_parsed['equip_rows'])}건, "
-                        f"정밀진단 {len(_parsed['diag_rows'])}건, "
-                        f"오버홀 {len(_parsed['overhaul_rows'])}건을 "
-                        "반영하시겠습니까?"
+                        {
+                            "소모품명": new_cons_name.strip(),
+                            "규격": new_cons_spec.strip(),
+                            "현재고": int(new_cons_qty),
+                            "안전재고": int(new_cons_safety),
+                            "최근입고일": new_cons_date
+                        }
 
                     )
 
-                    st.caption(
+                    st.success(
 
-                        "이미 등록된 설비명은 건드리지 않고, "
-                        "새로운 설비명만 추가됩니다. "
-                        "정밀진단·오버홀은 항상 새 기록으로 "
-                        "추가됩니다(기존 이력은 지워지지 않습니다)."
+                        f"{new_cons_name} 등록되었습니다."
 
                     )
 
-                    uc1, uc2 = st.columns(2)
+                    st.rerun()
+
+        if not df_consumables.empty:
+
+            with st.expander(
+                "✏️ 재고 수량 변경 / 삭제"
+            ):
+
+                cons_names = df_consumables["소모품명"].tolist()
+
+                target_cons = st.selectbox(
+
+                    "대상 소모품",
+
+                    cons_names,
+
+                    key="target_consumable_select"
+
+                )
+
+                target_row = df_consumables[
+
+                    df_consumables["소모품명"] == target_cons
+
+                ].iloc[0]
+
+                new_qty_val = st.number_input(
+
+                    "새 현재고",
+
+                    min_value=0,
+
+                    step=1,
+
+                    value=int(target_row["현재고"]),
+
+                    key="update_cons_qty"
+
+                )
+
+                uc1, uc2 = st.columns(2)
+
+                if is_read_only():
+
+                    st.info(
+                        "🔒 보기 전용 모드에서는 변경할 수 없습니다."
+                    )
+
+                else:
 
                     with uc1:
 
                         if st.button(
 
-                            "예, 반영합니다",
+                            "재고 수량 저장",
 
-                            type="primary",
-
-                            use_container_width=True,
-
-                            key="unified_import_confirm_yes"
+                            key="update_consumable_btn"
 
                         ):
 
-                            apply_unified_import(
-                                _parsed
+                            update_consumable_stock(
+
+                                target_cons,
+
+                                int(new_qty_val),
+
+                                datetime.now().strftime("%Y-%m-%d")
+
                             )
 
-                            st.session_state[
-                                "_show_unified_import_confirm"
-                            ] = False
-
-                            st.session_state[
-                                "_unified_import_done"
-                            ] = True
+                            st.success(
+                                "재고가 변경되었습니다."
+                            )
 
                             st.rerun()
 
@@ -22877,1121 +24461,91 @@ elif st.session_state.page == "백업":
 
                         if st.button(
 
-                            "아니오",
+                            "🗑️ 이 소모품 삭제",
 
-                            use_container_width=True,
-
-                            key="unified_import_confirm_no"
+                            key="delete_consumable_btn"
 
                         ):
 
-                            st.session_state[
-                                "_show_unified_import_confirm"
-                            ] = False
-
-                            st.rerun()
-
-                _confirm_unified_import()
-
-            if st.session_state.get("_unified_import_done"):
-
-                st.success(
-
-                    "통합 업로드가 반영되었습니다. "
-                    "메뉴를 다시 열면 확인할 수 있습니다."
-
-                )
-
-        except Exception as e:
-
-            st.error(
-
-                f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
-
-            )
-
-    st.markdown(
-        "### 📦 소모품 재고관리"
-    )
-
-    st.caption(
-
-        "그랜드패킹·베어링·축슬리브 같은 소모품의 현재고를 "
-        "관리합니다. 안전재고보다 부족하면 경고가 뜹니다."
-
-    )
-
-    df_consumables = get_consumables()
-
-    if not df_consumables.empty:
-
-        st.dataframe(
-
-            df_consumables,
-
-            use_container_width=True,
-
-            hide_index=True
-
-        )
-
-        _low_stock = get_low_stock_consumables()
-
-        if not _low_stock.empty:
-
-            st.warning(
-
-                "🔴 안전재고 미달 소모품: "
-                +
-                ", ".join(
-
-                    f"{r['소모품명']}(현재고 {r['현재고']}/"
-                    f"안전재고 {r['안전재고']})"
-
-                    for _, r in _low_stock.iterrows()
-
-                )
-
-            )
-
-    else:
-
-        st.caption(
-            "등록된 소모품이 없습니다."
-        )
-
-    with st.expander(
-        "➕ 소모품 등록"
-    ):
-
-        cc1, cc2 = st.columns(2)
-
-        new_cons_name = cc1.text_input(
-
-            "소모품명",
-
-            key="new_cons_name"
-
-        )
-
-        new_cons_spec = cc2.text_input(
-
-            "규격",
-
-            key="new_cons_spec"
-
-        )
-
-        cc3, cc4 = st.columns(2)
-
-        new_cons_qty = cc3.number_input(
-
-            "현재고",
-
-            min_value=0,
-
-            step=1,
-
-            key="new_cons_qty"
-
-        )
-
-        new_cons_safety = cc4.number_input(
-
-            "안전재고",
-
-            min_value=0,
-
-            step=1,
-
-            key="new_cons_safety"
-
-        )
-
-        new_cons_date = st.text_input(
-
-            "최근입고일 (YYYY-MM-DD)",
-
-            value=datetime.now().strftime("%Y-%m-%d"),
-
-            key="new_cons_date"
-
-        )
-
-        if is_read_only():
-
-            st.info(
-                "🔒 보기 전용 모드에서는 등록할 수 없습니다."
-            )
-
-        elif st.button(
-
-            "소모품 등록",
-
-            key="add_consumable_btn"
-
-        ):
-
-            if not new_cons_name.strip():
-
-                st.error(
-                    "소모품명을 입력해주세요."
-                )
-
-            else:
-
-                add_consumable(
-
-                    {
-                        "소모품명": new_cons_name.strip(),
-                        "규격": new_cons_spec.strip(),
-                        "현재고": int(new_cons_qty),
-                        "안전재고": int(new_cons_safety),
-                        "최근입고일": new_cons_date
-                    }
-
-                )
-
-                st.success(
-
-                    f"{new_cons_name} 등록되었습니다."
-
-                )
-
-                st.rerun()
-
-    if not df_consumables.empty:
-
-        with st.expander(
-            "✏️ 재고 수량 변경 / 삭제"
-        ):
-
-            cons_names = df_consumables["소모품명"].tolist()
-
-            target_cons = st.selectbox(
-
-                "대상 소모품",
-
-                cons_names,
-
-                key="target_consumable_select"
-
-            )
-
-            target_row = df_consumables[
-
-                df_consumables["소모품명"] == target_cons
-
-            ].iloc[0]
-
-            new_qty_val = st.number_input(
-
-                "새 현재고",
-
-                min_value=0,
-
-                step=1,
-
-                value=int(target_row["현재고"]),
-
-                key="update_cons_qty"
-
-            )
-
-            uc1, uc2 = st.columns(2)
-
-            if is_read_only():
-
-                st.info(
-                    "🔒 보기 전용 모드에서는 변경할 수 없습니다."
-                )
-
-            else:
-
-                with uc1:
-
-                    if st.button(
-
-                        "재고 수량 저장",
-
-                        key="update_consumable_btn"
-
-                    ):
-
-                        update_consumable_stock(
-
-                            target_cons,
-
-                            int(new_qty_val),
-
-                            datetime.now().strftime("%Y-%m-%d")
-
-                        )
-
-                        st.success(
-                            "재고가 변경되었습니다."
-                        )
-
-                        st.rerun()
-
-                with uc2:
-
-                    if st.button(
-
-                        "🗑️ 이 소모품 삭제",
-
-                        key="delete_consumable_btn"
-
-                    ):
-
-                        delete_consumable(
-                            target_cons
-                        )
-
-                        st.success(
-                            "삭제되었습니다."
-                        )
-
-                        st.rerun()
-
-    st.markdown(
-        "### 📥 실제 설비 데이터 일괄 업로드"
-    )
-
-    st.caption(
-
-        "사업소에서 받은 '설비 기본정보' 엑셀과 '오버홀 실적' "
-        "엑셀을 그대로 올리면 설비마스터와 오버홀이력이 한 번에 "
-        "채워집니다. 원본에 없는 값(제조사·모델·정격출력 등)은 "
-        "억지로 채우지 않고 빈칸으로 둡니다. "
-        "⚠️ 기존에 등록된 설비 목록은 전부 지워지고 "
-        "새로 올리는 목록으로 교체됩니다."
-
-    )
-
-    bulk_c1, bulk_c2 = st.columns(2)
-
-    equip_excel_file = bulk_c1.file_uploader(
-
-        "설비 기본정보 엑셀",
-
-        type=["xlsx"],
-
-        key="bulk_equip_excel"
-
-    )
-
-    overhaul_excel_file = bulk_c2.file_uploader(
-
-        "오버홀 실적 엑셀",
-
-        type=["xlsx"],
-
-        key="bulk_overhaul_excel"
-
-    )
-
-    if equip_excel_file is not None:
-
-        try:
-
-            _df1 = pd.read_excel(equip_excel_file)
-
-            _equip_rows, _equip_map, _site_map = parse_equipment_import_excel(
-                _df1
-            )
-
-            st.success(
-
-                f"설비 {len(_equip_rows)}건을 확인했습니다."
-
-            )
-
-            with st.expander(
-
-                f"설비 미리보기 ({len(_equip_rows)}건)"
-
-            ):
-
-                st.dataframe(
-
-                    pd.DataFrame(_equip_rows),
-
-                    use_container_width=True,
-
-                    hide_index=True
-
-                )
-
-            _overhaul_rows = []
-
-            if overhaul_excel_file is not None:
-
-                _df2 = pd.read_excel(
-                    overhaul_excel_file
-                )
-
-                _overhaul_rows, _skipped = parse_overhaul_import_excel(
-
-                    _df2,
-
-                    _equip_map,
-
-                    _site_map
-
-                )
-
-                st.success(
-
-                    f"오버홀 실적 {len(_overhaul_rows)}건을 "
-                    f"확인했습니다"
-                    +
-                    (
-                        f" ({_skipped}건은 설비 매칭 실패 또는 "
-                        f"날짜 오류로 제외)"
-
-                        if _skipped
-
-                        else ""
-                    )
-
-                )
-
-                with st.expander(
-
-                    f"오버홀 실적 미리보기 ({len(_overhaul_rows)}건)"
-
-                ):
-
-                    st.dataframe(
-
-                        pd.DataFrame(_overhaul_rows),
-
-                        use_container_width=True,
-
-                        hide_index=True
-
-                    )
-
-            if is_read_only():
-
-                st.info(
-                    "🔒 보기 전용 모드에서는 반영할 수 없습니다."
-                )
-
-            elif st.button(
-
-                "📥 일괄 업로드 확인 팝업 열기",
-
-                type="primary",
-
-                use_container_width=True,
-
-                key="bulk_import_open_btn"
-
-            ):
-
-                st.session_state["_show_bulk_import_confirm"] = True
-
-            if st.session_state.get("_show_bulk_import_confirm"):
-
-                @st.dialog("일괄 업로드 확인")
-                def _confirm_bulk_import():
-
-                    st.write(
-
-                        f"설비 {len(_equip_rows)}건으로 "
-                        "**기존 설비 목록을 전부 교체**하고, "
-                        f"오버홀 실적 {len(_overhaul_rows)}건을 "
-                        "추가하시겠습니까?"
-
-                    )
-
-                    st.warning(
-
-                        "기존에 등록돼 있던 설비는 삭제되고 "
-                        "새 목록으로 바뀝니다. 기존 오버홀·"
-                        "정밀진단 이력은 그대로 남지만, "
-                        "삭제된 설비 이름과 연결이 끊깁니다."
-
-                    )
-
-                    dc1, dc2 = st.columns(2)
-
-                    with dc1:
-
-                        if st.button(
-
-                            "예, 진행합니다",
-
-                            type="primary",
-
-                            use_container_width=True,
-
-                            key="bulk_import_confirm_yes"
-
-                        ):
-
-                            replace_all_equipment(
-                                _equip_rows
+                            delete_consumable(
+                                target_cons
                             )
 
-                            if _overhaul_rows:
-
-                                bulk_append_overhaul(
-                                    _overhaul_rows
-                                )
-
-                            st.session_state[
-                                "_show_bulk_import_confirm"
-                            ] = False
-
-                            st.session_state[
-                                "_bulk_import_done"
-                            ] = True
+                            st.success(
+                                "삭제되었습니다."
+                            )
 
                             st.rerun()
 
-                    with dc2:
 
-                        if st.button(
+    with _databack_tab2:
 
-                            "아니오",
-
-                            use_container_width=True,
-
-                            key="bulk_import_confirm_no"
-
-                        ):
-
-                            st.session_state[
-                                "_show_bulk_import_confirm"
-                            ] = False
-
-                            st.rerun()
-
-                _confirm_bulk_import()
-
-            if st.session_state.get("_bulk_import_done"):
-
-                st.success(
-
-                    "설비 목록과 오버홀 실적이 반영되었습니다. "
-                    "메뉴를 다시 열면 확인할 수 있습니다."
-
-                )
-
-        except Exception as e:
-
-            st.error(
-
-                f"엑셀을 읽는 중 문제가 발생했습니다: {e}"
-
-            )
-
-    st.markdown(
-        "### ⚙️ 설비 마스터 관리"
-    )
-
-    st.caption(
-        "설비 목록이 코드에 고정되어 있지 않고 여기서 "
-        "추가·삭제할 수 있습니다. 설비별로 진동·효율 기준을 "
-        "다르게 두고 싶으면 기준값도 함께 입력하세요 "
-        "(비워두면 공통 기준 적용)."
-    )
-
-    _sample_names_now = {
-        p["equip"] for p in DEFAULT_PUMPS
-    } & {
-        p["equip"] for p in get_all_pumps()
-    }
-
-    if _sample_names_now:
-
-        st.warning(
-
-            f"코드에 예시로 들어있던 샘플(가짜) 설비가 "
-            f"{len(_sample_names_now)}대 남아있습니다: "
-            +
-            ", ".join(sorted(_sample_names_now))
-
+        st.markdown(
+            "### 🌐 배포 주소 설정 (QR 코드용)"
         )
-
-        if is_read_only():
-
-            st.info(
-                "🔒 보기 전용 모드에서는 삭제할 수 없습니다."
-            )
-
-        elif st.button(
-
-            "🗑️ 샘플(가짜) 설비 전체 삭제",
-
-            type="primary",
-
-            use_container_width=True,
-
-            key="delete_sample_btn"
-
-        ):
-
-            st.session_state["_show_delete_sample_confirm"] = True
-
-        if st.session_state.get("_show_delete_sample_confirm"):
-
-            @st.dialog("샘플 설비 삭제 확인")
-            def _confirm_delete_sample():
-
-                st.write(
-
-                    f"코드 예시용 샘플 설비 {len(_sample_names_now)}대를 "
-                    "삭제하시겠습니까?"
-
-                )
-
-                st.caption(
-
-                    "실제로 업로드해서 등록한 설비는 이름이 달라서 "
-                    "영향받지 않습니다."
-
-                )
-
-                sc1, sc2 = st.columns(2)
-
-                with sc1:
-
-                    if st.button(
-
-                        "예, 삭제합니다",
-
-                        type="primary",
-
-                        use_container_width=True,
-
-                        key="delete_sample_confirm_yes"
-
-                    ):
-
-                        deleted_count = delete_sample_default_equipment()
-
-                        st.session_state[
-                            "_show_delete_sample_confirm"
-                        ] = False
-
-                        st.session_state[
-                            "_sample_delete_done"
-                        ] = deleted_count
-
-                        st.rerun()
-
-                with sc2:
-
-                    if st.button(
-
-                        "아니오",
-
-                        use_container_width=True,
-
-                        key="delete_sample_confirm_no"
-
-                    ):
-
-                        st.session_state[
-                            "_show_delete_sample_confirm"
-                        ] = False
-
-                        st.rerun()
-
-            _confirm_delete_sample()
-
-        if st.session_state.get("_sample_delete_done"):
-
-            st.success(
-
-                f"샘플 설비 {st.session_state['_sample_delete_done']}대가 "
-                "삭제되었습니다."
-
-            )
-
-    else:
 
         st.caption(
-            "✅ 코드 예시용 샘플(가짜) 설비는 남아있지 않습니다."
+            "QR 포털의 QR 이미지가 가리키는 주소입니다. "
+            "실제로 이 앱을 배포한 주소와 다르면 QR을 스캔해도 "
+            "연결되지 않으니, 배포 후 반드시 실제 주소로 바꿔주세요."
         )
 
-    with st.expander(
-        "➕ 새 설비 추가"
-    ):
+        current_url = get_app_base_url()
 
-        nc1, nc2 = st.columns(2)
+        new_url = st.text_input(
 
-        new_site = nc1.text_input(
-            "사업장",
-            "밀양정수장",
-            key="new_equip_site"
-        )
+            "배포 주소 (예: https://kwatertech-pump.streamlit.app)",
 
-        new_equip = nc2.text_input(
-            "설비명",
-            key="new_equip_name"
-        )
+            value=current_url,
 
-        new_maker = nc1.text_input(
-            "제조사",
-            key="new_equip_maker"
-        )
+            key="app_base_url_input",
 
-        new_model = nc2.text_input(
-            "모델명",
-            key="new_equip_model"
-        )
-
-        new_hp = nc1.number_input(
-            "정격출력(HP)",
-            value=150,
-            key="new_equip_hp"
-        )
-
-        new_head = nc2.number_input(
-            "정격양정(m)",
-            value=45,
-            key="new_equip_head"
-        )
-
-        new_flow = nc1.number_input(
-            "정격유량(m³/h)",
-            value=1200,
-            key="new_equip_flow"
-        )
-
-        new_rpm = nc2.number_input(
-            "회전수(RPM)",
-            value=1780,
-            key="new_equip_rpm"
-        )
-
-        new_build = nc1.text_input(
-            "준공일 (YYYY-MM-DD)",
-            "2024-01-01",
-            key="new_equip_build"
-        )
-
-        new_hours = nc2.number_input(
-            "누적 운전시간",
-            value=0,
-            key="new_equip_hours"
-        )
-
-        nc1, nc2 = st.columns(2)
-
-        new_vib_limit = nc1.number_input(
-            "기준진동(mm/s) — 선택사항, 0이면 공통기준",
-            value=0.0,
-            key="new_equip_vib"
-        )
-
-        new_eff_target = nc2.number_input(
-            "기준효율(%) — 선택사항, 0이면 공통기준",
-            value=0.0,
-            key="new_equip_eff"
-        )
-
-        if is_read_only():
-
-            st.info(
-                "🔒 보기 전용 모드에서는 설비를 추가할 수 없습니다."
-            )
-
-        elif st.button(
-            "설비 추가",
-            type="primary",
-            key="add_equip_btn"
-        ):
-
-            existing_names = [
-
-                p["equip"].strip()
-
-                for p in ALL_PUMPS
-
-            ]
-
-            if not new_equip.strip():
-
-                st.error(
-                    "설비명을 입력해주세요."
-                )
-
-            elif new_equip.strip() in existing_names:
-
-                st.error(
-
-                    f"'{new_equip.strip()}'는 이미 등록된 설비명입니다. "
-                    "같은 이름이 있으면 QR포털·정밀진단 등에서 "
-                    "어느 설비인지 구분할 수 없으니, "
-                    "다른 이름(예: 번호를 다르게)으로 등록해주세요."
-
-                )
-
-            else:
-
-                add_equipment(
-
-                    {
-                        "site": new_site,
-                        "equip": new_equip.strip(),
-                        "maker": new_maker,
-                        "model": new_model,
-                        "hp": new_hp,
-                        "head": new_head,
-                        "flow": new_flow,
-                        "rpm": new_rpm,
-                        "build_date": new_build,
-                        "op_hours": new_hours,
-                        "기준진동": new_vib_limit if new_vib_limit > 0 else None,
-                        "기준효율": new_eff_target if new_eff_target > 0 else None
-                    }
-
-                )
-
-                st.success(
-                    f"{new_equip} 설비가 추가되었습니다. "
-                    "메뉴를 다시 열면 목록에 반영됩니다."
-                )
-
-    with st.expander(
-        "🗑️ 설비 삭제"
-    ):
-
-        del_target = st.selectbox(
-
-            "삭제할 설비",
-
-            [
-                p["equip"]
-                for p in ALL_PUMPS
-            ],
-
-            key="del_equip_select"
+            disabled=is_read_only()
 
         )
 
         if is_read_only():
 
             st.info(
-                "🔒 보기 전용 모드에서는 삭제할 수 없습니다."
+                "🔒 보기 전용 모드에서는 변경할 수 없습니다."
             )
 
         elif st.button(
-            "선택한 설비 삭제",
-            key="del_equip_btn"
+            "배포 주소 저장",
+            key="save_app_url_btn"
         ):
 
-            delete_equipment(
-                del_target
+            set_app_base_url(
+                new_url
             )
 
             st.success(
-                f"{del_target} 설비가 삭제되었습니다. "
-                "정밀진단·오버홀 이력은 그대로 남아있습니다."
+                "배포 주소가 저장되었습니다. "
+                "QR 포털 화면을 다시 열면 반영됩니다."
             )
 
-    st.markdown(
-        "### 🏷️ QR 라벨 인쇄용 PDF"
-    )
 
-    st.caption(
-
-        "등록된 설비의 QR코드+설비명+사업장을 A4 한 장에 "
-        "여러 개씩 격자로 배치해서, 현장에 붙일 라벨을 한 번에 "
-        "인쇄할 수 있게 만듭니다. 점선을 따라 잘라 쓰시면 됩니다."
-
-    )
-
-    if not ALL_PUMPS:
-
-        st.caption(
-            "등록된 설비가 없어 라벨을 만들 수 없습니다."
+        st.markdown(
+            "### 🏷️ QR 라벨 인쇄용 PDF"
         )
-
-    else:
-
-        label_site_list = sorted(
-
-            set(
-                p["site"] for p in ALL_PUMPS
-            )
-
-        )
-
-        label_site_filter = st.multiselect(
-
-            "라벨 만들 사업장 선택 (비워두면 전체)",
-
-            label_site_list,
-
-            default=label_site_list,
-
-            key="qr_label_site_filter"
-
-        )
-
-        label_cols_per_row = st.selectbox(
-
-            "한 줄에 라벨 개수",
-
-            [2, 3, 4],
-
-            index=1,
-
-            key="qr_label_cols"
-
-        )
-
-        target_pumps_for_label = [
-
-            p for p in ALL_PUMPS
-
-            if p["site"] in label_site_filter
-
-        ]
 
         st.caption(
 
-            f"대상 설비 {len(target_pumps_for_label)}개 "
-            f"(A4 {label_cols_per_row}열×6행 기준 "
-            f"{-(-len(target_pumps_for_label) // (label_cols_per_row * 6))}페이지)"
+            "등록된 설비의 QR코드+설비명+사업장을 A4 한 장에 "
+            "여러 개씩 격자로 배치해서, 현장에 붙일 라벨을 한 번에 "
+            "인쇄할 수 있게 만듭니다. 점선을 따라 잘라 쓰시면 됩니다."
 
         )
 
-        if target_pumps_for_label and st.button(
+        if not ALL_PUMPS:
 
-            "🏷️ QR 라벨 PDF 생성",
-
-            type="primary",
-
-            use_container_width=True,
-
-            key="generate_qr_label_pdf_btn"
-
-        ):
-
-            with st.spinner(
-                "라벨 PDF를 만드는 중입니다..."
-            ):
-
-                label_pdf_bytes = build_qr_label_sheet_pdf(
-
-                    target_pumps_for_label,
-
-                    cols=label_cols_per_row,
-
-                    rows=6
-
-                )
-
-            st.session_state["_qr_label_pdf_bytes"] = label_pdf_bytes
-
-        if "_qr_label_pdf_bytes" in st.session_state:
-
-            st.download_button(
-
-                "⬇️ QR 라벨 PDF 다운로드",
-
-                data=st.session_state["_qr_label_pdf_bytes"],
-
-                file_name="QR_설비라벨.pdf",
-
-                mime="application/pdf",
-
-                use_container_width=True,
-
-                key="download_qr_label_pdf_btn"
-
+            st.caption(
+                "등록된 설비가 없어 라벨을 만들 수 없습니다."
             )
 
-    st.markdown(
-        "### 📱 QR 구축비용"
-    )
+        else:
 
-    qr_count = st.number_input(
-        "QR 부착 설비 수",
-        min_value=1,
-        value=10
-    )
-
-    unit_cost, total_cost = calculate_qr_cost(
-        qr_count
-    )
-
-    c1, c2 = st.columns(2)
-
-    c1.metric(
-        "QR 1개당 구축비",
-        f"{unit_cost:,}원"
-    )
-
-    c2.metric(
-        f"총 {qr_count}개 구축비",
-        f"{total_cost:,}원"
-    )
-
-    qr_df = pd.DataFrame(
-
-        [
-
-            [
-                "QR 라벨 제작",
-                QR_UNIT_COST["QR 라벨 제작"]
-            ],
-
-            [
-                "표면 세척/준비",
-                QR_UNIT_COST["표면 세척/준비"]
-            ],
-
-            [
-                "QR 부착 작업",
-                QR_UNIT_COST["QR 부착 작업"]
-            ],
-
-            [
-                "설비 등록 및 검수",
-                QR_UNIT_COST["설비 등록 및 검수"]
-            ]
-
-        ],
-
-        columns=[
-            "항목",
-            "원가"
-        ]
-
-    )
-
-    st.dataframe(
-        qr_df,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.info(
-        "권장 현장 부착시간 : "
-        "설비 1대당 약 10~15분"
-    )
-
-    st.markdown(
-        "### 🏷️ QR 부착 방법"
-    )
-
-    st.markdown(
-        """
-        **① 설치 위치 선정**
-
-        펌프 본체 또는 제어반 등
-        작업자가 쉽게 확인할 수 있는 위치 선정
-
-        **② 표면 세척**
-
-        먼지·유분 제거
-
-        **③ QR 라벨 부착**
-
-        평탄한 면에 부착 후
-        모서리 및 접착면 압착
-
-        **④ 설비번호 확인**
-
-        QR과 설비번호가 일치하는지 확인
-
-        **⑤ 스마트폰 테스트**
-
-        실제 현장에서 스캔하여
-        해당 설비 페이지 연결 확인
-
-        **⑥ DB 등록 완료**
-
-        설비 Master DB와 QR ID 연결
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        "### 💰 플랫폼 사업화 예상비용"
-    )
-
-    cost_df = pd.DataFrame(
-
-        [
-
-            [
-                "1단계 PoC",
-                "자체개발",
-                "약 150~300만원",
-                "기존 용역 내 실증"
-            ],
-
-            [
-                "2단계 플랫폼화",
-                "고도화",
-                "약 500~800만원/년",
-                "유지보수·서버·운영"
-            ],
-
-            [
-                "3단계 외부사업",
-                "지자체",
-                "별도 견적",
-                "설비 수량별 산정"
-            ]
-
-        ],
-
-        columns=[
-            "단계",
-            "구축방식",
-            "예상비용",
-            "사업모델"
-        ]
-
-    )
-
-    st.dataframe(
-        cost_df,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.write("")
-
-    st.markdown(
-        "### 📊 종합 대시보드 PDF"
-    )
-
-    st.caption(
-
-        "설비 하나씩이 아니라, 이번 달 전체 사업장 현황을 "
-        "한 장으로 정리한 경영보고용 요약 PDF를 만듭니다."
-
-    )
-
-    if st.button(
-
-        "📊 종합 대시보드 PDF 생성",
-
-        type="primary",
-
-        use_container_width=True,
-
-        key="generate_dashboard_pdf_btn"
-
-    ):
-
-        with st.spinner(
-            "대시보드를 만드는 중입니다..."
-        ):
-
-            _dash_site_list = sorted(
+            label_site_list = sorted(
 
                 set(
                     p["site"] for p in ALL_PUMPS
@@ -23999,175 +24553,492 @@ elif st.session_state.page == "백업":
 
             )
 
-            dashboard_pdf_bytes = build_dashboard_summary_pdf(
+            label_site_filter = st.multiselect(
 
-                ALL_PUMPS,
+                "라벨 만들 사업장 선택 (비워두면 전체)",
 
-                df_history,
+                label_site_list,
 
-                _dash_site_list
+                default=label_site_list,
+
+                key="qr_label_site_filter"
 
             )
 
-        st.session_state[
+            label_cols_per_row = st.selectbox(
 
-            "_dashboard_pdf_bytes"
+                "한 줄에 라벨 개수",
 
-        ] = dashboard_pdf_bytes
+                [2, 3, 4],
 
-    if "_dashboard_pdf_bytes" in st.session_state:
+                index=1,
 
-        st.download_button(
-
-            "⬇️ 대시보드 PDF 다운로드",
-
-            data=st.session_state["_dashboard_pdf_bytes"],
-
-            file_name=(
-
-                f"{datetime.now().strftime('%Y%m')}_"
-                "종합대시보드.pdf"
-
-            ),
-
-            mime="application/pdf",
-
-            use_container_width=True,
-
-            key="download_dashboard_pdf_btn"
-
-        )
-
-    st.write("")
-
-    st.markdown(
-        "### ☁️ 구글시트 백업/복원"
-    )
-
-    st.caption(
-
-        "서버가 재배포되면 로컬 데이터가 사라질 수 있는 문제의 "
-        "안전장치입니다. 구글 서비스계정 연결이 되어있어야 "
-        "동작합니다 (Streamlit Secrets에 gcp_service_account, "
-        "GSHEET_BACKUP_URL 등록 필요)."
-
-    )
-
-    gcol1, gcol2 = st.columns(2)
-
-    with gcol1:
-
-        if st.button(
-
-            "☁️ 지금 구글시트로 백업",
-
-            use_container_width=True,
-
-            key="gsheet_backup_btn"
-
-        ):
-
-            with st.status(
-
-                "구글시트로 백업 중...",
-
-                expanded=True
-
-            ) as status_box:
-
-                st.write(
-
-                    f"총 {len(GSHEET_BACKUP_TARGETS)}개 시트 "
-                    "대상입니다."
-
-                )
-
-                st.write("구글 인증 확인 중...")
-
-                ok, msg = backup_all_to_gsheet()
-
-                if ok:
-
-                    status_box.update(
-
-                        label="백업 완료",
-
-                        state="complete"
-
-                    )
-
-                else:
-
-                    status_box.update(
-
-                        label="백업 실패",
-
-                        state="error"
-
-                    )
-
-            if ok:
-
-                st.success(
-                    msg
-                )
-
-            else:
-
-                st.error(
-                    msg
-                )
-
-    with gcol2:
-
-        if is_read_only():
-
-            st.info(
-                "🔒 보기 전용 모드에서는 복원할 수 없습니다."
-            )
-
-        elif st.button(
-
-            "⬇️ 구글시트에서 복원",
-
-            use_container_width=True,
-
-            key="gsheet_restore_btn"
-
-        ):
-
-            st.session_state["_confirm_gsheet_restore"] = True
-
-        if st.session_state.get(
-
-            "_confirm_gsheet_restore"
-
-        ):
-
-            st.warning(
-
-                "⚠️ 지금 로컬 데이터를 구글시트 내용으로 "
-                "덮어씁니다. 계속할까요?"
+                key="qr_label_cols"
 
             )
 
-            ccol1, ccol2 = st.columns(2)
+            target_pumps_for_label = [
 
-            if ccol1.button(
+                p for p in ALL_PUMPS
 
-                "예, 복원합니다",
+                if p["site"] in label_site_filter
 
-                key="confirm_restore_yes"
+            ]
+
+            st.caption(
+
+                f"대상 설비 {len(target_pumps_for_label)}개 "
+                f"(A4 {label_cols_per_row}열×6행 기준 "
+                f"{-(-len(target_pumps_for_label) // (label_cols_per_row * 6))}페이지)"
+
+            )
+
+            if target_pumps_for_label and st.button(
+
+                "🏷️ QR 라벨 PDF 생성",
+
+                type="primary",
+
+                use_container_width=True,
+
+                key="generate_qr_label_pdf_btn"
 
             ):
 
                 with st.spinner(
-                    "복원하는 중입니다..."
+                    "라벨 PDF를 만드는 중입니다..."
                 ):
 
-                    ok, msg = restore_all_from_gsheet()
+                    label_pdf_bytes = build_qr_label_sheet_pdf(
 
-                st.session_state["_confirm_gsheet_restore"] = False
+                        target_pumps_for_label,
+
+                        cols=label_cols_per_row,
+
+                        rows=6
+
+                    )
+
+                st.session_state["_qr_label_pdf_bytes"] = label_pdf_bytes
+
+            if "_qr_label_pdf_bytes" in st.session_state:
+
+                st.download_button(
+
+                    "⬇️ QR 라벨 PDF 다운로드",
+
+                    data=st.session_state["_qr_label_pdf_bytes"],
+
+                    file_name="QR_설비라벨.pdf",
+
+                    mime="application/pdf",
+
+                    use_container_width=True,
+
+                    key="download_qr_label_pdf_btn"
+
+                )
+
+
+        st.markdown(
+            "### 📱 QR 구축비용"
+        )
+
+        qr_count = st.number_input(
+            "QR 부착 설비 수",
+            min_value=1,
+            value=10
+        )
+
+        unit_cost, total_cost = calculate_qr_cost(
+            qr_count
+        )
+
+        c1, c2 = st.columns(2)
+
+        c1.metric(
+            "QR 1개당 구축비",
+            f"{unit_cost:,}원"
+        )
+
+        c2.metric(
+            f"총 {qr_count}개 구축비",
+            f"{total_cost:,}원"
+        )
+
+        qr_df = pd.DataFrame(
+
+            [
+
+                [
+                    "QR 라벨 제작",
+                    QR_UNIT_COST["QR 라벨 제작"]
+                ],
+
+                [
+                    "표면 세척/준비",
+                    QR_UNIT_COST["표면 세척/준비"]
+                ],
+
+                [
+                    "QR 부착 작업",
+                    QR_UNIT_COST["QR 부착 작업"]
+                ],
+
+                [
+                    "설비 등록 및 검수",
+                    QR_UNIT_COST["설비 등록 및 검수"]
+                ]
+
+            ],
+
+            columns=[
+                "항목",
+                "원가"
+            ]
+
+        )
+
+        st.dataframe(
+            qr_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.info(
+            "권장 현장 부착시간 : "
+            "설비 1대당 약 10~15분"
+        )
+
+
+        st.markdown(
+            "### 🏷️ QR 부착 방법"
+        )
+
+        st.markdown(
+            """
+            **① 설치 위치 선정**
+
+            펌프 본체 또는 제어반 등
+            작업자가 쉽게 확인할 수 있는 위치 선정
+
+            **② 표면 세척**
+
+            먼지·유분 제거
+
+            **③ QR 라벨 부착**
+
+            평탄한 면에 부착 후
+            모서리 및 접착면 압착
+
+            **④ 설비번호 확인**
+
+            QR과 설비번호가 일치하는지 확인
+
+            **⑤ 스마트폰 테스트**
+
+            실제 현장에서 스캔하여
+            해당 설비 페이지 연결 확인
+
+            **⑥ DB 등록 완료**
+
+            설비 Master DB와 QR ID 연결
+            """,
+            unsafe_allow_html=True
+        )
+
+
+    with _databack_tab3:
+
+        st.markdown(
+            "### 🚨 알림 기준값 설정"
+        )
+
+        st.caption(
+
+            "AI 이상징후·정비권고사항·홈 화면에서 쓰는 "
+            "'관찰/주의' 보조 알림 기준입니다. "
+            "정밀진단 17개 항목의 A~E 등급 계산 기준(ISO 10816-3 등)은 "
+            "여기서 바뀌지 않고 그대로 유지됩니다."
+
+        )
+
+        _cur_th = get_alert_thresholds()
+
+        th_c1, th_c2 = st.columns(2)
+
+        new_vib_watch = th_c1.number_input(
+
+            "진동 관찰 기준(mm/s)",
+
+            value=float(_cur_th["vib_watch"]),
+
+            key="th_vib_watch",
+
+            disabled=is_read_only()
+
+        )
+
+        new_vib_danger = th_c2.number_input(
+
+            "진동 주의 기준(mm/s)",
+
+            value=float(_cur_th["vib_danger"]),
+
+            key="th_vib_danger",
+
+            disabled=is_read_only()
+
+        )
+
+        new_eff_watch = th_c1.number_input(
+
+            "효율 관찰 기준(%)",
+
+            value=float(_cur_th["eff_watch"]),
+
+            key="th_eff_watch",
+
+            disabled=is_read_only()
+
+        )
+
+        new_eff_danger = th_c2.number_input(
+
+            "효율 주의 기준(%)",
+
+            value=float(_cur_th["eff_danger"]),
+
+            key="th_eff_danger",
+
+            disabled=is_read_only()
+
+        )
+
+        new_temp_watch = th_c1.number_input(
+
+            "온도 관찰 기준(°C)",
+
+            value=float(_cur_th["temp_watch"]),
+
+            key="th_temp_watch",
+
+            disabled=is_read_only()
+
+        )
+
+        new_temp_danger = th_c2.number_input(
+
+            "온도 주의 기준(°C)",
+
+            value=float(_cur_th["temp_danger"]),
+
+            key="th_temp_danger",
+
+            disabled=is_read_only()
+
+        )
+
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 변경할 수 없습니다."
+            )
+
+        elif st.button(
+            "알림 기준값 저장",
+            key="save_thresholds_btn"
+        ):
+
+            save_alert_thresholds(
+
+                {
+                    "vib_watch": new_vib_watch,
+                    "vib_danger": new_vib_danger,
+                    "eff_watch": new_eff_watch,
+                    "eff_danger": new_eff_danger,
+                    "temp_watch": new_temp_watch,
+                    "temp_danger": new_temp_danger
+                }
+
+            )
+
+            log_audit(
+
+                "알림 기준값 변경",
+
+                "전체",
+
+                f"진동({new_vib_watch}/{new_vib_danger}) "
+                f"효율({new_eff_watch}/{new_eff_danger}) "
+                f"온도({new_temp_watch}/{new_temp_danger})"
+
+            )
+
+            st.success(
+                "알림 기준값이 저장되었습니다."
+            )
+
+
+        st.markdown(
+            "### 🔔 알림 웹훅 설정 (Slack 등)"
+        )
+
+        st.caption(
+
+            "정밀진단 결과가 D/E등급으로 저장되면 아래 웹훅 주소로 "
+            "자동 알림을 보냅니다. Slack의 'Incoming Webhook' 주소를 "
+            "그대로 붙여넣으면 됩니다. 비워두면 알림을 보내지 않습니다. "
+            "⚠️ 실제 알림이 도착하는지는 워크스페이스에 웹훅을 "
+            "등록하신 뒤 직접 확인해주세요."
+
+        )
+
+        current_webhook = get_webhook_url()
+
+        new_webhook = st.text_input(
+
+            "웹훅 URL",
+
+            value=current_webhook,
+
+            key="webhook_url_input",
+
+            type="password",
+
+            disabled=is_read_only()
+
+        )
+
+        if is_read_only():
+
+            st.info(
+                "🔒 보기 전용 모드에서는 변경할 수 없습니다."
+            )
+
+        elif st.button(
+            "웹훅 주소 저장",
+            key="save_webhook_btn"
+        ):
+
+            set_webhook_url(
+                new_webhook
+            )
+
+            log_audit(
+                "웹훅 설정 변경",
+                "알림설정"
+            )
+
+            st.success(
+                "웹훅 주소가 저장되었습니다."
+            )
+
+
+        st.markdown(
+            "### 🕵️ 감사 로그 (누가 언제 무엇을 했는지)"
+        )
+
+        df_audit = read_excel(
+
+            AUDIT_LOG_PATH,
+
+            "감사로그"
+
+        )
+
+        if not df_audit.empty:
+
+            with st.expander(
+
+                f"최근 감사 로그 (총 {len(df_audit)}건)"
+
+            ):
+
+                st.dataframe(
+
+                    df_audit.tail(30).iloc[::-1],
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+        else:
+
+            st.caption(
+                "아직 기록된 감사 로그가 없습니다."
+            )
+
+
+    with _databack_tab4:
+
+        st.markdown(
+            "### ☁️ 구글시트 백업/복원"
+        )
+
+        st.caption(
+
+            "서버가 재배포되면 로컬 데이터가 사라질 수 있는 문제의 "
+            "안전장치입니다. 구글 서비스계정 연결이 되어있어야 "
+            "동작합니다 (Streamlit Secrets에 gcp_service_account, "
+            "GSHEET_BACKUP_URL 등록 필요)."
+
+        )
+
+        gcol1, gcol2 = st.columns(2)
+
+        with gcol1:
+
+            if st.button(
+
+                "☁️ 지금 구글시트로 백업",
+
+                use_container_width=True,
+
+                key="gsheet_backup_btn"
+
+            ):
+
+                with st.status(
+
+                    "구글시트로 백업 중...",
+
+                    expanded=True
+
+                ) as status_box:
+
+                    st.write(
+
+                        f"총 {len(GSHEET_BACKUP_TARGETS)}개 시트 "
+                        "대상입니다."
+
+                    )
+
+                    st.write("구글 인증 확인 중...")
+
+                    ok, msg = backup_all_to_gsheet()
+
+                    if ok:
+
+                        status_box.update(
+
+                            label="백업 완료",
+
+                            state="complete"
+
+                        )
+
+                    else:
+
+                        status_box.update(
+
+                            label="백업 실패",
+
+                            state="error"
+
+                        )
 
                 if ok:
 
@@ -24181,227 +25052,420 @@ elif st.session_state.page == "백업":
                         msg
                     )
 
-                st.rerun()
+        with gcol2:
 
-            if ccol2.button(
+            if is_read_only():
 
-                "취소",
+                st.info(
+                    "🔒 보기 전용 모드에서는 복원할 수 없습니다."
+                )
 
-                key="confirm_restore_no"
+            elif st.button(
+
+                "⬇️ 구글시트에서 복원",
+
+                use_container_width=True,
+
+                key="gsheet_restore_btn"
 
             ):
 
-                st.session_state["_confirm_gsheet_restore"] = False
+                st.session_state["_confirm_gsheet_restore"] = True
 
-                st.rerun()
+            if st.session_state.get(
 
-    st.write("")
+                "_confirm_gsheet_restore"
 
-    st.markdown(
-        "### 📧 이메일 월간요약 발송"
-    )
+            ):
 
-    st.caption(
+                st.warning(
 
-        "지금 버튼을 누르면 즉시 발송됩니다. 매달 자동으로 "
-        "보내려면 이 기능을 외부 스케줄러(예: GitHub Actions)가 "
-        "주기적으로 호출해야 합니다 — 앱 자체는 접속 없이 "
-        "혼자 실행되지 않습니다. (Streamlit Secrets에 "
-        "SMTP_USER, SMTP_PASSWORD 등록 필요)"
+                    "⚠️ 지금 로컬 데이터를 구글시트 내용으로 "
+                    "덮어씁니다. 계속할까요?"
 
-    )
+                )
 
-    email_recipients_text = st.text_input(
+                ccol1, ccol2 = st.columns(2)
 
-        "받는 사람 이메일 (쉼표로 구분)",
+                if ccol1.button(
 
-        key="email_recipients_input"
+                    "예, 복원합니다",
 
-    )
+                    key="confirm_restore_yes"
 
-    if st.button(
+                ):
 
-        "📧 지금 이메일 발송",
+                    with st.spinner(
+                        "복원하는 중입니다..."
+                    ):
 
-        use_container_width=True,
+                        ok, msg = restore_all_from_gsheet()
 
-        key="send_email_now_btn"
+                    st.session_state["_confirm_gsheet_restore"] = False
 
-    ):
+                    if ok:
 
-        _recipients = [
+                        st.success(
+                            msg
+                        )
 
-            e.strip()
+                    else:
 
-            for e in email_recipients_text.split(",")
+                        st.error(
+                            msg
+                        )
 
-            if e.strip()
+                    st.rerun()
+
+                if ccol2.button(
+
+                    "취소",
+
+                    key="confirm_restore_no"
+
+                ):
+
+                    st.session_state["_confirm_gsheet_restore"] = False
+
+                    st.rerun()
+
+        st.write("")
+
+
+        st.markdown(
+            "### 📦 DB 백업"
+        )
+
+        st.warning(
+            "⚠️ 이 데이터는 서버 로컬 파일로 저장됩니다. "
+            "배포 환경이 재시작·재배포되면 초기화될 수 있으니 "
+            "정기적으로 아래에서 전체 백업을 받아두는 것을 권장합니다."
+        )
+
+        _backup_files = [
+
+            (DB_FILE_PATH, "진단 DB"),
+            (OVERHAUL_DB_PATH, "오버홀 DB"),
+            (KNOWHOW_DB_PATH, "노하우 DB"),
+            (EQUIP_DB_PATH, "설비마스터 DB"),
+            (KPI_DB_PATH, "KPI DB")
 
         ]
 
-        if not _recipients:
+        import zipfile
 
-            st.error(
-                "받는 사람 이메일을 입력해주세요."
-            )
+        zip_buffer = io.BytesIO()
 
-        else:
+        with zipfile.ZipFile(
+            zip_buffer,
+            "w",
+            zipfile.ZIP_DEFLATED
+        ) as zf:
 
-            _body = build_monthly_summary_email_body(
+            for path, label in _backup_files:
 
-                ALL_PUMPS,
+                if os.path.exists(path):
 
-                df_history
+                    zf.write(
+                        path,
+                        arcname=os.path.basename(path)
+                    )
 
-            )
+            # 오버홀 작업사진도 백업에 포함시킨다.
+            # (예전에는 사진 파일만 빠져있어서 서버가
+            #  재시작되면 사진만 조용히 사라졌었다)
 
-            ok, msg = send_monthly_summary_email(
+            if os.path.exists(PHOTO_DIR):
 
-                _recipients,
+                for fname in os.listdir(PHOTO_DIR):
 
-                f"[K-water tech] "
-                f"{datetime.now().strftime('%Y년 %m월')} "
-                "설비관리 월간요약",
+                    fpath = os.path.join(
+                        PHOTO_DIR,
+                        fname
+                    )
 
-                _body
+                    if os.path.isfile(fpath):
 
-            )
+                        zf.write(
 
-            if ok:
+                            fpath,
 
-                st.success(
-                    msg
-                )
+                            arcname=os.path.join(
+                                "overhaul_photos",
+                                fname
+                            )
 
-            else:
+                        )
 
-                st.error(
-                    msg
-                )
+        st.download_button(
 
-    st.write("")
+            "📥 전체 DB 한번에 백업 (zip)",
 
-    st.markdown(
-        "### 📦 DB 백업"
-    )
+            data=zip_buffer.getvalue(),
 
-    st.warning(
-        "⚠️ 이 데이터는 서버 로컬 파일로 저장됩니다. "
-        "배포 환경이 재시작·재배포되면 초기화될 수 있으니 "
-        "정기적으로 아래에서 전체 백업을 받아두는 것을 권장합니다."
-    )
+            file_name=
 
-    _backup_files = [
+            f"kwatertech_backup_"
 
-        (DB_FILE_PATH, "진단 DB"),
-        (OVERHAUL_DB_PATH, "오버홀 DB"),
-        (KNOWHOW_DB_PATH, "노하우 DB"),
-        (EQUIP_DB_PATH, "설비마스터 DB"),
-        (KPI_DB_PATH, "KPI DB")
+            +
+            datetime.now().strftime("%Y%m%d_%H%M")
 
-    ]
+            +
+            ".zip",
 
-    import zipfile
+            mime="application/zip",
 
-    zip_buffer = io.BytesIO()
+            type="primary",
 
-    with zipfile.ZipFile(
-        zip_buffer,
-        "w",
-        zipfile.ZIP_DEFLATED
-    ) as zf:
+            use_container_width=True
+
+        )
 
         for path, label in _backup_files:
 
             if os.path.exists(path):
 
-                zf.write(
+                with open(
                     path,
-                    arcname=os.path.basename(path)
-                )
+                    "rb"
+                ) as f:
 
-        # 오버홀 작업사진도 백업에 포함시킨다.
-        # (예전에는 사진 파일만 빠져있어서 서버가
-        #  재시작되면 사진만 조용히 사라졌었다)
+                    st.download_button(
 
-        if os.path.exists(PHOTO_DIR):
+                        f"📥 {label} 다운로드",
 
-            for fname in os.listdir(PHOTO_DIR):
+                        data=f.read(),
 
-                fpath = os.path.join(
-                    PHOTO_DIR,
-                    fname
-                )
+                        file_name=os.path.basename(
+                            path
+                        ),
 
-                if os.path.isfile(fpath):
-
-                    zf.write(
-
-                        fpath,
-
-                        arcname=os.path.join(
-                            "overhaul_photos",
-                            fname
-                        )
+                        key=f"download_{path}"
 
                     )
 
-    st.download_button(
+        render_excel_export_section(
 
-        "📥 전체 DB 한번에 백업 (zip)",
+            "backup",
 
-        data=zip_buffer.getvalue(),
+            "설비마스터_목록.xlsx",
 
-        file_name=
+            lambda: pd.DataFrame(ALL_PUMPS)
 
-        f"kwatertech_backup_"
+        )
 
-        +
-        datetime.now().strftime("%Y%m%d_%H%M")
+        st.markdown(
+            "### 📊 종합 대시보드 PDF"
+        )
 
-        +
-        ".zip",
+        st.caption(
 
-        mime="application/zip",
+            "설비 하나씩이 아니라, 이번 달 전체 사업장 현황을 "
+            "한 장으로 정리한 경영보고용 요약 PDF를 만듭니다."
 
-        type="primary",
+        )
 
-        use_container_width=True
+        if st.button(
 
-    )
+            "📊 종합 대시보드 PDF 생성",
 
-    for path, label in _backup_files:
+            type="primary",
 
-        if os.path.exists(path):
+            use_container_width=True,
 
-            with open(
-                path,
-                "rb"
-            ) as f:
+            key="generate_dashboard_pdf_btn"
 
-                st.download_button(
+        ):
 
-                    f"📥 {label} 다운로드",
+            with st.spinner(
+                "대시보드를 만드는 중입니다..."
+            ):
 
-                    data=f.read(),
+                _dash_site_list = sorted(
 
-                    file_name=os.path.basename(
-                        path
-                    ),
-
-                    key=f"download_{path}"
+                    set(
+                        p["site"] for p in ALL_PUMPS
+                    )
 
                 )
 
-    render_excel_export_section(
+                dashboard_pdf_bytes = build_dashboard_summary_pdf(
 
-        "backup",
+                    ALL_PUMPS,
 
-        "설비마스터_목록.xlsx",
+                    df_history,
 
-        lambda: pd.DataFrame(ALL_PUMPS)
+                    _dash_site_list
 
-    )
+                )
+
+            st.session_state[
+
+                "_dashboard_pdf_bytes"
+
+            ] = dashboard_pdf_bytes
+
+        if "_dashboard_pdf_bytes" in st.session_state:
+
+            st.download_button(
+
+                "⬇️ 대시보드 PDF 다운로드",
+
+                data=st.session_state["_dashboard_pdf_bytes"],
+
+                file_name=(
+
+                    f"{datetime.now().strftime('%Y%m')}_"
+                    "종합대시보드.pdf"
+
+                ),
+
+                mime="application/pdf",
+
+                use_container_width=True,
+
+                key="download_dashboard_pdf_btn"
+
+            )
+
+        st.write("")
+
+
+        st.markdown(
+            "### 📧 이메일 월간요약 발송"
+        )
+
+        st.caption(
+
+            "지금 버튼을 누르면 즉시 발송됩니다. 매달 자동으로 "
+            "보내려면 이 기능을 외부 스케줄러(예: GitHub Actions)가 "
+            "주기적으로 호출해야 합니다 — 앱 자체는 접속 없이 "
+            "혼자 실행되지 않습니다. (Streamlit Secrets에 "
+            "SMTP_USER, SMTP_PASSWORD 등록 필요)"
+
+        )
+
+        email_recipients_text = st.text_input(
+
+            "받는 사람 이메일 (쉼표로 구분)",
+
+            key="email_recipients_input"
+
+        )
+
+        if st.button(
+
+            "📧 지금 이메일 발송",
+
+            use_container_width=True,
+
+            key="send_email_now_btn"
+
+        ):
+
+            _recipients = [
+
+                e.strip()
+
+                for e in email_recipients_text.split(",")
+
+                if e.strip()
+
+            ]
+
+            if not _recipients:
+
+                st.error(
+                    "받는 사람 이메일을 입력해주세요."
+                )
+
+            else:
+
+                _body = build_monthly_summary_email_body(
+
+                    ALL_PUMPS,
+
+                    df_history
+
+                )
+
+                ok, msg = send_monthly_summary_email(
+
+                    _recipients,
+
+                    f"[K-water tech] "
+                    f"{datetime.now().strftime('%Y년 %m월')} "
+                    "설비관리 월간요약",
+
+                    _body
+
+                )
+
+                if ok:
+
+                    st.success(
+                        msg
+                    )
+
+                else:
+
+                    st.error(
+                        msg
+                    )
+
+        st.write("")
+
+
+    with _databack_tab5:
+
+        st.markdown(
+            "### 💰 플랫폼 사업화 예상비용"
+        )
+
+        cost_df = pd.DataFrame(
+
+            [
+
+                [
+                    "1단계 PoC",
+                    "자체개발",
+                    "약 150~300만원",
+                    "기존 용역 내 실증"
+                ],
+
+                [
+                    "2단계 플랫폼화",
+                    "고도화",
+                    "약 500~800만원/년",
+                    "유지보수·서버·운영"
+                ],
+
+                [
+                    "3단계 외부사업",
+                    "지자체",
+                    "별도 견적",
+                    "설비 수량별 산정"
+                ]
+
+            ],
+
+            columns=[
+                "단계",
+                "구축방식",
+                "예상비용",
+                "사업모델"
+            ]
+
+        )
+
+        st.dataframe(
+            cost_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.write("")
+
 
 
 # ============================================================
@@ -24634,6 +25698,151 @@ elif st.session_state.page == "통합검색":
 # ============================================================
 # 26-0. 설계적산
 # ============================================================
+
+# ============================================================
+# 26-2. 업데이트 내역
+# ============================================================
+
+elif st.session_state.page == "업데이트내역":
+
+    render_back_to_home_button("changelog")
+
+    st.markdown(
+        """
+        <div class="section-title">
+        📋 업데이트 내역
+        </div>
+
+        <div class="section-caption">
+        이 플랫폼이 어떻게 발전해왔는지 정리한 기록입니다.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    CHANGELOG = [
+
+        (
+            "v1.8",
+            "메뉴 재구성 · 정비 캘린더 · 즐겨찾기 · 체크리스트",
+            [
+                "사이드바 메뉴를 업무흐름 기준 5개 그룹으로 재정리",
+                "오버홀 예정일정 캘린더 뷰 추가",
+                "즐겨찾기·최근 본 설비 영구 저장(파일 기반)",
+                "설비 종류별 정비 체크리스트 템플릿"
+            ]
+        ),
+
+        (
+            "v1.7",
+            "UI/UX 전면 개선",
+            [
+                "회사 공식 마스코트 TEKI 적용 (5개 페이지)",
+                "다크모드, 모바일 반응형 레이아웃 대응",
+                "카드 애니메이션·여백·색상 통일"
+            ]
+        ),
+
+        (
+            "v1.6",
+            "데이터 안전망 강화",
+            [
+                "구글시트 백업/복원 (행개수 자동 검증 포함)",
+                "이메일 월간요약 발송 (재시도 로직 포함)",
+                "종합 대시보드 PDF 자동생성"
+            ]
+        ),
+
+        (
+            "v1.5",
+            "통합검색 · 보안 강화",
+            [
+                "전체 데이터 통합검색 + TF-IDF 의미기반 유사사례 추천",
+                "PIN 로그인 5회 실패시 잠금, 세션 자동 로그아웃",
+                "긴급 차단 스위치, 로그인 감사로그"
+            ]
+        ),
+
+        (
+            "v1.4",
+            "설계적산 모듈",
+            [
+                "일위대가 라이브러리 (실제 산출내역서 기반)",
+                "원본 양식 그대로 엑셀 재현·다운로드",
+                "새 공사 만들기, 유사 항목명 경고"
+            ]
+        ),
+
+        (
+            "v1.3",
+            "AI 예측 · LLM 종합의견",
+            [
+                "진동 추세 회귀분석 기반 고장예측 (계절성 반영)",
+                "예측 사후검증 (지난 예측 vs 실제 비교)",
+                "Claude API 기반 실시간 종합의견 생성"
+            ]
+        ),
+
+        (
+            "v1.2",
+            "정비효과 · 성과관리",
+            [
+                "설비별 총소유비용(TCO) 추적",
+                "종합 성과 요약 (Before/After)",
+                "PoC 단계 KPI 관리"
+            ]
+        ),
+
+        (
+            "v1.1",
+            "데이터 관리 체계화",
+            [
+                "설비 마스터를 코드 고정 → 엑셀 DB 기반으로 전환",
+                "통합 업로드 양식, 소모품 재고관리",
+                "QR 라벨 인쇄, 감사로그"
+            ]
+        ),
+
+        (
+            "v1.0",
+            "기본 CBM 플랫폼",
+            [
+                "QR 기반 설비 포털",
+                "17개 항목 정밀진단 · CBM Score 산출",
+                "오버홀 관리, 월간 보고서 자동생성"
+            ]
+        )
+
+    ]
+
+    for version, title, items in CHANGELOG:
+
+        st.markdown(
+
+            f"""
+            <div class="platform-card">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span style="background:#087ea4; color:white;
+                font-weight:800; font-size:0.78rem;
+                padding:3px 10px; border-radius:20px;">
+                {version}
+                </span>
+                <span style="font-weight:800; font-size:1.02rem;
+                color:#0f3552;">
+                {title}
+                </span>
+            </div>
+            <ul style="margin:10px 0 0 0; padding-left:20px;
+            color:#334155; font-size:0.88rem; line-height:1.8;">
+            {"".join(f"<li>{item}</li>" for item in items)}
+            </ul>
+            </div>
+            """,
+
+            unsafe_allow_html=True
+
+        )
+
 
 elif st.session_state.page == "설계적산":
 
@@ -25308,7 +26517,8 @@ elif st.session_state.page == "설계적산":
         if _proj_df.empty:
 
             st.info(
-                "아직 저장된 공사가 없습니다."
+                "아직 저장된 공사가 없습니다. "
+                "'새 공사 만들기' 탭에서 첫 공사를 만들어보세요."
             )
 
         else:
