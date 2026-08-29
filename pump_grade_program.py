@@ -595,27 +595,57 @@ section[data-testid="stSidebar"] .stDownloadButton > button:hover {
 
     display: flex;
 
-    align-items: center;
+    flex-direction: column;
 
-    justify-content: space-between;
+    align-items: flex-start;
 
-    gap: 16px;
+    gap: 12px;
 
-    flex-wrap: wrap;
+}
+
+@media (min-width: 700px) {
+
+    .page-header-mascot {
+
+        flex-direction: row;
+
+        align-items: center;
+
+        justify-content: space-between;
+
+        gap: 16px;
+
+        flex-wrap: wrap;
+
+    }
 
 }
 
 .page-header-mascot > .page-header-text {
 
-    flex: 1 1 260px;
+    width: 100%;
 
     min-width: 0;
+
+}
+
+@media (min-width: 700px) {
+
+    .page-header-mascot > .page-header-text {
+
+        flex: 1 1 260px;
+
+        width: auto;
+
+    }
 
 }
 
 .page-header-mascot > .page-header-mascot-img {
 
     flex-shrink: 0;
+
+    align-self: center;
 
 }
 
@@ -1009,11 +1039,61 @@ section[data-testid="stSidebar"] .stDownloadButton > button:hover {
 
     display: flex;
 
-    align-items: center;
+    flex-direction: column;
 
-    gap: 20px;
+    align-items: flex-start;
 
-    flex-wrap: wrap;
+    gap: 14px;
+
+}
+
+@media (min-width: 700px) {
+
+    .hero-inner {
+
+        flex-direction: row;
+
+        align-items: center;
+
+        gap: 20px;
+
+        flex-wrap: wrap;
+
+    }
+
+}
+
+.hero-mascot-wrap {
+
+    width: 100%;
+
+    display: flex;
+
+    justify-content: center;
+
+}
+
+@media (min-width: 700px) {
+
+    .hero-mascot-wrap {
+
+        width: auto;
+
+        margin-left: auto;
+
+        flex-shrink: 0;
+
+    }
+
+}
+
+.hero-text-wrap {
+
+    flex: 1;
+
+    width: 100%;
+
+    min-width: 0;
 
 }
 
@@ -16463,7 +16543,7 @@ if st.session_state.page == "홈":
             {_hero_logo_html if _hero_logo_html else '<span style="font-size:2rem;">💧</span>'}
             </div>
 
-            <div style="flex:1;">
+            <div class="hero-text-wrap">
                 <div class="hero-title">
                 설비를 <span class="hl-cyan">살아있게</span>
                 관리하는 <span class="hl-amber">기술</span>
@@ -16478,7 +16558,7 @@ if st.session_state.page == "홈":
                 </div>
             </div>
 
-            {f'<div style="flex-shrink:0; margin-left:auto;">{_hero_mascot_html}</div>' if _hero_mascot_html else ''}
+            {f'<div class="hero-mascot-wrap">{_hero_mascot_html}</div>' if _hero_mascot_html else ''}
 
         </div>
         </div>
