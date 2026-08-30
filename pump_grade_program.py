@@ -1,3 +1,4 @@
+# rebuild-marker: 2026-08-29 14:01:23
 # ============================================================
 # K-water tech
 # 펌프 설비관리 통합 플랫폼
@@ -4285,6 +4286,37 @@ def find_manual_pdf():
             return matches[0]
 
     return None
+
+
+def render_manual_pdf_viewer_html(pdf_path, height_px=700):
+
+    # 다운로드 없이 앱 화면 안에서 바로 매뉴얼을 넘겨볼 수
+    # 있도록, PDF를 base64로 인코딩해서 iframe에 그대로
+    # 끼워 넣는다(브라우저 내장 PDF 뷰어가 그려준다).
+
+    try:
+
+        with open(
+            pdf_path,
+            "rb"
+        ) as f:
+
+            b64 = base64.b64encode(
+                f.read()
+            ).decode("utf-8")
+
+    except Exception:
+
+        return None
+
+    return (
+
+        f'<iframe src="data:application/pdf;base64,{b64}" '
+        f'width="100%" height="{height_px}" '
+        f'style="border:1px solid #dce8ef; border-radius:10px;">'
+        f'</iframe>'
+
+    )
 
 
 _KOREAN_PDF_FONT_NAME = "Helvetica"
@@ -8867,6 +8899,10 @@ def delete_equipment(equip_name):
             "설비마스터"
         ]
 
+        headers = [
+            c.value for c in ws[1]
+        ]
+
         rows = list(
             ws.iter_rows(
                 min_row=2
@@ -8876,6 +8912,31 @@ def delete_equipment(equip_name):
         for r in rows:
 
             if r[1].value == equip_name:
+
+                # 지우기 전에 휴지통에 먼저 옮겨 담는다
+                # (30일간 복원 가능)
+
+                row_dict = {
+
+                    headers[i]: cell.value
+
+                    for i, cell in enumerate(r)
+
+                    if i < len(headers)
+
+                }
+
+                move_to_trash(
+
+                    "설비",
+
+                    equip_name,
+
+                    "설비마스터",
+
+                    row_dict
+
+                )
 
                 ws.delete_rows(
                     r[0].row
@@ -11248,6 +11309,277 @@ DEFAULT_CHECKLIST_TEMPLATES = {
 }
 
 
+TRASH_DB_PATH = "Pump_Trash_DB.xlsx"
+
+TRASH_RETENTION_DAYS = 30
+
+
+def ensure_trash_db_exists():
+
+    ensure_excel_file(
+
+        TRASH_DB_PATH,
+
+        "휴지통",
+
+        [
+            "삭제일시",
+            "삭제자",
+            "종류",
+            "이름",
+            "원본시트",
+            "데이터JSON"
+        ]
+
+    )
+
+
+def move_to_trash(category, item_name, sheet_name, row_dict):
+
+    # 바로 지우지 않고, 나중에 되돌릴 수 있게 휴지통에 먼저
+    # 옮겨 담는다. 30일이 지나면 자동으로 완전 삭제된다.
+
+    import json as _json
+
+    safe_append_row(
+
+        TRASH_DB_PATH,
+
+        "휴지통",
+
+        [
+            datetime.now().strftime("%Y-%m-%d %H:%M"),
+            st.session_state.get("user_name", "알수없음"),
+            category,
+            item_name,
+            sheet_name,
+            _json.dumps(row_dict, ensure_ascii=False, default=str)
+        ]
+
+    )
+
+
+def purge_old_trash():
+
+    # 30일 지난 휴지통 항목은 화면에서도 안 보이고 실제로도
+    # 지운다(공간 관리).
+
+    df = read_excel(
+        TRASH_DB_PATH,
+        "휴지통"
+    )
+
+    if df.empty:
+
+        return
+
+    cutoff = datetime.now() - timedelta(
+        days=TRASH_RETENTION_DAYS
+    )
+
+    with get_lock(TRASH_DB_PATH):
+
+        wb = load_workbook(
+            TRASH_DB_PATH
+        )
+
+        ws = wb["휴지통"]
+
+        rows_to_delete = []
+
+        for r in ws.iter_rows(min_row=2):
+
+            try:
+
+                deleted_at = datetime.strptime(
+
+                    str(r[0].value),
+
+                    "%Y-%m-%d %H:%M"
+
+                )
+
+                if deleted_at < cutoff:
+
+                    rows_to_delete.append(
+                        r[0].row
+                    )
+
+            except Exception:
+
+                continue
+
+        for row_num in sorted(
+
+            rows_to_delete,
+            reverse=True
+
+        ):
+
+            ws.delete_rows(
+                row_num
+            )
+
+        if rows_to_delete:
+
+            wb.save(
+                TRASH_DB_PATH
+            )
+
+        wb.close()
+
+    if rows_to_delete:
+
+        _read_excel_cached.clear()
+
+
+def get_trash_items():
+
+    purge_old_trash()
+
+    df = read_excel(
+        TRASH_DB_PATH,
+        "휴지통"
+    )
+
+    return df
+
+
+def restore_from_trash(row_index, category, item_name, sheet_name, row_dict):
+
+    import json as _json
+
+    if category == "설비":
+
+        add_equipment({
+
+            "site": row_dict.get("사업장"),
+            "equip": row_dict.get("설비명"),
+            "maker": row_dict.get("제조사"),
+            "model": row_dict.get("모델명"),
+            "hp": row_dict.get("정격출력(HP)"),
+            "head": row_dict.get("정격양정(m)"),
+            "flow": row_dict.get("정격유량(m3/h)"),
+            "rpm": row_dict.get("회전수(RPM)"),
+            "build_date": row_dict.get("준공일"),
+            "op_hours": row_dict.get("누적운전시간"),
+            "기준진동": row_dict.get("기준진동"),
+            "기준효율": row_dict.get("기준효율")
+
+        })
+
+    elif category == "노하우":
+
+        safe_append_row(
+
+            KNOWHOW_DB_PATH,
+
+            sheet_name,
+
+            list(row_dict.values())
+
+        )
+
+    elif category == "체크리스트템플릿":
+
+        # 체크리스트는 템플릿명+항목리스트 형태로 저장
+
+        save_checklist_template(
+
+            row_dict.get("템플릿명"),
+
+            row_dict.get("항목목록", [])
+
+        )
+
+    # 복원했으면 휴지통에서는 제거
+
+    with get_lock(TRASH_DB_PATH):
+
+        wb = load_workbook(
+            TRASH_DB_PATH
+        )
+
+        ws = wb["휴지통"]
+
+        for r in list(
+
+            ws.iter_rows(min_row=2)
+
+        ):
+
+            if (
+
+                r[3].value == item_name
+
+                and r[2].value == category
+
+            ):
+
+                ws.delete_rows(
+                    r[0].row
+                )
+
+                break
+
+        wb.save(
+            TRASH_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+    log_audit(
+
+        "휴지통에서 복원",
+
+        item_name,
+
+        category
+
+    )
+
+
+def permanently_delete_from_trash(category, item_name):
+
+    with get_lock(TRASH_DB_PATH):
+
+        wb = load_workbook(
+            TRASH_DB_PATH
+        )
+
+        ws = wb["휴지통"]
+
+        for r in list(
+
+            ws.iter_rows(min_row=2)
+
+        ):
+
+            if (
+
+                r[3].value == item_name
+
+                and r[2].value == category
+
+            ):
+
+                ws.delete_rows(
+                    r[0].row
+                )
+
+                break
+
+        wb.save(
+            TRASH_DB_PATH
+        )
+
+        wb.close()
+
+    _read_excel_cached.clear()
+
+
 def ensure_checklist_template_db_exists():
 
     ensure_excel_file(
@@ -11601,6 +11933,8 @@ def ensure_prediction_log_exists():
 ensure_prediction_log_exists()
 
 ensure_favorite_recent_dbs_exist()
+
+ensure_trash_db_exists()
 
 ensure_checklist_template_db_exists()
 
@@ -12094,6 +12428,65 @@ def get_gsheet_url():
         return None
 
 
+LAST_BACKUP_FLAG_PATH = "Pump_LastBackup.txt"
+
+
+def _record_last_backup_time():
+
+    try:
+
+        with open(
+
+            LAST_BACKUP_FLAG_PATH,
+
+            "w",
+
+            encoding="utf-8"
+
+        ) as f:
+
+            f.write(
+                datetime.now().isoformat()
+            )
+
+    except Exception:
+
+        pass
+
+
+def get_days_since_last_backup():
+
+    if not os.path.exists(
+        LAST_BACKUP_FLAG_PATH
+    ):
+
+        return None
+
+    try:
+
+        with open(
+
+            LAST_BACKUP_FLAG_PATH,
+
+            encoding="utf-8"
+
+        ) as f:
+
+            last_time = datetime.fromisoformat(
+                f.read().strip()
+            )
+
+        return (
+
+            datetime.now() - last_time
+
+        ).days
+
+    except Exception:
+
+        return None
+
+
 def backup_all_to_gsheet():
 
     client, error = get_gsheet_client()
@@ -12205,6 +12598,8 @@ def backup_all_to_gsheet():
 
         if verification_issues:
 
+            _record_last_backup_time()
+
             return True, (
 
                 f"{backed_up}개 시트를 백업했지만, 일부 검증에서 "
@@ -12213,6 +12608,8 @@ def backup_all_to_gsheet():
                 "\n".join(verification_issues)
 
             )
+
+        _record_last_backup_time()
 
         return True, (
 
@@ -15903,11 +16300,71 @@ def go_to_page(
         del st.query_params["equip"]
 
 
+PAGE_GROUP_MAP = {
+
+    "통합검색": "📍 현장 업무",
+    "QR": "📍 현장 업무",
+
+    "진단": "🔍 진단 · 판단",
+    "CBM": "🔍 진단 · 판단",
+    "오버홀": "🔍 진단 · 판단",
+
+    "AI": "📊 분석 · 리포트",
+    "전사트렌드": "📊 분석 · 리포트",
+    "ROI": "📊 분석 · 리포트",
+    "KPI": "📊 분석 · 리포트",
+    "보고서": "📊 분석 · 리포트",
+
+    "설비": "⚙️ 관리",
+    "노하우": "⚙️ 관리",
+    "설계적산": "⚙️ 관리",
+    "백업": "⚙️ 관리",
+    "업데이트내역": "⚙️ 관리",
+
+    "토목": "🏗️ 부서별 관리",
+    "전기": "🏗️ 부서별 관리",
+    "전자": "🏗️ 부서별 관리",
+    "행정": "🏗️ 부서별 관리",
+    "안전": "🏗️ 부서별 관리",
+
+}
+
+
 def render_back_to_home_button(key_suffix):
 
     # 브라우저 뒤로가기가 Streamlit 특성상 두 번 눌러야 하는
     # 경우가 있어서, 확실하게 한 번에 홈으로 돌아갈 수 있는
     # 버튼을 각 페이지 상단에도 심어둔다.
+
+    _current_page = st.session_state.page
+
+    _group = PAGE_GROUP_MAP.get(_current_page)
+
+    try:
+
+        _current_label = MENU_LABEL_BY_KEY.get(
+
+            _current_page,
+
+            _current_page
+
+        )
+
+    except NameError:
+
+        _current_label = _current_page
+
+    _breadcrumb_parts = ["🏠 홈"]
+
+    if _group:
+
+        _breadcrumb_parts.append(_group)
+
+    _breadcrumb_parts.append(_current_label)
+
+    st.caption(
+        " › ".join(_breadcrumb_parts)
+    )
 
     if st.button(
 
@@ -15972,7 +16429,13 @@ with st.sidebar:
 
         on_click=go_to_page,
 
-        args=(home_menu_item[0],)
+        args=(home_menu_item[0],),
+
+        type=(
+            "primary"
+            if st.session_state.page == home_menu_item[0]
+            else "secondary"
+        )
 
     )
 
@@ -15996,7 +16459,12 @@ with st.sidebar:
             key=f"menu_{key}",
             use_container_width=True,
             on_click=go_to_page,
-            args=(key,)
+            args=(key,),
+            type=(
+                "primary"
+                if st.session_state.page == key
+                else "secondary"
+            )
         )
 
     st.markdown(
@@ -16021,7 +16489,12 @@ with st.sidebar:
             key=f"menu_{key}",
             use_container_width=True,
             on_click=go_to_page,
-            args=(key,)
+            args=(key,),
+            type=(
+                "primary"
+                if st.session_state.page == key
+                else "secondary"
+            )
         )
 
     st.markdown(
@@ -16050,7 +16523,12 @@ with st.sidebar:
             key=f"menu_{key}",
             use_container_width=True,
             on_click=go_to_page,
-            args=(key,)
+            args=(key,),
+            type=(
+                "primary"
+                if st.session_state.page == key
+                else "secondary"
+            )
         )
 
     st.markdown(
@@ -16079,7 +16557,12 @@ with st.sidebar:
             key=f"menu_{key}",
             use_container_width=True,
             on_click=go_to_page,
-            args=(key,)
+            args=(key,),
+            type=(
+                "primary"
+                if st.session_state.page == key
+                else "secondary"
+            )
         )
 
     with st.expander(
@@ -16111,7 +16594,12 @@ with st.sidebar:
                 key=f"menu_{key}",
                 use_container_width=True,
                 on_click=go_to_page,
-                args=(key,)
+                args=(key,),
+                type=(
+                    "primary"
+                    if st.session_state.page == key
+                    else "secondary"
+                )
             )
 
     st.markdown("---")
@@ -16148,21 +16636,23 @@ with st.sidebar:
 
             ) as f:
 
-                st.download_button(
+                _manual_pdf_bytes = f.read()
 
-                    "📘 사용자 매뉴얼 다운로드",
+            st.download_button(
 
-                    data=f.read(),
+                "📘 사용자 매뉴얼 다운로드",
 
-                    file_name="설비관리_플랫폼_사용자매뉴얼.pdf",
+                data=_manual_pdf_bytes,
 
-                    mime="application/pdf",
+                file_name="설비관리_플랫폼_사용자매뉴얼.pdf",
 
-                    use_container_width=True,
+                mime="application/pdf",
 
-                    key="manual_pdf_download_btn"
+                use_container_width=True,
 
-                )
+                key="manual_pdf_download_btn"
+
+            )
 
         except Exception:
 
@@ -16581,6 +17071,111 @@ if st.session_state.page == "홈":
         """,
         unsafe_allow_html=True
     )
+
+    # ---------------- 백업 알림 배너 ----------------
+    #
+    # "마지막으로 언제 백업했는지"가 어디서도 안 보이면
+    # 깜빡하고 안 하게 되므로, 홈 화면에서 눈에 띄게 알려준다.
+
+    _days_since_backup = get_days_since_last_backup()
+
+    if _days_since_backup is None:
+
+        st.warning(
+
+            "⚠️ 아직 한 번도 백업하지 않았습니다. "
+            "'데이터 관리 > 💾 백업·리포트'에서 백업을 "
+            "권장합니다."
+
+        )
+
+    elif _days_since_backup >= 7:
+
+        st.warning(
+
+            f"⚠️ 마지막 백업: {_days_since_backup}일 전. "
+            "정기적인 백업을 권장합니다."
+
+        )
+
+    # ---------------- 사용 설명서 ----------------
+    #
+    # 매뉴얼 파일을 따로 안 열어봐도, 앱 안에서 바로 넘겨볼
+    # 수 있게 한다(신규 직원 온보딩에 특히 유용).
+
+    _manual_pdf_path_home = find_manual_pdf()
+
+    if _manual_pdf_path_home:
+
+        with st.expander(
+
+            "📖 사용 설명서 (앱 안에서 바로 보기)"
+
+        ):
+
+            _manual_html = render_manual_pdf_viewer_html(
+
+                _manual_pdf_path_home
+
+            )
+
+            if _manual_html:
+
+                st.markdown(
+
+                    _manual_html,
+
+                    unsafe_allow_html=True
+
+                )
+
+            else:
+
+                st.info(
+
+                    "매뉴얼을 불러오지 못했습니다. "
+                    "사이드바의 다운로드 버튼을 이용해주세요."
+
+                )
+
+    # ---------------- 빠른 이동 ----------------
+    #
+    # 사이드바를 스크롤하며 찾는 대신, 메뉴 이름을 타이핑해서
+    # 바로 이동할 수 있게 한다.
+
+    _quick_jump_options = ["🔎 어디로 갈까요? (메뉴 이름 입력)"] + [
+
+        label for _, label in ALL_MENUS
+
+        if label != "🏠 설비관리 홈"
+
+    ]
+
+    _quick_jump_selected = st.selectbox(
+
+        "빠른 이동",
+
+        _quick_jump_options,
+
+        key="home_quick_jump",
+
+        label_visibility="collapsed"
+
+    )
+
+    if _quick_jump_selected != _quick_jump_options[0]:
+
+        _target_key = MENU_KEY_BY_LABEL.get(
+            _quick_jump_selected
+        )
+
+        if _target_key:
+
+            st.session_state.page = _target_key
+
+            st.query_params["page"] = _target_key
+
+            st.rerun()
 
     # ---------------- 데이터 최신성 표시 ----------------
     #
@@ -21129,82 +21724,371 @@ elif st.session_state.page == "AI":
 
     st.write("---")
 
-    st.markdown(
-        "### 🤖 AI 고장예측 (회귀분석)"
+    _ai_tab1, _ai_tab2, _ai_tab3 = st.tabs(
+        [
+            "🔮 고장예측",
+            "🧠 AI 종합의견",
+            "📊 통계 이상탐지"
+        ]
     )
 
-    st.caption(
+    with _ai_tab1:
 
-        "규칙(임계값 비교)이 아니라, 실제 진동 이력에 선형회귀를 "
-        "적합시켜 위험 기준(8.5mm/s) 도달 시점을 통계적으로 "
-        "예측합니다."
-
-    )
-
-    df_vib_ai = read_excel(
-
-        VIBRATION_DB_PATH,
-
-        "진동측정이력"
-
-    )
-
-    prediction = predict_failure_date_regression(
-
-        pump,
-        df_vib_ai
-
-    )
-
-    if prediction is None:
-
-        st.info(
-            "이 설비의 진동측정 이력이 없습니다."
+        st.markdown(
+            "### 🤖 AI 고장예측 (회귀분석)"
         )
 
-    elif prediction["status"] == "insufficient_data":
+        st.caption(
 
-        st.info(
-
-            f"예측하려면 최소 3개월치 데이터가 필요합니다 "
-            f"(현재 {prediction['months_count']}개월)."
+            "규칙(임계값 비교)이 아니라, 실제 진동 이력에 선형회귀를 "
+            "적합시켜 위험 기준(8.5mm/s) 도달 시점을 통계적으로 "
+            "예측합니다."
 
         )
 
-    else:
+        df_vib_ai = read_excel(
 
-        pred_fig = build_failure_prediction_chart_fig(
+            VIBRATION_DB_PATH,
+
+            "진동측정이력"
+
+        )
+
+        prediction = predict_failure_date_regression(
 
             pump,
-            prediction
+            df_vib_ai
 
         )
+
+        if prediction is None:
+
+            st.info(
+                "이 설비의 진동측정 이력이 없습니다."
+            )
+
+        elif prediction["status"] == "insufficient_data":
+
+            st.info(
+
+                f"예측하려면 최소 3개월치 데이터가 필요합니다 "
+                f"(현재 {prediction['months_count']}개월)."
+
+            )
+
+        else:
+
+            pred_fig = build_failure_prediction_chart_fig(
+
+                pump,
+                prediction
+
+            )
+
+            st.pyplot(
+                pred_fig
+            )
+
+            if prediction["status"] == "predicted":
+
+                st.warning(
+
+                    f"⚠️ 현재 추세가 이어지면 약 "
+                    f"**{prediction['predicted_date']}**경 "
+                    f"위험 기준(8.5mm/s)에 도달할 것으로 "
+                    f"예측됩니다 (결정계수 R²="
+                    f"{prediction['r_squared']:.2f}, 1에 "
+                    "가까울수록 추세가 뚜렷함)."
+                    +
+                    (
+                        " 6개월 이상 데이터가 쌓여 월별 계절편차"
+                        "(예: 여름철 부하 상승분)까지 반영한 "
+                        "예측입니다."
+
+                        if prediction.get("seasonal_applied")
+
+                        else " (데이터가 6개월 미만이라 계절성은 "
+                        "반영하지 못했습니다.)"
+                    )
+
+                )
+
+            else:
+
+                st.success(
+
+                    f"✅ 진동값이 증가 추세가 아니거나 안정적입니다 "
+                    f"(R²={prediction['r_squared']:.2f})."
+
+                )
+
+            log_prediction(
+                pump,
+                prediction
+            )
+
+        with st.expander(
+
+            "📊 예측 검증 (지난 예측이 실제로 맞았는지)"
+
+        ):
+
+            st.caption(
+
+                "예측일이 이미 지난 과거 예측들을 모아서, 그 시점에 "
+                "실제로 위험기준에 도달했었는지 확인합니다. 예측이 "
+                "쌓일수록 이 표도 같이 쌓입니다."
+
+            )
+
+            verify_df = verify_past_predictions(
+
+                ALL_PUMPS,
+
+                df_vib_ai
+
+            )
+
+            if verify_df.empty:
+
+                st.info(
+
+                    "아직 검증할 만큼 시간이 지난 예측이 없습니다."
+
+                )
+
+            else:
+
+                st.dataframe(
+
+                    verify_df,
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+        st.write("---")
+
+
+
+    with _ai_tab2:
+
+        st.markdown(
+            "### 🤖 AI 종합의견 생성 (LLM)"
+        )
+
+        st.caption(
+
+            "정해진 문장 틀이 아니라, 실제 Claude API를 호출해서 "
+            "이 설비의 데이터를 보고 종합의견을 새로 작성합니다. "
+            "(Streamlit Secrets에 ANTHROPIC_API_KEY 등록 필요)"
+
+        )
+
+        if st.button(
+
+            "🤖 AI에게 종합의견 작성 요청",
+
+            type="primary",
+
+            key="generate_ai_commentary_btn"
+
+        ):
+
+            with st.status(
+
+                "AI 종합의견 생성 중...",
+
+                expanded=True
+
+            ) as status_box:
+
+                st.write("1/3 · 설비 데이터 정리 중...")
+
+                st.write(
+
+                    f"CBM {result['점수']}점, "
+                    f"진동 {result['진동']:.1f}mm/s 확인 완료"
+
+                )
+
+                st.write("2/3 · Claude API 호출 중... "
+                         "(몇 초 정도 걸릴 수 있습니다)")
+
+                commentary, error = generate_ai_commentary_for_equipment(
+
+                    pump,
+                    result,
+                    prediction
+
+                )
+
+                if error:
+
+                    status_box.update(
+
+                        label="AI 종합의견 생성 실패",
+
+                        state="error"
+
+                    )
+
+                else:
+
+                    st.write("3/3 · 완료")
+
+                    status_box.update(
+
+                        label="AI 종합의견 생성 완료",
+
+                        state="complete"
+
+                    )
+
+            if error:
+
+                st.error(
+                    error
+                )
+
+            else:
+
+                st.session_state["_ai_commentary"] = commentary
+
+        if "_ai_commentary" in st.session_state:
+
+            st.info(
+
+                st.session_state["_ai_commentary"]
+
+            )
+
+        g1, g2 = st.columns(2)
+
+        with g1:
+
+            st.pyplot(
+
+                build_vibration_trend_fig(
+
+                    pump,
+
+                    result,
+
+                    df_history=df_history,
+
+                    figsize=(6.2, 3.4)
+
+                )
+
+            )
+
+        with g2:
+
+            st.pyplot(
+
+                build_efficiency_trend_fig(
+
+                    pump,
+
+                    result,
+
+                    df_history=df_history
+
+                )
+
+            )
+
+        g3, g4 = st.columns(2)
+
+        with g3:
+
+            st.pyplot(
+
+                build_temperature_trend_fig(
+
+                    pump,
+
+                    result,
+
+                    df_history=df_history
+
+                )
+
+            )
+
+        with g4:
+
+            st.pyplot(
+
+                build_score_gauge_fig(
+
+                    pump,
+
+                    result
+
+                )
+
+            )
 
         st.pyplot(
-            pred_fig
+
+            build_op_hours_trend_fig(
+
+                pump
+
+            )
+
         )
 
-        if prediction["status"] == "predicted":
+        st.caption(
+            "📊 진동·효율·온도 그래프는 저장된 진단이력이 "
+            "2건 이상 쌓이면 실측값으로, 그전까지는 이해를 돕기 "
+            "위한 예시 데이터로 표시됩니다. 운전시간 그래프는 "
+            "과거 시점별 기록을 저장하지 않아 항상 추정치입니다."
+        )
 
-            st.warning(
 
-                f"⚠️ 현재 추세가 이어지면 약 "
-                f"**{prediction['predicted_date']}**경 "
-                f"위험 기준(8.5mm/s)에 도달할 것으로 "
-                f"예측됩니다 (결정계수 R²="
-                f"{prediction['r_squared']:.2f}, 1에 "
-                "가까울수록 추세가 뚜렷함)."
-                +
-                (
-                    " 6개월 이상 데이터가 쌓여 월별 계절편차"
-                    "(예: 여름철 부하 상승분)까지 반영한 "
-                    "예측입니다."
 
-                    if prediction.get("seasonal_applied")
+    with _ai_tab3:
 
-                    else " (데이터가 6개월 미만이라 계절성은 "
-                    "반영하지 못했습니다.)"
-                )
+        st.markdown(
+            "### 🤖 AI 통계 이상탐지"
+        )
+
+        _vib_dates, _vib_values = get_real_history_series(
+            df_history,
+            pump,
+            "진동측정값(mm/s)"
+        )
+
+        anomaly = detect_statistical_anomaly(
+            _vib_values
+        )
+
+        if anomaly is None:
+
+            st.info(
+
+                f"진동 실측 이력이 {len(_vib_values)}건입니다. "
+                f"최소 {ANOMALY_MIN_SAMPLES}건 이상 쌓이면 "
+                f"이 설비 고유의 평균 운전패턴 대비 "
+                f"통계적 이상 여부(z-score)를 자동으로 계산합니다."
+
+            )
+
+        elif anomaly["is_anomaly"]:
+
+            st.error(
+
+                f"🚨 통계적 이상치 감지 · z-score {anomaly['z']:.2f} "
+                f"(과거 평균 {anomaly['mean']:.2f} mm/s, "
+                f"표준편차 {anomaly['stdev']:.2f} 대비 "
+                f"현재 {anomaly['latest']:.2f} mm/s는 "
+                f"{ANOMALY_Z_THRESHOLD}표준편차 이상 벗어남, "
+                f"실측 {anomaly['n']}건 기준)"
 
             )
 
@@ -21212,356 +22096,86 @@ elif st.session_state.page == "AI":
 
             st.success(
 
-                f"✅ 진동값이 증가 추세가 아니거나 안정적입니다 "
-                f"(R²={prediction['r_squared']:.2f})."
+                f"✅ 통계적으로 정상 범위 · z-score {anomaly['z']:.2f} "
+                f"(실측 {anomaly['n']}건 기준, "
+                f"과거 평균 {anomaly['mean']:.2f} mm/s 대비 "
+                f"{ANOMALY_Z_THRESHOLD}표준편차 이내)"
 
             )
 
-        log_prediction(
-            pump,
-            prediction
-        )
+        st.write("")
 
-    with st.expander(
+        st.write("")
 
-        "📊 예측 검증 (지난 예측이 실제로 맞았는지)"
+        _th_ai = get_alert_thresholds()
 
-    ):
+        if (
 
-        st.caption(
+            result["진동"] >= _th_ai["vib_danger"]
 
-            "예측일이 이미 지난 과거 예측들을 모아서, 그 시점에 "
-            "실제로 위험기준에 도달했었는지 확인합니다. 예측이 "
-            "쌓일수록 이 표도 같이 쌓입니다."
+            or
+            result["효율"] <= _th_ai["eff_danger"]
 
-        )
+            or
+            result["온도"] >= _th_ai["temp_danger"]
 
-        verify_df = verify_past_predictions(
+            or
+            result["점수"] < 60
 
-            ALL_PUMPS,
-
-            df_vib_ai
-
-        )
-
-        if verify_df.empty:
-
-            st.info(
-
-                "아직 검증할 만큼 시간이 지난 예측이 없습니다."
-
-            )
-
-        else:
-
-            st.dataframe(
-
-                verify_df,
-
-                use_container_width=True,
-
-                hide_index=True
-
-            )
-
-    st.write("---")
-
-    st.markdown(
-        "### 🤖 AI 종합의견 생성 (LLM)"
-    )
-
-    st.caption(
-
-        "정해진 문장 틀이 아니라, 실제 Claude API를 호출해서 "
-        "이 설비의 데이터를 보고 종합의견을 새로 작성합니다. "
-        "(Streamlit Secrets에 ANTHROPIC_API_KEY 등록 필요)"
-
-    )
-
-    if st.button(
-
-        "🤖 AI에게 종합의견 작성 요청",
-
-        type="primary",
-
-        key="generate_ai_commentary_btn"
-
-    ):
-
-        with st.status(
-
-            "AI 종합의견 생성 중...",
-
-            expanded=True
-
-        ) as status_box:
-
-            st.write("1/3 · 설비 데이터 정리 중...")
-
-            st.write(
-
-                f"CBM {result['점수']}점, "
-                f"진동 {result['진동']:.1f}mm/s 확인 완료"
-
-            )
-
-            st.write("2/3 · Claude API 호출 중... "
-                     "(몇 초 정도 걸릴 수 있습니다)")
-
-            commentary, error = generate_ai_commentary_for_equipment(
-
-                pump,
-                result,
-                prediction
-
-            )
-
-            if error:
-
-                status_box.update(
-
-                    label="AI 종합의견 생성 실패",
-
-                    state="error"
-
-                )
-
-            else:
-
-                st.write("3/3 · 완료")
-
-                status_box.update(
-
-                    label="AI 종합의견 생성 완료",
-
-                    state="complete"
-
-                )
-
-        if error:
+        ):
 
             st.error(
-                error
+                "고위험 상태 · 정비검토 필요"
+            )
+
+        elif (
+
+            result["진동"] >= _th_ai["vib_watch"]
+
+            or
+            result["효율"] <= _th_ai["eff_watch"]
+
+            or
+            result["온도"] >= _th_ai["temp_watch"]
+
+            or
+            result["점수"] < 80
+
+        ):
+
+            st.warning(
+                "주의 상태 · 추이관찰 및 정밀진단 권고"
             )
 
         else:
 
-            st.session_state["_ai_commentary"] = commentary
+            st.success(
+                "현재 상태 양호 · 모든 지표 정상범위"
+            )
 
-    if "_ai_commentary" in st.session_state:
+        render_excel_export_section(
 
-        st.info(
+            f"ai_{pump['equip']}",
 
-            st.session_state["_ai_commentary"]
+            f"{pump['equip']}_AI이상징후.xlsx",
 
-        )
-
-    g1, g2 = st.columns(2)
-
-    with g1:
-
-        st.pyplot(
-
-            build_vibration_trend_fig(
+            lambda: build_equipment_export_sheets(
 
                 pump,
 
                 result,
 
-                df_history=df_history,
-
-                figsize=(6.2, 3.4)
+                df_history
 
             )
 
         )
 
-    with g2:
 
-        st.pyplot(
+    # ============================================================
+    # 21-1. 전사 트렌드
+    # ============================================================
 
-            build_efficiency_trend_fig(
-
-                pump,
-
-                result,
-
-                df_history=df_history
-
-            )
-
-        )
-
-    g3, g4 = st.columns(2)
-
-    with g3:
-
-        st.pyplot(
-
-            build_temperature_trend_fig(
-
-                pump,
-
-                result,
-
-                df_history=df_history
-
-            )
-
-        )
-
-    with g4:
-
-        st.pyplot(
-
-            build_score_gauge_fig(
-
-                pump,
-
-                result
-
-            )
-
-        )
-
-    st.pyplot(
-
-        build_op_hours_trend_fig(
-
-            pump
-
-        )
-
-    )
-
-    st.caption(
-        "📊 진동·효율·온도 그래프는 저장된 진단이력이 "
-        "2건 이상 쌓이면 실측값으로, 그전까지는 이해를 돕기 "
-        "위한 예시 데이터로 표시됩니다. 운전시간 그래프는 "
-        "과거 시점별 기록을 저장하지 않아 항상 추정치입니다."
-    )
-
-    st.markdown(
-        "### 🤖 AI 통계 이상탐지"
-    )
-
-    _vib_dates, _vib_values = get_real_history_series(
-        df_history,
-        pump,
-        "진동측정값(mm/s)"
-    )
-
-    anomaly = detect_statistical_anomaly(
-        _vib_values
-    )
-
-    if anomaly is None:
-
-        st.info(
-
-            f"진동 실측 이력이 {len(_vib_values)}건입니다. "
-            f"최소 {ANOMALY_MIN_SAMPLES}건 이상 쌓이면 "
-            f"이 설비 고유의 평균 운전패턴 대비 "
-            f"통계적 이상 여부(z-score)를 자동으로 계산합니다."
-
-        )
-
-    elif anomaly["is_anomaly"]:
-
-        st.error(
-
-            f"🚨 통계적 이상치 감지 · z-score {anomaly['z']:.2f} "
-            f"(과거 평균 {anomaly['mean']:.2f} mm/s, "
-            f"표준편차 {anomaly['stdev']:.2f} 대비 "
-            f"현재 {anomaly['latest']:.2f} mm/s는 "
-            f"{ANOMALY_Z_THRESHOLD}표준편차 이상 벗어남, "
-            f"실측 {anomaly['n']}건 기준)"
-
-        )
-
-    else:
-
-        st.success(
-
-            f"✅ 통계적으로 정상 범위 · z-score {anomaly['z']:.2f} "
-            f"(실측 {anomaly['n']}건 기준, "
-            f"과거 평균 {anomaly['mean']:.2f} mm/s 대비 "
-            f"{ANOMALY_Z_THRESHOLD}표준편차 이내)"
-
-        )
-
-    st.write("")
-
-    st.write("")
-
-    _th_ai = get_alert_thresholds()
-
-    if (
-
-        result["진동"] >= _th_ai["vib_danger"]
-
-        or
-        result["효율"] <= _th_ai["eff_danger"]
-
-        or
-        result["온도"] >= _th_ai["temp_danger"]
-
-        or
-        result["점수"] < 60
-
-    ):
-
-        st.error(
-            "고위험 상태 · 정비검토 필요"
-        )
-
-    elif (
-
-        result["진동"] >= _th_ai["vib_watch"]
-
-        or
-        result["효율"] <= _th_ai["eff_watch"]
-
-        or
-        result["온도"] >= _th_ai["temp_watch"]
-
-        or
-        result["점수"] < 80
-
-    ):
-
-        st.warning(
-            "주의 상태 · 추이관찰 및 정밀진단 권고"
-        )
-
-    else:
-
-        st.success(
-            "현재 상태 양호 · 모든 지표 정상범위"
-        )
-
-    render_excel_export_section(
-
-        f"ai_{pump['equip']}",
-
-        f"{pump['equip']}_AI이상징후.xlsx",
-
-        lambda: build_equipment_export_sheets(
-
-            pump,
-
-            result,
-
-            df_history
-
-        )
-
-    )
-
-
-# ============================================================
-# 21-1. 전사 트렌드
-# ============================================================
 
 elif st.session_state.page == "전사트렌드":
 
@@ -22457,8 +23071,36 @@ elif st.session_state.page == "노하우":
                             "노하우DB"
                         ]
 
+                        headers = [
+                            c.value for c in ws[1]
+                        ]
+
                         # 엑셀 행 번호 = 데이터프레임 인덱스 + 2
                         # (1행은 헤더이고, iterrows 인덱스는 0부터 시작)
+
+                        _row_cells = ws[del_idx + 2]
+
+                        _row_dict = {
+
+                            headers[i]: cell.value
+
+                            for i, cell in enumerate(_row_cells)
+
+                            if i < len(headers)
+
+                        }
+
+                        move_to_trash(
+
+                            "노하우",
+
+                            delete_choice,
+
+                            "노하우DB",
+
+                            _row_dict
+
+                        )
 
                         ws.delete_rows(
                             del_idx + 2
@@ -22481,7 +23123,7 @@ elif st.session_state.page == "노하우":
                     )
 
                     st.success(
-                        "삭제되었습니다. 페이지를 새로고침하면 반영됩니다."
+                        "삭제되었습니다. 휴지통에서 30일간 복원할 수 있습니다."
                     )
 
     else:
@@ -23481,13 +24123,14 @@ elif st.session_state.page == "백업":
         "3단계(API 연계)는 향후 추진 예정"
     )
 
-    _databack_tab1, _databack_tab2, _databack_tab3, _databack_tab4, _databack_tab5 = st.tabs(
+    _databack_tab1, _databack_tab2, _databack_tab3, _databack_tab4, _databack_tab5, _databack_tab6 = st.tabs(
         [
             "📥 설비 데이터 관리",
             "📱 QR 관리",
             "🔔 알림 · 보안",
             "💾 백업 · 리포트",
             "💰 비용 참고",
+            "🗑️ 휴지통",
         ]
     )
 
@@ -25297,7 +25940,9 @@ elif st.session_state.page == "백업":
 
             type="primary",
 
-            use_container_width=True
+            use_container_width=True,
+
+            on_click=_record_last_backup_time
 
         )
 
@@ -25545,6 +26190,117 @@ elif st.session_state.page == "백업":
         )
 
         st.write("")
+
+    with _databack_tab6:
+
+        st.markdown(
+            "### 🗑️ 휴지통"
+        )
+
+        st.caption(
+
+            f"삭제한 항목이 실수였다면 여기서 되돌릴 수 있습니다. "
+            f"{TRASH_RETENTION_DAYS}일이 지나면 자동으로 완전히 "
+            "삭제됩니다."
+
+        )
+
+        _trash_df = get_trash_items()
+
+        if _trash_df.empty:
+
+            st.info(
+                "휴지통이 비어있습니다."
+            )
+
+        else:
+
+            for _t_idx, _t_row in _trash_df.iterrows():
+
+                _t_col1, _t_col2, _t_col3 = st.columns(
+
+                    [3, 1, 1]
+
+                )
+
+                with _t_col1:
+
+                    st.write(
+
+                        f"**[{_t_row['종류']}]** "
+                        f"{_t_row['이름']} · "
+                        f"{_t_row['삭제일시']} 삭제 "
+                        f"({_t_row['삭제자']})"
+
+                    )
+
+                with _t_col2:
+
+                    if st.button(
+
+                        "↩️ 복원",
+
+                        key=f"trash_restore_{_t_idx}",
+
+                        use_container_width=True,
+
+                        disabled=is_read_only()
+
+                    ):
+
+                        import json as _json_trash
+
+                        restore_from_trash(
+
+                            _t_idx,
+
+                            _t_row["종류"],
+
+                            _t_row["이름"],
+
+                            _t_row["원본시트"],
+
+                            _json_trash.loads(
+                                _t_row["데이터JSON"]
+                            )
+
+                        )
+
+                        st.success(
+
+                            f"{_t_row['이름']} 복원되었습니다."
+
+                        )
+
+                        st.rerun()
+
+                with _t_col3:
+
+                    if st.button(
+
+                        "🗑️ 완전삭제",
+
+                        key=f"trash_purge_{_t_idx}",
+
+                        use_container_width=True,
+
+                        disabled=is_read_only()
+
+                    ):
+
+                        permanently_delete_from_trash(
+
+                            _t_row["종류"],
+
+                            _t_row["이름"]
+
+                        )
+
+                        st.success(
+                            "완전히 삭제되었습니다."
+                        )
+
+                        st.rerun()
 
 
 
