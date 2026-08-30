@@ -1038,63 +1038,35 @@ section[data-testid="stSidebar"] .stDownloadButton > button:hover {
 
     z-index: 1;
 
-    display: flex;
-
-    flex-direction: column;
-
-    align-items: flex-start;
-
-    gap: 14px;
+    display: block;
 
 }
 
-@media (min-width: 700px) {
+.hero-inner > * {
 
-    .hero-inner {
+    display: block;
 
-        flex-direction: row;
+    width: 100%;
 
-        align-items: center;
+    margin-bottom: 14px;
 
-        gap: 20px;
+}
 
-        flex-wrap: wrap;
+.hero-logo-wrap {
 
-    }
+    width: auto !important;
 
 }
 
 .hero-mascot-wrap {
 
-    width: 100%;
-
-    display: flex;
-
-    justify-content: center;
-
-}
-
-@media (min-width: 700px) {
-
-    .hero-mascot-wrap {
-
-        width: auto;
-
-        margin-left: auto;
-
-        flex-shrink: 0;
-
-    }
+    text-align: center;
 
 }
 
 .hero-text-wrap {
 
-    flex: 1;
-
     width: 100%;
-
-    min-width: 0;
 
 }
 
@@ -11314,6 +11286,95 @@ TRASH_DB_PATH = "Pump_Trash_DB.xlsx"
 TRASH_RETENTION_DAYS = 30
 
 
+ALIGNMENT_DB_PATH = "Pump_Alignment_DB.xlsx"
+
+VIB_ANALYSIS_DB_PATH = "Pump_VibAnalysis_DB.xlsx"
+
+EFFICIENCY_REPORT_DB_PATH = "Pump_EfficiencyReport_DB.xlsx"
+
+
+def ensure_specialized_report_dbs_exist():
+
+    # 연간 축정렬(얼라인먼트) 보고서용 데이터.
+    # 실제 회사 양식을 받으면 컬럼을 그에 맞춰 조정할 예정이라,
+    # 지금은 업계에서 일반적으로 쓰는 항목(오프셋·각도·TIR)
+    # 기준으로 임시 구성해뒀다.
+
+    ensure_excel_file(
+
+        ALIGNMENT_DB_PATH,
+
+        "축정렬이력",
+
+        [
+            "측정일자",
+            "사업장",
+            "설비명",
+            "측정자",
+            "커플링구분",
+            "수직오프셋(mm)",
+            "수평오프셋(mm)",
+            "수직각도(mm/100mm)",
+            "수평각도(mm/100mm)",
+            "판정",
+            "조치사항"
+        ]
+
+    )
+
+    # 연간 진동분석 보고서(정밀 스펙트럼 분석)용 데이터.
+    # 월간 진동측정(overall 값 위주)과 달리, 방향별·베어링
+    # 결함주파수 성분까지 다루는 정밀진단 성격이다.
+
+    ensure_excel_file(
+
+        VIB_ANALYSIS_DB_PATH,
+
+        "진동분석이력",
+
+        [
+            "측정일자",
+            "사업장",
+            "설비명",
+            "측정자",
+            "측정위치",
+            "Overall(mm/s)",
+            "1X성분(mm/s)",
+            "2X성분(mm/s)",
+            "베어링결함성분",
+            "종합판정",
+            "권고사항"
+        ]
+
+    )
+
+    # 효율진단 보고서용 데이터.
+
+    ensure_excel_file(
+
+        EFFICIENCY_REPORT_DB_PATH,
+
+        "효율진단이력",
+
+        [
+            "측정일자",
+            "사업장",
+            "설비명",
+            "측정자",
+            "정격효율(%)",
+            "실측효율(%)",
+            "정격유량(m3/h)",
+            "실측유량(m3/h)",
+            "정격양정(m)",
+            "실측양정(m)",
+            "전동기효율(%)",
+            "원인분석",
+            "개선권고"
+        ]
+
+    )
+
+
 def ensure_trash_db_exists():
 
     ensure_excel_file(
@@ -11933,6 +11994,8 @@ def ensure_prediction_log_exists():
 ensure_prediction_log_exists()
 
 ensure_favorite_recent_dbs_exist()
+
+ensure_specialized_report_dbs_exist()
 
 ensure_trash_db_exists()
 
@@ -14331,8 +14394,461 @@ def build_vibration_monthly_report_docx(
 
 
 # ============================================================
-# 12. QR 비용 계산
+# 11-1. 축정렬 · 진동분석 · 효율진단 보고서
+#
+# 아래 3개는 실제 회사 보고서 양식을 아직 받기 전이라, 업계
+# 일반적인 항목(오프셋/각도, 스펙트럼 성분, 정격대비 효율)
+# 기준으로 임시 구성했다. 실제 양식을 받으면 이 함수들의
+# 표 구성만 바꾸면 되고, 데이터 저장 구조는 그대로 쓸 수
+# 있다.
 # ============================================================
+
+def build_alignment_report_docx(pump, month_label, df_align):
+
+    doc = Document()
+
+    _set_korean_font(doc)
+
+    for section in doc.sections:
+
+        section.left_margin = Inches(0.7)
+        section.right_margin = Inches(0.7)
+        section.top_margin = Inches(0.6)
+        section.bottom_margin = Inches(0.6)
+
+    logo_path = find_logo_file()
+
+    if logo_path:
+
+        try:
+
+            logo_p = doc.add_paragraph()
+
+            logo_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            logo_p.add_run().add_picture(
+                logo_path,
+                width=Inches(1.3)
+            )
+
+        except Exception:
+
+            pass
+
+    title = doc.add_heading(
+        "축정렬(얼라인먼트) 점검 보고서",
+        level=0
+    )
+
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    info_p = doc.add_paragraph()
+
+    info_p.add_run(
+
+        f"설비명: {pump['equip']}  ·  사업장: {pump['site']}  ·  "
+        f"대상기간: {month_label}"
+
+    )
+
+    doc.add_paragraph("")
+
+    if df_align.empty:
+
+        doc.add_paragraph(
+
+            "해당 기간의 축정렬 측정 이력이 없습니다."
+
+        )
+
+    else:
+
+        table = doc.add_table(
+
+            rows=1,
+
+            cols=8
+
+        )
+
+        table.style = "Light Grid Accent 1"
+
+        headers = [
+
+            "측정일자", "측정자", "커플링구분",
+            "수직오프셋(mm)", "수평오프셋(mm)",
+            "수직각도", "수평각도", "판정"
+
+        ]
+
+        for i, h in enumerate(headers):
+
+            table.rows[0].cells[i].text = h
+
+        for _, row in df_align.iterrows():
+
+            cells = table.add_row().cells
+
+            cells[0].text = str(
+                row.get("측정일자", "")
+            )
+
+            cells[1].text = str(
+                row.get("측정자", "")
+            )
+
+            cells[2].text = str(
+                row.get("커플링구분", "")
+            )
+
+            cells[3].text = str(
+                row.get("수직오프셋(mm)", "")
+            )
+
+            cells[4].text = str(
+                row.get("수평오프셋(mm)", "")
+            )
+
+            cells[5].text = str(
+                row.get("수직각도(mm/100mm)", "")
+            )
+
+            cells[6].text = str(
+                row.get("수평각도(mm/100mm)", "")
+            )
+
+            cells[7].text = str(
+                row.get("판정", "")
+            )
+
+        doc.add_paragraph("")
+
+        doc.add_paragraph(
+
+            "※ 일반 기준 참고: 오프셋 ±0.05mm 이내, "
+            "각도 ±0.03mm/100mm 이내 양호 (설비별 제조사 "
+            "기준을 우선 적용)"
+
+        )
+
+        _last_note = df_align.iloc[-1].get(
+            "조치사항",
+            ""
+        )
+
+        if _last_note and str(_last_note) != "nan":
+
+            doc.add_paragraph(
+
+                f"최근 조치사항: {_last_note}"
+
+            )
+
+    buffer = io.BytesIO()
+
+    doc.save(buffer)
+
+    return buffer.getvalue()
+
+
+def build_vib_analysis_report_docx(pump, month_label, df_vib_analysis):
+
+    doc = Document()
+
+    _set_korean_font(doc)
+
+    for section in doc.sections:
+
+        section.left_margin = Inches(0.7)
+        section.right_margin = Inches(0.7)
+        section.top_margin = Inches(0.6)
+        section.bottom_margin = Inches(0.6)
+
+    logo_path = find_logo_file()
+
+    if logo_path:
+
+        try:
+
+            logo_p = doc.add_paragraph()
+
+            logo_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            logo_p.add_run().add_picture(
+                logo_path,
+                width=Inches(1.3)
+            )
+
+        except Exception:
+
+            pass
+
+    title = doc.add_heading(
+        "정밀 진동분석(스펙트럼) 보고서",
+        level=0
+    )
+
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    info_p = doc.add_paragraph()
+
+    info_p.add_run(
+
+        f"설비명: {pump['equip']}  ·  사업장: {pump['site']}  ·  "
+        f"대상기간: {month_label}"
+
+    )
+
+    doc.add_paragraph("")
+
+    if df_vib_analysis.empty:
+
+        doc.add_paragraph(
+
+            "해당 기간의 정밀 진동분석 이력이 없습니다."
+
+        )
+
+    else:
+
+        table = doc.add_table(
+
+            rows=1,
+
+            cols=7
+
+        )
+
+        table.style = "Light Grid Accent 1"
+
+        headers = [
+
+            "측정일자", "측정위치", "Overall(mm/s)",
+            "1X성분", "2X성분", "베어링결함성분", "종합판정"
+
+        ]
+
+        for i, h in enumerate(headers):
+
+            table.rows[0].cells[i].text = h
+
+        for _, row in df_vib_analysis.iterrows():
+
+            cells = table.add_row().cells
+
+            cells[0].text = str(
+                row.get("측정일자", "")
+            )
+
+            cells[1].text = str(
+                row.get("측정위치", "")
+            )
+
+            cells[2].text = str(
+                row.get("Overall(mm/s)", "")
+            )
+
+            cells[3].text = str(
+                row.get("1X성분(mm/s)", "")
+            )
+
+            cells[4].text = str(
+                row.get("2X성분(mm/s)", "")
+            )
+
+            cells[5].text = str(
+                row.get("베어링결함성분", "")
+            )
+
+            cells[6].text = str(
+                row.get("종합판정", "")
+            )
+
+        doc.add_paragraph("")
+
+        _last_reco = df_vib_analysis.iloc[-1].get(
+            "권고사항",
+            ""
+        )
+
+        if _last_reco and str(_last_reco) != "nan":
+
+            doc.add_paragraph(
+
+                f"권고사항: {_last_reco}"
+
+            )
+
+    buffer = io.BytesIO()
+
+    doc.save(buffer)
+
+    return buffer.getvalue()
+
+
+def build_efficiency_report_docx(pump, month_label, df_eff):
+
+    doc = Document()
+
+    _set_korean_font(doc)
+
+    for section in doc.sections:
+
+        section.left_margin = Inches(0.7)
+        section.right_margin = Inches(0.7)
+        section.top_margin = Inches(0.6)
+        section.bottom_margin = Inches(0.6)
+
+    logo_path = find_logo_file()
+
+    if logo_path:
+
+        try:
+
+            logo_p = doc.add_paragraph()
+
+            logo_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+            logo_p.add_run().add_picture(
+                logo_path,
+                width=Inches(1.3)
+            )
+
+        except Exception:
+
+            pass
+
+    title = doc.add_heading(
+        "효율진단 보고서",
+        level=0
+    )
+
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    info_p = doc.add_paragraph()
+
+    info_p.add_run(
+
+        f"설비명: {pump['equip']}  ·  사업장: {pump['site']}  ·  "
+        f"대상기간: {month_label}"
+
+    )
+
+    doc.add_paragraph("")
+
+    if df_eff.empty:
+
+        doc.add_paragraph(
+
+            "해당 기간의 효율진단 이력이 없습니다."
+
+        )
+
+    else:
+
+        table = doc.add_table(
+
+            rows=1,
+
+            cols=6
+
+        )
+
+        table.style = "Light Grid Accent 1"
+
+        headers = [
+
+            "측정일자", "정격효율(%)", "실측효율(%)",
+            "정격유량", "실측유량", "전동기효율(%)"
+
+        ]
+
+        for i, h in enumerate(headers):
+
+            table.rows[0].cells[i].text = h
+
+        for _, row in df_eff.iterrows():
+
+            cells = table.add_row().cells
+
+            cells[0].text = str(
+                row.get("측정일자", "")
+            )
+
+            cells[1].text = str(
+                row.get("정격효율(%)", "")
+            )
+
+            cells[2].text = str(
+                row.get("실측효율(%)", "")
+            )
+
+            cells[3].text = str(
+                row.get("정격유량(m3/h)", "")
+            )
+
+            cells[4].text = str(
+                row.get("실측유량(m3/h)", "")
+            )
+
+            cells[5].text = str(
+                row.get("전동기효율(%)", "")
+            )
+
+        doc.add_paragraph("")
+
+        _last_row = df_eff.iloc[-1]
+
+        try:
+
+            _gap = float(
+                _last_row.get("정격효율(%)", 0)
+            ) - float(
+                _last_row.get("실측효율(%)", 0)
+            )
+
+            doc.add_paragraph(
+
+                f"정격 대비 효율 저하: 약 {_gap:.1f}%p"
+
+            )
+
+        except Exception:
+
+            pass
+
+        _cause = _last_row.get(
+            "원인분석",
+            ""
+        )
+
+        if _cause and str(_cause) != "nan":
+
+            doc.add_paragraph(
+
+                f"원인분석: {_cause}"
+
+            )
+
+        _reco = _last_row.get(
+            "개선권고",
+            ""
+        )
+
+        if _reco and str(_reco) != "nan":
+
+            doc.add_paragraph(
+
+                f"개선권고: {_reco}"
+
+            )
+
+    buffer = io.BytesIO()
+
+    doc.save(buffer)
+
+    return buffer.getvalue()
+
 
 QR_UNIT_COST = {
 
@@ -17026,10 +17542,9 @@ if st.session_state.page == "홈":
         <div class="hero-banner">
         <div class="hero-inner">
 
-            <div style="
+            <div class="hero-logo-wrap" style="
             background:white; border-radius:12px;
-            padding:8px 14px; display:flex;
-            align-items:center; flex-shrink:0;">
+            padding:8px 14px; display:inline-block;">
             {_hero_logo_html if _hero_logo_html else '<span style="font-size:2rem;">💧</span>'}
             </div>
 
@@ -23247,10 +23762,13 @@ elif st.session_state.page == "보고서":
         unsafe_allow_html=True
     )
 
-    report_tab1, report_tab2 = st.tabs(
+    report_tab1, report_tab2, report_tab3, report_tab4, report_tab5 = st.tabs(
         [
             "📄 설비별 CBM 월간보고서",
-            "📈 월간 진동측정 보고서"
+            "📈 월간 진동측정 보고서",
+            "📐 연간 축정렬 보고서",
+            "🔬 연간 진동분석 보고서",
+            "⚡ 효율진단 보고서"
         ]
     )
 
@@ -24094,6 +24612,972 @@ elif st.session_state.page == "보고서":
                     key="download_vib_report_pdf_btn"
 
                 )
+
+    with report_tab3:
+
+        st.markdown(
+            "### 📐 연간 축정렬(얼라인먼트) 보고서"
+        )
+
+        st.caption(
+
+            "⚠️ 아직 실제 회사 양식을 못 받아서, 업계 일반 항목 "
+            "(오프셋·각도) 기준으로 임시 구성했습니다. 실제 "
+            "측정시스템에서 받는 자료 화면과 완성된 보고서 "
+            "샘플을 주시면 그 형식 그대로 다시 맞춰드릴게요."
+
+        )
+
+        if not ALL_PUMPS:
+
+            st.info(
+                "등록된 설비가 없습니다."
+            )
+
+        else:
+
+            _align_pump_sel = st.selectbox(
+
+                "설비 선택",
+
+                [p["equip"] for p in ALL_PUMPS],
+
+                key="align_report_pump_select"
+
+            )
+
+            _align_pump = next(
+
+                p for p in ALL_PUMPS
+
+                if p["equip"] == _align_pump_sel
+
+            )
+
+            with st.expander(
+
+                "➕ 축정렬 측정값 입력"
+
+            ):
+
+                ac1, ac2 = st.columns(2)
+
+                _align_coupling = ac1.text_input(
+
+                    "커플링 구분",
+
+                    key="align_coupling"
+
+                )
+
+                _align_worker = ac2.text_input(
+
+                    "측정자",
+
+                    value=st.session_state.user_name,
+
+                    key="align_worker"
+
+                )
+
+                ac1, ac2 = st.columns(2)
+
+                _align_v_offset = ac1.number_input(
+
+                    "수직 오프셋(mm)",
+
+                    value=0.0,
+
+                    step=0.01,
+
+                    format="%.3f",
+
+                    key="align_v_offset"
+
+                )
+
+                _align_h_offset = ac2.number_input(
+
+                    "수평 오프셋(mm)",
+
+                    value=0.0,
+
+                    step=0.01,
+
+                    format="%.3f",
+
+                    key="align_h_offset"
+
+                )
+
+                ac1, ac2 = st.columns(2)
+
+                _align_v_angle = ac1.number_input(
+
+                    "수직 각도(mm/100mm)",
+
+                    value=0.0,
+
+                    step=0.01,
+
+                    format="%.3f",
+
+                    key="align_v_angle"
+
+                )
+
+                _align_h_angle = ac2.number_input(
+
+                    "수평 각도(mm/100mm)",
+
+                    value=0.0,
+
+                    step=0.01,
+
+                    format="%.3f",
+
+                    key="align_h_angle"
+
+                )
+
+                _align_judge = st.selectbox(
+
+                    "판정",
+
+                    ["양호", "재조정 필요", "관찰"],
+
+                    key="align_judge"
+
+                )
+
+                _align_note = st.text_area(
+
+                    "조치사항",
+
+                    key="align_note"
+
+                )
+
+                if st.button(
+
+                    "저장",
+
+                    key="align_save_btn",
+
+                    disabled=is_read_only()
+
+                ):
+
+                    safe_append_row(
+
+                        ALIGNMENT_DB_PATH,
+
+                        "축정렬이력",
+
+                        [
+                            datetime.now().strftime("%Y-%m-%d"),
+                            _align_pump["site"],
+                            _align_pump["equip"],
+                            _align_worker,
+                            _align_coupling,
+                            _align_v_offset,
+                            _align_h_offset,
+                            _align_v_angle,
+                            _align_h_angle,
+                            _align_judge,
+                            _align_note
+                        ]
+
+                    )
+
+                    st.success(
+                        "저장되었습니다."
+                    )
+
+                    st.rerun()
+
+            df_align_all = read_excel(
+
+                ALIGNMENT_DB_PATH,
+
+                "축정렬이력"
+
+            )
+
+            df_align_pump = (
+
+                df_align_all[
+
+                    df_align_all["설비명"] == _align_pump["equip"]
+
+                ]
+
+                if not df_align_all.empty
+                and "설비명" in df_align_all.columns
+
+                else pd.DataFrame()
+
+            )
+
+            if not df_align_pump.empty:
+
+                st.dataframe(
+
+                    df_align_pump,
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+            _align_month = datetime.now().strftime("%Y-%m")
+
+            if st.button(
+
+                "📄 축정렬 보고서 생성",
+
+                key="align_report_gen_btn",
+
+                type="primary"
+
+            ):
+
+                _align_docx = build_alignment_report_docx(
+
+                    _align_pump,
+
+                    _align_month,
+
+                    df_align_pump
+
+                )
+
+                st.session_state["_align_report_bytes"] = _align_docx
+
+            if "_align_report_bytes" in st.session_state:
+
+                st.download_button(
+
+                    "⬇️ 축정렬 보고서 다운로드",
+
+                    data=st.session_state["_align_report_bytes"],
+
+                    file_name=(
+
+                        f"{_align_pump['equip']}_축정렬보고서_"
+                        f"{_align_month}.docx"
+
+                    ),
+
+                    use_container_width=True,
+
+                    key="align_report_download_btn"
+
+                )
+
+                if st.button(
+
+                    "🖨️ PDF로 변환해서 받기",
+
+                    use_container_width=True,
+
+                    key="convert_align_report_pdf_btn"
+
+                ):
+
+                    with st.spinner(
+                        "PDF로 변환하는 중입니다..."
+                    ):
+
+                        _align_pdf_bytes = convert_docx_bytes_to_pdf_bytes(
+
+                            st.session_state["_align_report_bytes"]
+
+                        )
+
+                    if _align_pdf_bytes:
+
+                        st.session_state[
+                            "_align_report_pdf_bytes"
+                        ] = _align_pdf_bytes
+
+                    else:
+
+                        st.error(
+
+                            "PDF 변환에 실패했습니다. 서버에 "
+                            "LibreOffice가 설치돼 있는지 확인해주세요."
+
+                        )
+
+                if "_align_report_pdf_bytes" in st.session_state:
+
+                    st.download_button(
+
+                        "⬇️ PDF 보고서 다운로드",
+
+                        data=st.session_state[
+                            "_align_report_pdf_bytes"
+                        ],
+
+                        file_name=(
+
+                            f"{_align_pump['equip']}_축정렬보고서_"
+                            f"{_align_month}.pdf"
+
+                        ),
+
+                        mime="application/pdf",
+
+                        use_container_width=True,
+
+                        key="download_align_report_pdf_btn"
+
+                    )
+
+    with report_tab4:
+
+        st.markdown(
+            "### 🔬 연간 진동분석(스펙트럼) 보고서"
+        )
+
+        st.caption(
+
+            "⚠️ 월간 진동측정(overall 값)과 달리, 방향별·베어링 "
+            "결함주파수 성분까지 다루는 정밀분석용입니다. 이것도 "
+            "실제 양식을 주시면 그대로 맞춰드릴게요."
+
+        )
+
+        if not ALL_PUMPS:
+
+            st.info(
+                "등록된 설비가 없습니다."
+            )
+
+        else:
+
+            _va_pump_sel = st.selectbox(
+
+                "설비 선택",
+
+                [p["equip"] for p in ALL_PUMPS],
+
+                key="va_report_pump_select"
+
+            )
+
+            _va_pump = next(
+
+                p for p in ALL_PUMPS
+
+                if p["equip"] == _va_pump_sel
+
+            )
+
+            with st.expander(
+
+                "➕ 정밀 진동분석 측정값 입력"
+
+            ):
+
+                vc1, vc2 = st.columns(2)
+
+                _va_location = vc1.selectbox(
+
+                    "측정위치",
+
+                    ["DE 수직", "DE 수평", "DE 축방향",
+                     "NDE 수직", "NDE 수평", "NDE 축방향"],
+
+                    key="va_location"
+
+                )
+
+                _va_worker = vc2.text_input(
+
+                    "측정자",
+
+                    value=st.session_state.user_name,
+
+                    key="va_worker"
+
+                )
+
+                vc1, vc2, vc3 = st.columns(3)
+
+                _va_overall = vc1.number_input(
+
+                    "Overall(mm/s)",
+
+                    value=0.0,
+
+                    step=0.1,
+
+                    key="va_overall"
+
+                )
+
+                _va_1x = vc2.number_input(
+
+                    "1X 성분(mm/s)",
+
+                    value=0.0,
+
+                    step=0.1,
+
+                    key="va_1x"
+
+                )
+
+                _va_2x = vc3.number_input(
+
+                    "2X 성분(mm/s)",
+
+                    value=0.0,
+
+                    step=0.1,
+
+                    key="va_2x"
+
+                )
+
+                _va_bearing = st.text_input(
+
+                    "베어링 결함성분 (예: BPFO 이상 검출)",
+
+                    key="va_bearing"
+
+                )
+
+                _va_judge = st.selectbox(
+
+                    "종합판정",
+
+                    ["양호", "주의관찰", "정비필요"],
+
+                    key="va_judge"
+
+                )
+
+                _va_reco = st.text_area(
+
+                    "권고사항",
+
+                    key="va_reco"
+
+                )
+
+                if st.button(
+
+                    "저장",
+
+                    key="va_save_btn",
+
+                    disabled=is_read_only()
+
+                ):
+
+                    safe_append_row(
+
+                        VIB_ANALYSIS_DB_PATH,
+
+                        "진동분석이력",
+
+                        [
+                            datetime.now().strftime("%Y-%m-%d"),
+                            _va_pump["site"],
+                            _va_pump["equip"],
+                            _va_worker,
+                            _va_location,
+                            _va_overall,
+                            _va_1x,
+                            _va_2x,
+                            _va_bearing,
+                            _va_judge,
+                            _va_reco
+                        ]
+
+                    )
+
+                    st.success(
+                        "저장되었습니다."
+                    )
+
+                    st.rerun()
+
+            df_va_all = read_excel(
+
+                VIB_ANALYSIS_DB_PATH,
+
+                "진동분석이력"
+
+            )
+
+            df_va_pump = (
+
+                df_va_all[
+
+                    df_va_all["설비명"] == _va_pump["equip"]
+
+                ]
+
+                if not df_va_all.empty
+                and "설비명" in df_va_all.columns
+
+                else pd.DataFrame()
+
+            )
+
+            if not df_va_pump.empty:
+
+                st.dataframe(
+
+                    df_va_pump,
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+            _va_month = datetime.now().strftime("%Y-%m")
+
+            if st.button(
+
+                "📄 진동분석 보고서 생성",
+
+                key="va_report_gen_btn",
+
+                type="primary"
+
+            ):
+
+                _va_docx = build_vib_analysis_report_docx(
+
+                    _va_pump,
+
+                    _va_month,
+
+                    df_va_pump
+
+                )
+
+                st.session_state["_va_report_bytes"] = _va_docx
+
+            if "_va_report_bytes" in st.session_state:
+
+                st.download_button(
+
+                    "⬇️ 진동분석 보고서 다운로드",
+
+                    data=st.session_state["_va_report_bytes"],
+
+                    file_name=(
+
+                        f"{_va_pump['equip']}_진동분석보고서_"
+                        f"{_va_month}.docx"
+
+                    ),
+
+                    use_container_width=True,
+
+                    key="va_report_download_btn"
+
+                )
+
+                if st.button(
+
+                    "🖨️ PDF로 변환해서 받기",
+
+                    use_container_width=True,
+
+                    key="convert_va_report_pdf_btn"
+
+                ):
+
+                    with st.spinner(
+                        "PDF로 변환하는 중입니다..."
+                    ):
+
+                        _va_pdf_bytes = convert_docx_bytes_to_pdf_bytes(
+
+                            st.session_state["_va_report_bytes"]
+
+                        )
+
+                    if _va_pdf_bytes:
+
+                        st.session_state[
+                            "_va_report_pdf_bytes"
+                        ] = _va_pdf_bytes
+
+                    else:
+
+                        st.error(
+
+                            "PDF 변환에 실패했습니다. 서버에 "
+                            "LibreOffice가 설치돼 있는지 확인해주세요."
+
+                        )
+
+                if "_va_report_pdf_bytes" in st.session_state:
+
+                    st.download_button(
+
+                        "⬇️ PDF 보고서 다운로드",
+
+                        data=st.session_state[
+                            "_va_report_pdf_bytes"
+                        ],
+
+                        file_name=(
+
+                            f"{_va_pump['equip']}_진동분석보고서_"
+                            f"{_va_month}.pdf"
+
+                        ),
+
+                        mime="application/pdf",
+
+                        use_container_width=True,
+
+                        key="download_va_report_pdf_btn"
+
+                    )
+
+    with report_tab5:
+
+        st.markdown(
+            "### ⚡ 효율진단 보고서"
+        )
+
+        st.caption(
+
+            "⚠️ 정격 대비 실측 효율·유량·양정을 비교하는 보고서 "
+            "입니다. 이것도 실제 양식을 주시면 맞춰드릴게요."
+
+        )
+
+        if not ALL_PUMPS:
+
+            st.info(
+                "등록된 설비가 없습니다."
+            )
+
+        else:
+
+            _eff_pump_sel = st.selectbox(
+
+                "설비 선택",
+
+                [p["equip"] for p in ALL_PUMPS],
+
+                key="eff_report_pump_select"
+
+            )
+
+            _eff_pump = next(
+
+                p for p in ALL_PUMPS
+
+                if p["equip"] == _eff_pump_sel
+
+            )
+
+            with st.expander(
+
+                "➕ 효율진단 측정값 입력"
+
+            ):
+
+                ec1, ec2 = st.columns(2)
+
+                _eff_rated = ec1.number_input(
+
+                    "정격효율(%)",
+
+                    value=0.0,
+
+                    step=0.1,
+
+                    key="eff_rated"
+
+                )
+
+                _eff_measured = ec2.number_input(
+
+                    "실측효율(%)",
+
+                    value=0.0,
+
+                    step=0.1,
+
+                    key="eff_measured"
+
+                )
+
+                ec1, ec2 = st.columns(2)
+
+                _eff_flow_rated = ec1.number_input(
+
+                    "정격유량(m3/h)",
+
+                    value=0.0,
+
+                    step=1.0,
+
+                    key="eff_flow_rated"
+
+                )
+
+                _eff_flow_measured = ec2.number_input(
+
+                    "실측유량(m3/h)",
+
+                    value=0.0,
+
+                    step=1.0,
+
+                    key="eff_flow_measured"
+
+                )
+
+                ec1, ec2 = st.columns(2)
+
+                _eff_head_rated = ec1.number_input(
+
+                    "정격양정(m)",
+
+                    value=0.0,
+
+                    step=0.1,
+
+                    key="eff_head_rated"
+
+                )
+
+                _eff_head_measured = ec2.number_input(
+
+                    "실측양정(m)",
+
+                    value=0.0,
+
+                    step=0.1,
+
+                    key="eff_head_measured"
+
+                )
+
+                _eff_motor = st.number_input(
+
+                    "전동기효율(%)",
+
+                    value=0.0,
+
+                    step=0.1,
+
+                    key="eff_motor"
+
+                )
+
+                _eff_cause = st.text_area(
+
+                    "원인분석",
+
+                    key="eff_cause"
+
+                )
+
+                _eff_reco = st.text_area(
+
+                    "개선권고",
+
+                    key="eff_reco"
+
+                )
+
+                if st.button(
+
+                    "저장",
+
+                    key="eff_save_btn",
+
+                    disabled=is_read_only()
+
+                ):
+
+                    safe_append_row(
+
+                        EFFICIENCY_REPORT_DB_PATH,
+
+                        "효율진단이력",
+
+                        [
+                            datetime.now().strftime("%Y-%m-%d"),
+                            _eff_pump["site"],
+                            _eff_pump["equip"],
+                            st.session_state.user_name,
+                            _eff_rated,
+                            _eff_measured,
+                            _eff_flow_rated,
+                            _eff_flow_measured,
+                            _eff_head_rated,
+                            _eff_head_measured,
+                            _eff_motor,
+                            _eff_cause,
+                            _eff_reco
+                        ]
+
+                    )
+
+                    st.success(
+                        "저장되었습니다."
+                    )
+
+                    st.rerun()
+
+            df_eff_all = read_excel(
+
+                EFFICIENCY_REPORT_DB_PATH,
+
+                "효율진단이력"
+
+            )
+
+            df_eff_pump = (
+
+                df_eff_all[
+
+                    df_eff_all["설비명"] == _eff_pump["equip"]
+
+                ]
+
+                if not df_eff_all.empty
+                and "설비명" in df_eff_all.columns
+
+                else pd.DataFrame()
+
+            )
+
+            if not df_eff_pump.empty:
+
+                st.dataframe(
+
+                    df_eff_pump,
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+            _eff_month = datetime.now().strftime("%Y-%m")
+
+            if st.button(
+
+                "📄 효율진단 보고서 생성",
+
+                key="eff_report_gen_btn",
+
+                type="primary"
+
+            ):
+
+                _eff_docx = build_efficiency_report_docx(
+
+                    _eff_pump,
+
+                    _eff_month,
+
+                    df_eff_pump
+
+                )
+
+                st.session_state["_eff_report_bytes"] = _eff_docx
+
+            if "_eff_report_bytes" in st.session_state:
+
+                st.download_button(
+
+                    "⬇️ 효율진단 보고서 다운로드",
+
+                    data=st.session_state["_eff_report_bytes"],
+
+                    file_name=(
+
+                        f"{_eff_pump['equip']}_효율진단보고서_"
+                        f"{_eff_month}.docx"
+
+                    ),
+
+                    use_container_width=True,
+
+                    key="eff_report_download_btn"
+
+                )
+
+                if st.button(
+
+                    "🖨️ PDF로 변환해서 받기",
+
+                    use_container_width=True,
+
+                    key="convert_eff_report_pdf_btn"
+
+                ):
+
+                    with st.spinner(
+                        "PDF로 변환하는 중입니다..."
+                    ):
+
+                        _eff_pdf_bytes = convert_docx_bytes_to_pdf_bytes(
+
+                            st.session_state["_eff_report_bytes"]
+
+                        )
+
+                    if _eff_pdf_bytes:
+
+                        st.session_state[
+                            "_eff_report_pdf_bytes"
+                        ] = _eff_pdf_bytes
+
+                    else:
+
+                        st.error(
+
+                            "PDF 변환에 실패했습니다. 서버에 "
+                            "LibreOffice가 설치돼 있는지 확인해주세요."
+
+                        )
+
+                if "_eff_report_pdf_bytes" in st.session_state:
+
+                    st.download_button(
+
+                        "⬇️ PDF 보고서 다운로드",
+
+                        data=st.session_state[
+                            "_eff_report_pdf_bytes"
+                        ],
+
+                        file_name=(
+
+                            f"{_eff_pump['equip']}_효율진단보고서_"
+                            f"{_eff_month}.pdf"
+
+                        ),
+
+                        mime="application/pdf",
+
+                        use_container_width=True,
+
+                        key="download_eff_report_pdf_btn"
+
+                    )
+
 
 
 # ============================================================
