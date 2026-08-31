@@ -15352,11 +15352,79 @@ def build_vib_analysis_report_docx(
 
     doc.add_page_break()
 
-    # 붙임2. 측정·시험 DATA (그룹별 스펙트럼+판정표+시간파형표)
+    # 붙임2. 측정·시험 DATA
     doc.add_heading(
         "붙임2. 측정·시험 DATA",
         level=1
     )
+
+    freq_table_data = ai_data.get("freq_table", {})
+
+    for _comp in ["모터", "펌프"]:
+
+        doc.add_paragraph(
+            f"□ {_comp} 설비정보 · 주파수 분석"
+        ).runs[0].bold = True
+
+        if images_dict:
+
+            for _suffix in ["설비정보", "주파수 분석"]:
+
+                _key = f"{_comp} {_suffix}"
+
+                if _key in images_dict:
+
+                    try:
+
+                        doc.add_paragraph(f"<{_key}>")
+
+                        img_p = doc.add_paragraph()
+
+                        img_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+                        img_p.add_run().add_picture(
+
+                            io.BytesIO(images_dict[_key]),
+
+                            width=Inches(3.5)
+
+                        )
+
+                    except Exception:
+
+                        pass
+
+        _freq_rows = freq_table_data.get(_comp, [])
+
+        if _freq_rows:
+
+            freq_table = doc.add_table(rows=1, cols=3)
+
+            freq_table.style = "Light Grid Accent 1"
+
+            for i, h in enumerate(["구분", "주파수", "배수(nX)"]):
+
+                freq_table.rows[0].cells[i].text = h
+
+            _style_header_row(freq_table)
+
+            for row in _freq_rows:
+
+                _add_table_row_helper(
+
+                    freq_table,
+
+                    [
+                        row.get("구분", ""),
+                        row.get("주파수", ""),
+                        row.get("배수", "")
+                    ]
+
+                )
+
+        doc.add_paragraph("")
+
+    doc.add_page_break()
 
     for _gi, group_name in enumerate(VA_GROUP_ORDER, start=3):
 
@@ -15367,7 +15435,7 @@ def build_vib_analysis_report_docx(
             level=2
         )
 
-        # 해당 그룹의 원본 스펙트럼 이미지들
+        # 해당 그룹의 원본 스펙트럼·시간파형 이미지들
         if images_dict:
 
             for point_key, img_bytes in images_dict.items():
@@ -15388,7 +15456,7 @@ def build_vib_analysis_report_docx(
 
                             io.BytesIO(img_bytes),
 
-                            width=Inches(3.2)
+                            width=Inches(4.5)
 
                         )
 
@@ -25800,25 +25868,23 @@ elif st.session_state.page == "보고서":
 
         st.caption(
 
-            "펌프·모터의 부하/반부하 상태별 진동 스펙트럼 사진을 "
-            "10개 측정점 각각 올리면, AI가 전부 읽고 종합분석해서 "
-            "보고서를 만들어줍니다. 사진이 없는 측정점은 비워두셔도 "
+            "모터·펌프 각각 8장씩(스펙트럼 2종·시간파형·설비정보· "
+            "주파수분석), 총 16장을 올리면 AI가 전부 읽고 종합분석 "
+            "해서 보고서를 만들어줍니다. 없는 항목은 비워두셔도 "
             "됩니다."
 
         )
 
-        VA_MEASURE_POINTS = [
+        VA_ATTACH_TYPES = [
 
-            "펌프 부하 수직",
-            "펌프 부하 수평",
-            "펌프 반부하 수직",
-            "펌프 반부하 수평",
-            "펌프 반부하 축",
-            "모터 부하 수직",
-            "모터 부하 수평",
-            "모터 반부하 수직",
-            "모터 반부하 수평",
-            "모터 반부하 축"
+            "반부하 3200Hz 수직수평축 스펙트럼 그래프",
+            "부하 3200Hz 수직수평 스펙트럼 그래프",
+            "반부하 320Hz 수직수평축 스펙트럼 그래프",
+            "부하 320Hz 수직수평 스펙트럼 그래프",
+            "반부하 수직수평축 시간파형 그래프",
+            "부하 수직수평 시간파형 그래프",
+            "설비정보",
+            "주파수 분석"
 
         ]
 
@@ -25850,38 +25916,64 @@ elif st.session_state.page == "보고서":
 
             _va_uploaded_images = {}
 
-            _va_cols = st.columns(2)
+            _va_col_motor, _va_col_pump = st.columns(2)
 
-            for _idx, _point in enumerate(VA_MEASURE_POINTS):
+            with _va_col_motor:
 
-                with _va_cols[_idx % 2]:
+                st.markdown("**⚙️ 모터 부분**")
+
+                for _idx, _atype in enumerate(VA_ATTACH_TYPES):
+
+                    _label = f"모터 {_atype}"
 
                     _va_file = st.file_uploader(
 
-                        _point,
+                        f"(첨부{_idx+1}) {_label}",
 
                         type=["png", "jpg", "jpeg"],
 
-                        key=f"va_upload_{_idx}"
+                        key=f"va_upload_motor_{_idx}"
 
                     )
 
                     if _va_file:
 
-                        _va_uploaded_images[_point] = _va_file
+                        _va_uploaded_images[_label] = _va_file
+
+            with _va_col_pump:
+
+                st.markdown("**🔧 펌프 부분**")
+
+                for _idx, _atype in enumerate(VA_ATTACH_TYPES):
+
+                    _label = f"펌프 {_atype}"
+
+                    _va_file = st.file_uploader(
+
+                        f"(첨부{_idx+1}) {_label}",
+
+                        type=["png", "jpg", "jpeg"],
+
+                        key=f"va_upload_pump_{_idx}"
+
+                    )
+
+                    if _va_file:
+
+                        _va_uploaded_images[_label] = _va_file
 
             _va_uploaded_count = len(_va_uploaded_images)
 
             st.caption(
 
-                f"현재 {_va_uploaded_count}/10개 측정점 사진이 "
+                f"현재 {_va_uploaded_count}/16개 첨부가 "
                 "올라와 있습니다."
 
             )
 
             if st.button(
 
-                "🤖 AI로 10개 항목 분석하기",
+                "🤖 AI로 분석하기",
 
                 key="va_ai_analyze_btn",
 
@@ -25922,26 +26014,48 @@ elif st.session_state.page == "보고서":
 
                         _va_images_with_labels,
 
-                        "이 사진들은 펌프·모터 설비의 부하/반부하 "
-                        "상태별 진동 스펙트럼(FFT)·시간파형 측정 "
-                        "결과입니다. 각 사진 앞에 어느 측정점(예: "
-                        "펌프 부하 수직)인지 라벨이 붙어 있습니다. "
+                        "이 사진들은 펌프·모터 설비의 진동분석 "
+                        "측정자료입니다. 각 사진 앞에 라벨이 붙어 "
+                        "있는데, '반부하 3200Hz/320Hz 수직수평축 "
+                        "스펙트럼'과 '부하 3200Hz/320Hz 수직수평 "
+                        "스펙트럼' 사진은 한 장 안에 수직·수평·"
+                        "(반부하의 경우)축 방향 그래프가 함께 들어 "
+                        "있습니다(부하 상태는 축방향 측정이 없습니다). "
+                        "'시간파형' 사진도 마찬가지로 여러 방향이 "
+                        "한 장에 들어 있습니다. '설비정보' 사진은 "
+                        "설비 제원 화면이고, '주파수 분석' 사진은 "
+                        "불평형·축정렬불량·전기적불평형·베인이상·"
+                        "베어링 결함주파수와 그 배수(nX)가 표시된 "
+                        "설정창입니다.\n\n"
                         "다음 JSON 형식으로만 답하세요. 다른 설명 "
-                        "문장은 붙이지 마세요. points의 키는 사진에 "
-                        "붙은 라벨과 정확히 같은 문자열을 쓰세요.\n\n"
+                        "문장은 붙이지 마세요.\n\n"
                         "{\n"
-                        '  "측정장비": "사진에 보이면 장비명, 없으면 빈문자열",\n'
-                        '  "종합의견": "펌프와 모터 전체 진동상태에 대한 1~2문장 종합판정",\n'
+                        '  "측정장비": "사진에 보이면 장비명",\n'
+                        '  "종합의견": "펌프와 모터 전체 진동상태 종합판정 1~2문장",\n'
                         '  "points": {\n'
-                        '    "라벨명": {"overall_rms": 숫자, "판정": "A(양호) 등", '
-                        '"pk_pk": 숫자, "주파수": "예: 147.5(VPF)", '
-                        '"키워드": "짧은 해석 키워드"}, ... 업로드된 라벨마다\n'
+                        '    "모터 부하 수직": {"overall_rms": 숫자, "판정":"A(양호) 등", "pk_pk":숫자, "주파수":"...", "키워드":"..."},\n'
+                        '    "모터 부하 수평": {...}, "모터 반부하 수직": {...}, '
+                        '"모터 반부하 수평": {...}, "모터 반부하 축": {...},\n'
+                        '    "펌프 부하 수직": {...}, "펌프 부하 수평": {...}, '
+                        '"펌프 반부하 수직": {...}, "펌프 반부하 수평": {...}, '
+                        '"펌프 반부하 축": {...}\n'
+                        "    (스펙트럼 사진 안의 각 방향 곡선을 읽어서 "
+                        "10개 항목 모두 채워주세요. 사진이 없으면 "
+                        "빈 값으로 두세요)\n"
+                        "  },\n"
+                        '  "freq_table": {\n'
+                        '    "모터": [ {"구분":"불평형","주파수":"29.5","배수":"1X"}, '
+                        '{"구분":"축정렬불량","주파수":"...","배수":"2X/3X~"}, '
+                        '{"구분":"전기적불평형","주파수":"...","배수":"-"}, '
+                        '{"구분":"베인이상","주파수":"...","배수":"5X"}, '
+                        '{"구분":"베어링 결함","주파수":"...","배수":"..."} ],\n'
+                        '    "펌프": [ 위와 동일 구조, 각 설비의 "주파수 분석" 사진에서 읽은 값 ]\n'
                         "  },\n"
                         '  "groups": {\n'
                         '    "펌프 반부하": {\n'
-                        '      "세부의견": ["문장1", "문장2", "문장3"],\n'
+                        '      "세부의견": ["문장1", "문장2"],\n'
                         '      "defect_table": [\n'
-                        '        {"item":"불평형","result":"X 또는 O","reason":"판단근거"},\n'
+                        '        {"item":"불평형","result":"X 또는 O","reason":"..."},\n'
                         '        {"item":"축정렬불량","result":"X 또는 O","reason":"..."},\n'
                         '        {"item":"전기적불평형","result":"X 또는 O","reason":"..."},\n'
                         '        {"item":"베인이상","result":"X 또는 O","reason":"..."},\n'
@@ -25952,19 +26066,15 @@ elif st.session_state.page == "보고서":
                         '        {"방향":"수평","형상특징":"...","시사점":"..."},\n'
                         '        {"방향":"축","형상특징":"...","시사점":"..."}\n'
                         "      ],\n"
-                        '      "해석": ["문장1", "문장2", "문장3"]\n'
+                        '      "해석": ["문장1", "문장2"]\n'
                         "    },\n"
-                        '    "펌프 부하": { 위와 동일한 구조 },\n'
-                        '    "모터 부하": { 위와 동일한 구조 },\n'
-                        '    "모터 반부하": { 위와 동일한 구조 }\n'
+                        '    "펌프 부하": { 위와 동일 구조(축 방향 없이 수직·수평만) },\n'
+                        '    "모터 부하": { 위와 동일 구조(축 방향 없이 수직·수평만) },\n'
+                        '    "모터 반부하": { 위와 동일 구조 }\n'
                         "  },\n"
                         '  "종합분석": ["문장1", "문장2"],\n'
                         '  "향후대책": ["문장1", "문장2"]\n'
-                        "}\n\n"
-                        "사진이 없는 측정점(펌프/모터 방향)은 "
-                        "points와 waveform_table에서 생략해도 "
-                        "됩니다. defect_table의 5개 항목은 사진이 "
-                        "없는 그룹이라도 일반적인 소견으로 채워주세요."
+                        "}"
 
                     )
 
