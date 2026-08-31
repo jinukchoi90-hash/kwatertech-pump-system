@@ -25508,6 +25508,184 @@ elif st.session_state.page == "보고서":
 
                 )
 
+            with st.expander(
+
+                "✏️ AI 대신 직접 값 입력하기 "
+                "(API 키가 없을 때)"
+
+            ):
+
+                st.caption(
+
+                    "측정기 화면을 보고 값을 직접 입력하시면, "
+                    "AI 분석 없이도 똑같은 양식의 보고서가 "
+                    "만들어집니다."
+
+                )
+
+                mc1, mc2 = st.columns(2)
+
+                _m_angle_h = mc1.text_input(
+
+                    "각도오차 수평 (mm/100mm)",
+
+                    key="manual_align_angle_h"
+
+                )
+
+                _m_angle_v = mc2.text_input(
+
+                    "각도오차 수직 (mm/100mm)",
+
+                    key="manual_align_angle_v"
+
+                )
+
+                mc1, mc2 = st.columns(2)
+
+                _m_offset_h = mc1.text_input(
+
+                    "옵셋오차 수평 (mm)",
+
+                    key="manual_align_offset_h"
+
+                )
+
+                _m_offset_v = mc2.text_input(
+
+                    "옵셋오차 수직 (mm)",
+
+                    key="manual_align_offset_v"
+
+                )
+
+                mc1, mc2 = st.columns(2)
+
+                _m_front_h = mc1.text_input(
+
+                    "펌프전면변위 수평 (mm)",
+
+                    key="manual_align_front_h"
+
+                )
+
+                _m_front_v = mc2.text_input(
+
+                    "펌프전면변위 수직 (mm)",
+
+                    key="manual_align_front_v"
+
+                )
+
+                mc1, mc2 = st.columns(2)
+
+                _m_back_h = mc1.text_input(
+
+                    "펌프후면변위 수평 (mm)",
+
+                    key="manual_align_back_h"
+
+                )
+
+                _m_back_v = mc2.text_input(
+
+                    "펌프후면변위 수직 (mm)",
+
+                    key="manual_align_back_v"
+
+                )
+
+                mc1, mc2 = st.columns(2)
+
+                _m_judge_h = mc1.selectbox(
+
+                    "판정 수평",
+
+                    ["양호", "보통", "불량"],
+
+                    key="manual_align_judge_h"
+
+                )
+
+                _m_judge_v = mc2.selectbox(
+
+                    "판정 수직",
+
+                    ["양호", "보통", "불량"],
+
+                    key="manual_align_judge_v"
+
+                )
+
+                _m_equip_name = st.text_input(
+
+                    "측정장비명 (선택)",
+
+                    key="manual_align_equip"
+
+                )
+
+                _m_opinion = st.text_area(
+
+                    "종합의견",
+
+                    placeholder=(
+
+                        "예: 전체 정렬 상태는 ISO/ANSI 회전기계 "
+                        "정렬 허용 기준 내에 있으며 즉각적인 "
+                        "재정렬이 필요한 수준은 아님"
+
+                    ),
+
+                    key="manual_align_opinion"
+
+                )
+
+                if st.button(
+
+                    "이 값으로 보고서용 데이터 만들기",
+
+                    key="manual_align_apply_btn"
+
+                ):
+
+                    st.session_state["_align_ai_data"] = {
+
+                        "점검일자": datetime.now().strftime(
+                            "%Y-%m-%d"
+                        ),
+                        "측정장비": _m_equip_name,
+                        "각도오차_수평": _m_angle_h,
+                        "각도오차_수직": _m_angle_v,
+                        "옵셋오차_수평": _m_offset_h,
+                        "옵셋오차_수직": _m_offset_v,
+                        "전면변위_수평": _m_front_h,
+                        "전면변위_수직": _m_front_v,
+                        "후면변위_수평": _m_back_h,
+                        "후면변위_수직": _m_back_v,
+                        "판정_수평": _m_judge_h,
+                        "판정_수직": _m_judge_v,
+                        "종합의견": _m_opinion
+
+                    }
+
+                    st.session_state["_align_image_bytes"] = (
+
+                        _align_image.getvalue()
+
+                        if _align_image
+
+                        else None
+
+                    )
+
+                    st.success(
+
+                        "직접 입력한 값으로 준비됐습니다. "
+                        "아래에서 보고서를 생성하세요."
+
+                    )
+
             if st.button(
 
                 "🤖 AI로 분석하기",
@@ -25971,6 +26149,128 @@ elif st.session_state.page == "보고서":
 
             )
 
+            with st.expander(
+
+                "✏️ AI 대신 직접 값 입력하기 "
+                "(API 키가 없을 때)"
+
+            ):
+
+                st.caption(
+
+                    "10개 측정점의 값을 표에서 직접 입력하시면, "
+                    "AI 분석 없이도 요약표가 채워진 보고서가 "
+                    "만들어집니다. (그룹별 상세 결함판정표·시간파형표는 "
+                    "AI 분석에서만 자동으로 채워집니다.)"
+
+                )
+
+                _va_manual_rows = [
+
+                    {"측정점": "모터 부하 수직", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+                    {"측정점": "모터 부하 수평", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+                    {"측정점": "모터 반부하 수직", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+                    {"측정점": "모터 반부하 수평", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+                    {"측정점": "모터 반부하 축", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+                    {"측정점": "펌프 부하 수직", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+                    {"측정점": "펌프 부하 수평", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+                    {"측정점": "펌프 반부하 수직", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+                    {"측정점": "펌프 반부하 수평", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+                    {"측정점": "펌프 반부하 축", "Overall(mm/s)": 0.0, "판정": "A(양호)", "pk-pk(µm)": 0.0, "주파수": "", "키워드": ""},
+
+                ]
+
+                _va_manual_df = st.data_editor(
+
+                    pd.DataFrame(_va_manual_rows),
+
+                    hide_index=True,
+
+                    use_container_width=True,
+
+                    key="manual_va_data_editor",
+
+                    disabled=["측정점"]
+
+                )
+
+                _m_va_opinion = st.text_area(
+
+                    "종합의견",
+
+                    placeholder=(
+
+                        "예: 펌프와 모터 모두 진동이 허용 기준 "
+                        "안쪽이라 운전에 문제 없음."
+
+                    ),
+
+                    key="manual_va_opinion"
+
+                )
+
+                if st.button(
+
+                    "이 값으로 보고서용 데이터 만들기",
+
+                    key="manual_va_apply_btn"
+
+                ):
+
+                    _m_points = {}
+
+                    for _, _r in _va_manual_df.iterrows():
+
+                        _m_points[_r["측정점"]] = {
+
+                            "overall_rms": _r["Overall(mm/s)"],
+                            "판정": _r["판정"],
+                            "pk_pk": _r["pk-pk(µm)"],
+                            "주파수": _r["주파수"],
+                            "키워드": _r["키워드"]
+
+                        }
+
+                    _m_groups = {}
+
+                    for _gname in VA_GROUP_ORDER:
+
+                        _m_groups[_gname] = {
+
+                            "세부의견": [],
+                            "defect_table": [],
+                            "waveform_table": [],
+                            "해석": []
+
+                        }
+
+                    st.session_state["_va_ai_data"] = {
+
+                        "측정장비": "",
+                        "종합의견": _m_va_opinion,
+                        "points": _m_points,
+                        "freq_table": {},
+                        "groups": _m_groups,
+                        "종합분석": [],
+                        "향후대책": []
+
+                    }
+
+                    st.session_state["_va_images_bytes"] = {
+
+                        _label: _file.getvalue()
+
+                        for _label, _file in _va_uploaded_images.items()
+
+                    }
+
+                    st.success(
+
+                        "직접 입력한 값으로 준비됐습니다. "
+                        "아래에서 보고서를 생성하세요."
+
+                    )
+
             if st.button(
 
                 "🤖 AI로 분석하기",
@@ -26329,6 +26629,111 @@ elif st.session_state.page == "보고서":
                     width=400
 
                 )
+
+            with st.expander(
+
+                "✏️ AI 대신 직접 값 입력하기 "
+                "(API 키가 없을 때)"
+
+            ):
+
+                st.caption(
+
+                    "측정 데이터를 보고 값을 직접 입력하시면, "
+                    "AI 분석 없이도 보고서가 만들어집니다."
+
+                )
+
+                ec1, ec2 = st.columns(2)
+
+                _m_eff_rated = ec1.text_input(
+
+                    "정격효율(%)",
+
+                    key="manual_eff_rated"
+
+                )
+
+                _m_eff_measured = ec2.text_input(
+
+                    "실측효율(%)",
+
+                    key="manual_eff_measured"
+
+                )
+
+                ec1, ec2 = st.columns(2)
+
+                _m_flow_rated = ec1.text_input(
+
+                    "정격유량(m3/h)",
+
+                    key="manual_eff_flow_rated"
+
+                )
+
+                _m_flow_measured = ec2.text_input(
+
+                    "실측유량(m3/h)",
+
+                    key="manual_eff_flow_measured"
+
+                )
+
+                _m_eff_opinion = st.text_area(
+
+                    "원인분석 및 개선권고",
+
+                    placeholder=(
+
+                        "예: 정격 대비 실측효율이 9%p 낮음. "
+                        "임펠러 마모가 의심되며 정밀점검 및 "
+                        "교체를 권고함."
+
+                    ),
+
+                    key="manual_eff_opinion"
+
+                )
+
+                if st.button(
+
+                    "이 값으로 보고서용 데이터 만들기",
+
+                    key="manual_eff_apply_btn"
+
+                ):
+
+                    _m_summary = (
+
+                        f"정격효율 {_m_eff_rated}%, "
+                        f"실측효율 {_m_eff_measured}%\n"
+                        f"정격유량 {_m_flow_rated}m3/h, "
+                        f"실측유량 {_m_flow_measured}m3/h\n"
+                        f"{_m_eff_opinion}"
+
+                    )
+
+                    st.session_state[
+                        "_eff_ai_result"
+                    ] = _m_summary
+
+                    st.session_state["_eff_image_bytes"] = (
+
+                        _eff_image.getvalue()
+
+                        if _eff_image
+
+                        else None
+
+                    )
+
+                    st.success(
+
+                        "직접 입력한 값으로 준비됐습니다. "
+                        "아래에서 보고서를 생성하세요."
+
+                    )
 
             if st.button(
 
