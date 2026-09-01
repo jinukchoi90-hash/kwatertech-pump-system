@@ -57,6 +57,7 @@ from filelock import FileLock
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.section import WD_ORIENT, WD_SECTION
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
@@ -6540,6 +6541,55 @@ def _set_korean_font(
 
     r_fonts.set(qn("w:eastAsia"), "맑은 고딕")
 
+    # 줄간격·문단간격을 공공기관 보고서 스타일(빽빽하게,
+    # 문단 사이 여백 최소화)에 맞춘다. Word 기본 스타일은
+    # 문단 뒤 간격이 8pt씩 붙어서 원본보다 훨씬 헐렁하게
+    # 보이는 원인이 된다.
+
+    style.paragraph_format.line_spacing = 1.15
+
+    style.paragraph_format.space_before = Pt(0)
+
+    style.paragraph_format.space_after = Pt(4)
+
+    for _level in range(1, 4):
+
+        try:
+
+            _heading_style = doc.styles[
+                f"Heading {_level}"
+            ]
+
+            _heading_style.font.name = "맑은 고딕"
+
+            _heading_style.font.color.rgb = RGBColor(
+                0x0F, 0x35, 0x52
+            )
+
+            _h_rpr = _heading_style.element.get_or_add_rPr()
+
+            _h_fonts = _h_rpr.find(qn("w:rFonts"))
+
+            if _h_fonts is None:
+
+                _h_fonts = OxmlElement("w:rFonts")
+
+                _h_rpr.append(_h_fonts)
+
+            _h_fonts.set(qn("w:eastAsia"), "맑은 고딕")
+
+            _heading_style.paragraph_format.space_before = (
+                Pt(10)
+            )
+
+            _heading_style.paragraph_format.space_after = (
+                Pt(4)
+            )
+
+        except Exception:
+
+            continue
+
 
 def _add_styled_table(
     doc,
@@ -12348,6 +12398,183 @@ def call_claude_for_commentary(prompt_text):
         return None, f"AI 호출 중 오류가 발생했습니다: {e}"
 
 
+def build_align_excel_template():
+
+    wb = Workbook()
+
+    ws = wb.active
+
+    ws.title = "축정렬입력"
+
+    headers = [
+
+        "각도오차_수평", "각도오차_수직",
+        "옵셋오차_수평", "옵셋오차_수직",
+        "전면변위_수평", "전면변위_수직",
+        "후면변위_수평", "후면변위_수직",
+        "판정_수평", "판정_수직",
+        "측정장비", "종합의견"
+
+    ]
+
+    ws.append(headers)
+
+    ws.append([
+
+        "-0.01/100", "+0.02/100",
+        "-0.05", "-0.03",
+        "-0.09", "+0.04",
+        "-0.14", "+0.11",
+        "양호", "양호",
+        "Fixurlsser EVO",
+        "전체 정렬 상태는 ISO/ANSI 회전기계 정렬 허용 기준 "
+        "내에 있으며 즉각적인 재정렬이 필요한 수준은 아님"
+
+    ])
+
+    buf = io.BytesIO()
+
+    wb.save(buf)
+
+    return buf.getvalue()
+
+
+def parse_align_excel(file_bytes):
+
+    df = pd.read_excel(
+        io.BytesIO(file_bytes)
+    )
+
+    df = df.fillna("")
+
+    row = df.iloc[0]
+
+    return {
+
+        "각도오차_수평": row.get("각도오차_수평", ""),
+        "각도오차_수직": row.get("각도오차_수직", ""),
+        "옵셋오차_수평": row.get("옵셋오차_수평", ""),
+        "옵셋오차_수직": row.get("옵셋오차_수직", ""),
+        "전면변위_수평": row.get("전면변위_수평", ""),
+        "전면변위_수직": row.get("전면변위_수직", ""),
+        "후면변위_수평": row.get("후면변위_수평", ""),
+        "후면변위_수직": row.get("후면변위_수직", ""),
+        "판정_수평": row.get("판정_수평", ""),
+        "판정_수직": row.get("판정_수직", ""),
+        "측정장비": row.get("측정장비", ""),
+        "종합의견": row.get("종합의견", "")
+
+    }
+
+
+def build_va_excel_template():
+
+    wb = Workbook()
+
+    ws = wb.active
+
+    ws.title = "진동분석입력"
+
+    ws.append(
+
+        ["측정점", "Overall(mm/s)", "판정", "pk-pk(µm)", "주파수", "키워드"]
+
+    )
+
+    for _point in [
+
+        "모터 부하 수직", "모터 부하 수평",
+        "모터 반부하 수직", "모터 반부하 수평", "모터 반부하 축",
+        "펌프 부하 수직", "펌프 부하 수평",
+        "펌프 반부하 수직", "펌프 반부하 수평", "펌프 반부하 축"
+
+    ]:
+
+        ws.append([_point, 0.0, "A(양호)", 0.0, "", ""])
+
+    buf = io.BytesIO()
+
+    wb.save(buf)
+
+    return buf.getvalue()
+
+
+def parse_va_excel(file_bytes):
+
+    df = pd.read_excel(
+        io.BytesIO(file_bytes)
+    )
+
+    df = df.fillna("")
+
+    points = {}
+
+    for _, row in df.iterrows():
+
+        points[row.get("측정점", "")] = {
+
+            "overall_rms": row.get("Overall(mm/s)", ""),
+            "판정": row.get("판정", ""),
+            "pk_pk": row.get("pk-pk(µm)", ""),
+            "주파수": row.get("주파수", ""),
+            "키워드": row.get("키워드", "")
+
+        }
+
+    return points
+
+
+def build_eff_excel_template():
+
+    wb = Workbook()
+
+    ws = wb.active
+
+    ws.title = "효율진단입력"
+
+    ws.append(
+
+        ["정격효율(%)", "실측효율(%)", "정격유량(m3/h)",
+         "실측유량(m3/h)", "원인분석및개선권고"]
+
+    )
+
+    ws.append([
+
+        82, 73, 1250, 1180,
+        "정격 대비 실측효율이 9%p 낮음. 임펠러 마모가 의심되며 "
+        "정밀점검 및 교체를 권고함."
+
+    ])
+
+    buf = io.BytesIO()
+
+    wb.save(buf)
+
+    return buf.getvalue()
+
+
+def parse_eff_excel(file_bytes):
+
+    df = pd.read_excel(
+        io.BytesIO(file_bytes)
+    )
+
+    df = df.fillna("")
+
+    row = df.iloc[0]
+
+    return (
+
+        row.get("정격효율(%)", ""),
+        row.get("실측효율(%)", ""),
+        row.get("정격유량(m3/h)", ""),
+        row.get("실측유량(m3/h)", ""),
+        row.get("원인분석및개선권고", "")
+
+    )
+
+
 def call_claude_vision_analysis(images_with_labels, instruction):
 
     # images_with_labels: [(라벨, 이미지bytes, mime타입), ...]
@@ -12502,6 +12729,195 @@ def extract_json_from_ai_response(text):
     except Exception:
 
         return None
+
+
+def ocr_extract_alignment_values(image_bytes):
+
+    # API 없이도 쓸 수 있도록, 축정렬 측정기 화면(숫자가
+    # 또렷하게 찍힌 디지털 표시판)에서 글자만 읽어내는
+    # 방식이다. 스펙트럼 그래프처럼 "곡선을 해석"하는 게
+    # 아니라 "찍혀있는 숫자를 읽는" 거라 API 없이도 가능하다.
+    # 다만 100% 정확하진 않으니, 읽어낸 값은 사람이 한번
+    # 확인하고 필요하면 고치도록 폼에 미리 채워 넣는 용도다.
+
+    try:
+
+        import pytesseract
+
+        from PIL import Image as _PILImage
+
+        img = _PILImage.open(
+            io.BytesIO(image_bytes)
+        )
+
+        # 흑백 변환 + 확대하면 작은 숫자 인식률이 올라간다
+
+        img = img.convert("L")
+
+        _scale = 2
+
+        img = img.resize(
+
+            (img.width * _scale, img.height * _scale),
+
+            _PILImage.LANCZOS
+
+        )
+
+        raw_text = pytesseract.image_to_string(
+
+            img,
+
+            lang="eng",
+
+            config="--psm 6"
+
+        )
+
+    except Exception as e:
+
+        return None, f"OCR 실행 중 오류: {e}"
+
+    # "+0.02/100", "-0.01 /100" 같은 각도오차 패턴 (보통
+    # 화면에 2개, 위가 수직 아래가 수평인 경우가 많다)
+
+    angle_matches = re.findall(
+
+        r"([+\-]?\d+\.\d+)\s*/\s*100",
+
+        raw_text
+
+    )
+
+    # 나머지 소수점 값들 (옵셋오차·전면변위·후면변위 후보)
+
+    all_decimals = re.findall(
+
+        r"[+\-]\d+\.\d+",
+
+        raw_text
+
+    )
+
+    # angle_matches에 이미 들어간 값은 all_decimals에서도
+    # 중복으로 잡히므로, 부호+숫자 기준으로 걸러낸다
+
+    angle_set = set(
+
+        a.replace(" ", "")
+
+        for a in angle_matches
+
+    )
+
+    remaining = [
+
+        d for d in all_decimals
+
+        if d not in angle_set
+
+    ]
+
+    def _get(lst, idx):
+
+        return lst[idx] if idx < len(lst) else ""
+
+    result = {
+
+        "raw_text": raw_text,
+
+        "각도오차_수직": _get(angle_matches, 0),
+        "각도오차_수평": _get(angle_matches, 1),
+        "옵셋오차_수직": _get(remaining, 0),
+        "전면변위_수직": _get(remaining, 1),
+        "후면변위_수직": _get(remaining, 2),
+        "옵셋오차_수평": _get(remaining, 3),
+        "전면변위_수평": _get(remaining, 4),
+        "후면변위_수평": _get(remaining, 5)
+
+    }
+
+    return result, None
+
+
+def ocr_extract_vibration_numbers(image_bytes):
+
+    # 진동측정 소프트웨어 화면 상단엔 보통 "총진동:2.41mm/s
+    # rms"나 "곡선:0mSec(0.000) 최대진폭:2.4" 같은 숫자가
+    # 텍스트로 찍혀있다. 스펙트럼 곡선의 모양(불평형이냐
+    # 베어링결함이냐)은 해석 못 해도, 이 찍힌 숫자만큼은
+    # OCR로 읽어낼 수 있다. 사진 한 장에 수직/수평/축 여러
+    # 방향이 같이 있으면 값이 여러 개 나올 수 있어서 리스트로
+    # 반환한다.
+
+    try:
+
+        import pytesseract
+
+        from PIL import Image as _PILImage
+
+        img = _PILImage.open(
+            io.BytesIO(image_bytes)
+        )
+
+        img = img.convert("L")
+
+        _scale = 2
+
+        img = img.resize(
+
+            (img.width * _scale, img.height * _scale),
+
+            _PILImage.LANCZOS
+
+        )
+
+        raw_text = pytesseract.image_to_string(
+
+            img,
+
+            lang="kor+eng",
+
+            config="--psm 6"
+
+        )
+
+    except Exception as e:
+
+        return None, f"OCR 실행 중 오류: {e}"
+
+    overall_matches = re.findall(
+
+        r"총\s*진동\S*\s*[:：]?\s*([\d.]+)",
+
+        raw_text
+
+    )
+
+    peak_matches = re.findall(
+
+        r"최대\s*진폭\S*\s*[:：]?\s*([\d.]+)",
+
+        raw_text
+
+    )
+
+    freq_matches = re.findall(
+
+        r"주파수\S*\s*[:：]?\s*([\d.eE+\-]+)\s*Hz",
+
+        raw_text
+
+    )
+
+    return {
+
+        "raw_text": raw_text,
+        "총진동_후보": overall_matches,
+        "최대진폭_후보": peak_matches,
+        "주파수_후보": freq_matches
+
+    }, None
 
 
 def guess_image_mime(filename):
@@ -14574,6 +14990,24 @@ def build_vibration_monthly_report_docx(
 # 있다.
 # ============================================================
 
+def _set_table_col_widths(table, widths_inches):
+
+    # python-docx는 헤더행에만 폭을 지정하면 무시되는 경우가
+    # 있어서, 모든 행 × 모든 셀에 동일하게 폭을 강제 지정한다.
+
+    table.autofit = False
+
+    for row in table.rows:
+
+        for i, cell in enumerate(row.cells):
+
+            if i < len(widths_inches):
+
+                cell.width = Inches(
+                    widths_inches[i]
+                )
+
+
 def _add_table_row_helper(table, values, bold=False):
 
     cells = table.add_row().cells
@@ -14604,6 +15038,237 @@ def _style_header_row(table):
             for r in p.runs:
 
                 r.bold = True
+
+
+def _add_landscape_section(doc):
+
+    # 표 열이 많아 세로 페이지엔 비좁은 구간(붙임2 Data Sheet
+    # 등)만 가로 페이지로 바꾼다. 이후 다시 세로로 돌아오려면
+    # _add_portrait_section()을 호출하면 된다.
+
+    new_section = doc.add_section(
+        WD_SECTION.NEW_PAGE
+    )
+
+    new_section.orientation = WD_ORIENT.LANDSCAPE
+
+    new_width, new_height = (
+
+        new_section.page_height,
+        new_section.page_width
+
+    )
+
+    new_section.page_width = new_width
+
+    new_section.page_height = new_height
+
+    new_section.left_margin = Inches(0.6)
+    new_section.right_margin = Inches(0.6)
+    new_section.top_margin = Inches(0.6)
+    new_section.bottom_margin = Inches(0.6)
+
+    return new_section
+
+
+def _add_portrait_section(doc):
+
+    new_section = doc.add_section(
+        WD_SECTION.NEW_PAGE
+    )
+
+    new_section.orientation = WD_ORIENT.PORTRAIT
+
+    new_width, new_height = (
+
+        new_section.page_height,
+        new_section.page_width
+
+    )
+
+    new_section.page_width = new_width
+
+    new_section.page_height = new_height
+
+    new_section.left_margin = Inches(0.7)
+    new_section.right_margin = Inches(0.7)
+    new_section.top_margin = Inches(0.6)
+    new_section.bottom_margin = Inches(0.6)
+
+    return new_section
+
+
+def build_pump_motor_diagram():
+
+    # 원본 보고서의 "펌프모터 진동측정" 지점 도식(1~4번 측정
+    # 지점 표시)을 간단히 재현한다.
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.font_manager as fm
+    from matplotlib.patches import Rectangle
+
+    _font_path = None
+
+    for _p in (
+        "NanumGothic.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
+    ):
+
+        if os.path.exists(_p):
+
+            _font_path = _p
+
+            break
+
+    if _font_path:
+
+        fm.fontManager.addfont(_font_path)
+
+        plt.rcParams["font.family"] = fm.FontProperties(
+            fname=_font_path
+        ).get_name()
+
+    fig, ax = plt.subplots(figsize=(5.5, 2.2), dpi=110)
+
+    ax.add_patch(Rectangle(
+        (0.5, 0.5), 2.0, 1.4,
+        facecolor="#D9D9D9", edgecolor="black"
+    ))
+
+    ax.text(1.5, 1.2, "Motor", ha="center", va="center", fontsize=11)
+
+    ax.add_patch(Rectangle(
+        (3.0, 0.3), 3.5, 1.8,
+        facecolor="#D9D9D9", edgecolor="black"
+    ))
+
+    ax.text(4.75, 1.2, "Pump", ha="center", va="center", fontsize=11)
+
+    ax.plot([2.5, 3.0], [1.2, 1.2], color="black", linewidth=2)
+
+    ax.text(2.4, 1.85, "4", ha="center", fontsize=12, fontweight="bold")
+
+    ax.text(2.4, 0.55, "3", ha="center", fontsize=12, fontweight="bold")
+
+    ax.text(6.6, 1.85, "1", ha="center", fontsize=12, fontweight="bold")
+
+    ax.text(6.6, 0.35, "2", ha="center", fontsize=12, fontweight="bold")
+
+    ax.set_xlim(0, 7)
+
+    ax.set_ylim(0, 2.3)
+
+    ax.axis("off")
+
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+
+    fig.savefig(buf, format="png", transparent=True)
+
+    plt.close(fig)
+
+    return buf.getvalue()
+
+
+def build_alignment_diagram():
+
+    # 원본 붙임1의 "Pump-Motor Vertical Offset / Horizontal GAP"
+    # 정렬 개념도를 간단히 재현한다.
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+    import matplotlib.font_manager as fm
+
+    _font_path = None
+
+    for _p in (
+        "NanumGothic.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
+    ):
+
+        if os.path.exists(_p):
+
+            _font_path = _p
+
+            break
+
+    if _font_path:
+
+        fm.fontManager.addfont(_font_path)
+
+        plt.rcParams["font.family"] = fm.FontProperties(
+            fname=_font_path
+        ).get_name()
+
+    fig, axes = plt.subplots(2, 1, figsize=(5.5, 3.2), dpi=110)
+
+    for ax, offset_y, label in [
+
+        (axes[0], 0.15, "Vertical  Offset"),
+        (axes[1], 0.0, "Horizontal  Gap")
+
+    ]:
+
+        ax.add_patch(Rectangle(
+
+            (0.3, 0.3), 2.0, 0.8,
+
+            facecolor="#D9D9D9", edgecolor="black"
+
+        ))
+
+        ax.text(1.3, 0.7, "Pump", ha="center", va="center", fontsize=10)
+
+        ax.add_patch(Rectangle(
+
+            (3.2, 0.3 + offset_y), 2.0, 0.8,
+
+            facecolor="#D9D9D9", edgecolor="black"
+
+        ))
+
+        ax.text(
+
+            4.2, 0.7 + offset_y, "Motor",
+            ha="center", va="center", fontsize=10
+
+        )
+
+        ax.annotate(
+
+            "", xy=(3.2, 0.7 + offset_y), xytext=(2.3, 0.7),
+
+            arrowprops=dict(arrowstyle="<->", color="#C00000")
+
+        )
+
+        ax.text(
+
+            2.75, 0.85 + offset_y / 2, label,
+            ha="center", fontsize=9, color="#C00000"
+
+        )
+
+        ax.set_xlim(0, 5.7)
+
+        ax.set_ylim(-0.1, 1.4)
+
+        ax.axis("off")
+
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+
+    fig.savefig(buf, format="png", transparent=True)
+
+    plt.close(fig)
+
+    return buf.getvalue()
 
 
 def build_alignment_trend_chart(history_rows):
@@ -14834,6 +15499,14 @@ def build_alignment_report_docx(
 
     )
 
+    _set_table_col_widths(
+
+        summary_table,
+
+        [0.7, 1.3, 1.15, 1.35, 1.35, 0.85]
+
+    )
+
     doc.add_paragraph("")
 
     _note = doc.add_paragraph()
@@ -14917,13 +15590,35 @@ def build_alignment_report_docx(
 
         _add_table_row_helper(crit_table2, row)
 
+    doc.add_paragraph("")
+
+    try:
+
+        _align_diagram_bytes = build_alignment_diagram()
+
+        _diagram_p2 = doc.add_paragraph()
+
+        _diagram_p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        _diagram_p2.add_run().add_picture(
+
+            io.BytesIO(_align_diagram_bytes),
+
+            width=Inches(4.0)
+
+        )
+
+    except Exception:
+
+        pass
+
     _src = doc.add_paragraph()
 
     _src.add_run(
         f"출처 ○ {ALIGNMENT_CRITERIA_NOTE}"
     ).italic = True
 
-    doc.add_page_break()
+    _add_landscape_section(doc)
 
     # 붙임2. 측정·시험 DATA
     doc.add_heading(
@@ -14964,14 +15659,14 @@ def build_alignment_report_docx(
 
     doc.add_paragraph("")
 
-    data_table = doc.add_table(rows=1, cols=6)
+    data_table = doc.add_table(rows=1, cols=8)
 
     data_table.style = "Light Grid Accent 1"
 
     for i, h in enumerate(
 
-        ["구분", "각도오차\n(mm/100mm)", "옵셋오차\n(mm)",
-         "펌프전면변위\n(mm)", "펌프후면변위\n(mm)", "판정"]
+        ["구분", "방향", "각도오차\n(mm/100mm)", "옵셋오차\n(mm)",
+         "기준거리\n(mm)", "전면변위\n(mm)", "후면변위\n(mm)", "판정"]
 
     ):
 
@@ -14979,14 +15674,40 @@ def build_alignment_report_docx(
 
     _style_header_row(data_table)
 
+    for _label, _dist in [
+
+        ("펌프모터 커플링 중심 ↔ 센서", ai_data.get("거리_커플링센서", "-")),
+        ("센서 ↔ 센서", ai_data.get("거리_센서센서", "-")),
+        ("모터 전(앞) Base 중심 → 센서(모터측)", ai_data.get("거리_모터전센서", "-")),
+        ("모터 전(앞) Base 중심 ↔ 모터 후(뒤) Base 중심", ai_data.get("거리_모터전후", "-"))
+
+    ]:
+
+        _add_table_row_helper(
+
+            data_table,
+
+            ["", "", "", "", _dist, "", "", ""]
+
+        )
+
+        data_table.rows[-1].cells[0].text = _label
+
+        data_table.rows[-1].cells[0].merge(
+
+            data_table.rows[-1].cells[3]
+
+        )
+
     _add_table_row_helper(
 
         data_table,
 
         [
-            "모터-펌프 수평",
+            "모터-펌프", "수평",
             ai_data.get("각도오차_수평", ""),
             ai_data.get("옵셋오차_수평", ""),
+            "-",
             ai_data.get("전면변위_수평", ""),
             ai_data.get("후면변위_수평", ""),
             ai_data.get("판정_수평", "")
@@ -14999,13 +15720,22 @@ def build_alignment_report_docx(
         data_table,
 
         [
-            "모터-펌프 수직",
+            "모터-펌프", "수직",
             ai_data.get("각도오차_수직", ""),
             ai_data.get("옵셋오차_수직", ""),
+            "-",
             ai_data.get("전면변위_수직", ""),
             ai_data.get("후면변위_수직", ""),
             ai_data.get("판정_수직", "")
         ]
+
+    )
+
+    _set_table_col_widths(
+
+        data_table,
+
+        [2.4, 0.7, 1.1, 1.0, 1.0, 1.0, 1.0, 0.8]
 
     )
 
@@ -15239,6 +15969,14 @@ def build_vib_analysis_report_docx(
 
         )
 
+    _set_table_col_widths(
+
+        sum_table,
+
+        [0.85, 0.65, 0.85, 0.8, 0.75, 0.85, 1.5]
+
+    )
+
     doc.add_paragraph("")
 
     doc.add_paragraph(
@@ -15358,7 +16096,112 @@ def build_vib_analysis_report_docx(
         level=1
     )
 
+    doc.add_paragraph(
+        "1. 총 진동값"
+    ).runs[0].bold = True
+
+    try:
+
+        _diagram_bytes = build_pump_motor_diagram()
+
+        _diagram_p = doc.add_paragraph()
+
+        _diagram_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        _diagram_p.add_run().add_picture(
+
+            io.BytesIO(_diagram_bytes),
+
+            width=Inches(4.5)
+
+        )
+
+    except Exception:
+
+        pass
+
+    doc.add_paragraph(
+        "1-1. 진동 측정 값 (단위: mm/s rms)"
+    )
+
+    _pm_table = doc.add_table(rows=1, cols=4)
+
+    _pm_table.style = "Light Grid Accent 1"
+
+    for i, h in enumerate(["펌프측", "", "모터측", ""]):
+
+        _pm_table.rows[0].cells[i].text = h
+
+    _style_header_row(_pm_table)
+
+    def _pt_lines(point_names):
+
+        _lines = []
+
+        for _dir, _pname in point_names:
+
+            _p = points.get(_pname, {})
+
+            _v = _p.get("overall_rms", "")
+
+            if _v != "":
+
+                _lines.append(f"{_dir}  {_v}")
+
+        return "\n".join(_lines)
+
+    _row1_left = _pt_lines([
+
+        ("V", "펌프 반부하 수직"),
+        ("H", "펌프 반부하 수평"),
+        ("A", "펌프 반부하 축")
+
+    ])
+
+    _row1_right = _pt_lines([
+
+        ("V", "모터 부하 수직"),
+        ("H", "모터 부하 수평")
+
+    ])
+
+    _row2_left = _pt_lines([
+
+        ("V", "펌프 부하 수직"),
+        ("H", "펌프 부하 수평")
+
+    ])
+
+    _row2_right = _pt_lines([
+
+        ("V", "모터 반부하 수직"),
+        ("H", "모터 반부하 수평"),
+        ("A", "모터 반부하 축")
+
+    ])
+
+    _add_table_row_helper(
+
+        _pm_table,
+
+        ["1  (반부하)", _row1_left, "3  (부하)", _row1_right]
+
+    )
+
+    _add_table_row_helper(
+
+        _pm_table,
+
+        ["2  (부하)", _row2_left, "4  (반부하)", _row2_right]
+
+    )
+
+    doc.add_paragraph("")
+
+    doc.add_paragraph("")
+
     freq_table_data = ai_data.get("freq_table", {})
+
 
     for _comp in ["모터", "펌프"]:
 
@@ -15506,6 +16349,14 @@ def build_vib_analysis_report_docx(
 
             )
 
+        _set_table_col_widths(
+
+            defect_table,
+
+            [1.3, 0.9, 4.0]
+
+        )
+
         doc.add_paragraph("")
 
         doc.add_paragraph(
@@ -15535,6 +16386,14 @@ def build_vib_analysis_report_docx(
                 ]
 
             )
+
+        _set_table_col_widths(
+
+            wave_table,
+
+            [0.9, 2.9, 2.4]
+
+        )
 
         doc.add_paragraph("")
 
@@ -25523,6 +26382,91 @@ elif st.session_state.page == "보고서":
 
                 )
 
+                st.markdown(
+
+                    "**📊 엑셀로 한번에 채우기**"
+
+                )
+
+                st.download_button(
+
+                    "📄 축정렬 입력 양식 다운로드",
+
+                    data=build_align_excel_template(),
+
+                    file_name="축정렬_입력양식.xlsx",
+
+                    key="align_excel_template_download"
+
+                )
+
+                _align_excel_file = st.file_uploader(
+
+                    "채운 엑셀 업로드",
+
+                    type=["xlsx"],
+
+                    key="align_excel_uploader"
+
+                )
+
+                if _align_excel_file and st.button(
+
+                    "엑셀 값 반영하기",
+
+                    key="align_excel_apply_btn"
+
+                ):
+
+                    try:
+
+                        _align_from_excel = parse_align_excel(
+
+                            _align_excel_file.getvalue()
+
+                        )
+
+                        _align_from_excel["점검일자"] = (
+
+                            datetime.now().strftime("%Y-%m-%d")
+
+                        )
+
+                        st.session_state[
+                            "_align_ai_data"
+                        ] = _align_from_excel
+
+                        st.session_state["_align_image_bytes"] = (
+
+                            _align_image.getvalue()
+
+                            if _align_image
+
+                            else None
+
+                        )
+
+                        st.success(
+
+                            "엑셀 값이 반영됐습니다. 아래에서 "
+                            "보고서를 생성하세요."
+
+                        )
+
+                    except Exception as e:
+
+                        st.error(
+                            f"엑셀을 읽는 중 오류: {e}"
+                        )
+
+                st.markdown("---")
+
+                st.markdown(
+
+                    "**✏️ 또는 여기에 직접 입력**"
+
+                )
+
                 mc1, mc2 = st.columns(2)
 
                 _m_angle_h = mc1.text_input(
@@ -25688,6 +26632,174 @@ elif st.session_state.page == "보고서":
 
             if st.button(
 
+                "📷 사진에서 자동 읽기 (OCR, API 불필요)",
+
+                key="align_ocr_btn",
+
+                disabled=(_align_image is None)
+
+            ):
+
+                _align_img_bytes_for_ocr = _align_image.getvalue()
+
+                with st.spinner(
+                    "사진 속 숫자를 읽는 중..."
+                ):
+
+                    _ocr_result, _ocr_err = ocr_extract_alignment_values(
+
+                        _align_img_bytes_for_ocr
+
+                    )
+
+                if _ocr_err:
+
+                    st.error(
+                        _ocr_err
+                    )
+
+                else:
+
+                    st.session_state["_align_ocr_result"] = _ocr_result
+
+                    st.session_state["_align_image_bytes"] = (
+
+                        _align_img_bytes_for_ocr
+
+                    )
+
+                    st.success(
+
+                        "숫자를 읽었습니다. 아래에서 맞는지 "
+                        "확인·수정한 뒤 확정해주세요."
+
+                    )
+
+            if "_align_ocr_result" in st.session_state:
+
+                _ocr = st.session_state["_align_ocr_result"]
+
+                st.caption(
+                    "🔍 OCR이 읽어낸 값 (틀린 부분은 고쳐주세요)"
+                )
+
+                oc1, oc2 = st.columns(2)
+
+                _ocr_angle_v = oc1.text_input(
+                    "각도오차 수직", value=_ocr.get("각도오차_수직", ""),
+                    key="ocr_angle_v"
+                )
+
+                _ocr_angle_h = oc2.text_input(
+                    "각도오차 수평", value=_ocr.get("각도오차_수평", ""),
+                    key="ocr_angle_h"
+                )
+
+                oc1, oc2 = st.columns(2)
+
+                _ocr_offset_v = oc1.text_input(
+                    "옵셋오차 수직", value=_ocr.get("옵셋오차_수직", ""),
+                    key="ocr_offset_v"
+                )
+
+                _ocr_offset_h = oc2.text_input(
+                    "옵셋오차 수평", value=_ocr.get("옵셋오차_수평", ""),
+                    key="ocr_offset_h"
+                )
+
+                oc1, oc2 = st.columns(2)
+
+                _ocr_front_v = oc1.text_input(
+                    "전면변위 수직", value=_ocr.get("전면변위_수직", ""),
+                    key="ocr_front_v"
+                )
+
+                _ocr_front_h = oc2.text_input(
+                    "전면변위 수평", value=_ocr.get("전면변위_수평", ""),
+                    key="ocr_front_h"
+                )
+
+                oc1, oc2 = st.columns(2)
+
+                _ocr_back_v = oc1.text_input(
+                    "후면변위 수직", value=_ocr.get("후면변위_수직", ""),
+                    key="ocr_back_v"
+                )
+
+                _ocr_back_h = oc2.text_input(
+                    "후면변위 수평", value=_ocr.get("후면변위_수평", ""),
+                    key="ocr_back_h"
+                )
+
+                oc1, oc2 = st.columns(2)
+
+                _ocr_judge_v = oc1.selectbox(
+                    "판정 수직", ["양호", "보통", "불량"],
+                    key="ocr_judge_v"
+                )
+
+                _ocr_judge_h = oc2.selectbox(
+                    "판정 수평", ["양호", "보통", "불량"],
+                    key="ocr_judge_h"
+                )
+
+                _ocr_opinion = st.text_area(
+
+                    "종합의견",
+
+                    placeholder=(
+
+                        "예: 전체 정렬 상태는 ISO/ANSI 회전기계 "
+                        "정렬 허용 기준 내에 있으며 즉각적인 "
+                        "재정렬이 필요한 수준은 아님"
+
+                    ),
+
+                    key="ocr_opinion"
+
+                )
+
+                if st.button(
+
+                    "이 값으로 확정하기",
+
+                    key="align_ocr_confirm_btn",
+
+                    type="primary"
+
+                ):
+
+                    st.session_state["_align_ai_data"] = {
+
+                        "점검일자": datetime.now().strftime(
+                            "%Y-%m-%d"
+                        ),
+                        "측정장비": "",
+                        "각도오차_수직": _ocr_angle_v,
+                        "각도오차_수평": _ocr_angle_h,
+                        "옵셋오차_수직": _ocr_offset_v,
+                        "옵셋오차_수평": _ocr_offset_h,
+                        "전면변위_수직": _ocr_front_v,
+                        "전면변위_수평": _ocr_front_h,
+                        "후면변위_수직": _ocr_back_v,
+                        "후면변위_수평": _ocr_back_h,
+                        "판정_수직": _ocr_judge_v,
+                        "판정_수평": _ocr_judge_h,
+                        "종합의견": _ocr_opinion
+
+                    }
+
+                    st.success(
+
+                        "확정됐습니다. 아래에서 보고서를 "
+                        "생성하세요."
+
+                    )
+
+            st.markdown("---")
+
+            if st.button(
+
                 "🤖 AI로 분석하기",
 
                 key="align_ai_analyze_btn",
@@ -25737,6 +26849,13 @@ elif st.session_state.page == "보고서":
                         '  "후면변위_수직": "mm 단위 숫자와 부호",\n'
                         '  "판정_수평": "양호 또는 보통 또는 불량",\n'
                         '  "판정_수직": "양호 또는 보통 또는 불량",\n'
+                        '  "거리_커플링센서": "펌프모터 커플링 중심↔센서 '
+                        '거리(mm), 화면에 없으면 빈문자열",\n'
+                        '  "거리_센서센서": "센서↔센서 거리(mm), 없으면 빈문자열",\n'
+                        '  "거리_모터전센서": "모터 전Base중심→센서 '
+                        '거리(mm), 없으면 빈문자열",\n'
+                        '  "거리_모터전후": "모터 전Base중심↔모터 후Base중심 '
+                        '거리(mm), 없으면 빈문자열",\n'
                         '  "종합의견": "이 설비의 정렬상태에 대한 '
                         '종합 소견 2~3문장. ISO/ANSI 회전기계 정렬 '
                         '허용기준과 비교하여 재정렬 필요 여부와 '
@@ -26149,6 +27268,76 @@ elif st.session_state.page == "보고서":
 
             )
 
+            if st.button(
+
+                "📷 업로드된 사진에서 숫자 읽기 (OCR, API 불필요)",
+
+                key="va_ocr_btn",
+
+                disabled=(_va_uploaded_count == 0)
+
+            ):
+
+                with st.spinner(
+                    "사진들 속 숫자를 읽는 중..."
+                ):
+
+                    _va_ocr_lines = []
+
+                    for _label, _file in _va_uploaded_images.items():
+
+                        _v_result, _v_err = ocr_extract_vibration_numbers(
+
+                            _file.getvalue()
+
+                        )
+
+                        if _v_err or not _v_result:
+
+                            continue
+
+                        _overall = _v_result.get("총진동_후보", [])
+
+                        _peak = _v_result.get("최대진폭_후보", [])
+
+                        _freq = _v_result.get("주파수_후보", [])
+
+                        if _overall or _peak or _freq:
+
+                            _va_ocr_lines.append(
+
+                                f"**{_label}**  ·  "
+                                f"총진동 후보: {_overall or '없음'}  ·  "
+                                f"최대진폭 후보: {_peak or '없음'}  ·  "
+                                f"주파수 후보: {_freq or '없음'}"
+
+                            )
+
+                st.session_state["_va_ocr_lines"] = _va_ocr_lines
+
+            if st.session_state.get("_va_ocr_lines"):
+
+                st.caption(
+
+                    "🔍 사진에서 읽은 숫자입니다. 그래프 곡선 "
+                    "해석(결함 여부)은 자동으로 안 되니, 이 숫자를 "
+                    "보고 아래 표에 직접 옮겨 적어주세요."
+
+                )
+
+                for _line in st.session_state["_va_ocr_lines"]:
+
+                    st.markdown(_line)
+
+                if not st.session_state["_va_ocr_lines"]:
+
+                    st.info(
+
+                        "사진에서 숫자를 찾지 못했습니다. 사진이 "
+                        "너무 흐리거나 해상도가 낮을 수 있습니다."
+
+                    )
+
             with st.expander(
 
                 "✏️ AI 대신 직접 값 입력하기 "
@@ -26162,6 +27351,115 @@ elif st.session_state.page == "보고서":
                     "AI 분석 없이도 요약표가 채워진 보고서가 "
                     "만들어집니다. (그룹별 상세 결함판정표·시간파형표는 "
                     "AI 분석에서만 자동으로 채워집니다.)"
+
+                )
+
+                st.markdown(
+
+                    "**📊 엑셀로 한번에 채우기**"
+
+                )
+
+                st.download_button(
+
+                    "📄 진동분석 입력 양식 다운로드",
+
+                    data=build_va_excel_template(),
+
+                    file_name="진동분석_입력양식.xlsx",
+
+                    key="va_excel_template_download"
+
+                )
+
+                _va_excel_file = st.file_uploader(
+
+                    "채운 엑셀 업로드",
+
+                    type=["xlsx"],
+
+                    key="va_excel_uploader"
+
+                )
+
+                _va_opinion_for_excel = st.text_input(
+
+                    "종합의견 (엑셀 업로드시 같이 반영)",
+
+                    key="va_excel_opinion"
+
+                )
+
+                if _va_excel_file and st.button(
+
+                    "엑셀 값 반영하기",
+
+                    key="va_excel_apply_btn"
+
+                ):
+
+                    try:
+
+                        _va_points_from_excel = parse_va_excel(
+
+                            _va_excel_file.getvalue()
+
+                        )
+
+                        _va_groups_from_excel = {
+
+                            _gname: {
+
+                                "세부의견": [],
+                                "defect_table": [],
+                                "waveform_table": [],
+                                "해석": []
+
+                            }
+
+                            for _gname in VA_GROUP_ORDER
+
+                        }
+
+                        st.session_state["_va_ai_data"] = {
+
+                            "측정장비": "",
+                            "종합의견": _va_opinion_for_excel,
+                            "points": _va_points_from_excel,
+                            "freq_table": {},
+                            "groups": _va_groups_from_excel,
+                            "종합분석": [],
+                            "향후대책": []
+
+                        }
+
+                        st.session_state["_va_images_bytes"] = {
+
+                            _label: _file.getvalue()
+
+                            for _label, _file
+                            in _va_uploaded_images.items()
+
+                        }
+
+                        st.success(
+
+                            "엑셀 값이 반영됐습니다. 아래에서 "
+                            "보고서를 생성하세요."
+
+                        )
+
+                    except Exception as e:
+
+                        st.error(
+                            f"엑셀을 읽는 중 오류: {e}"
+                        )
+
+                st.markdown("---")
+
+                st.markdown(
+
+                    "**✏️ 또는 여기 표에 직접 입력**"
 
                 )
 
@@ -26641,6 +27939,99 @@ elif st.session_state.page == "보고서":
 
                     "측정 데이터를 보고 값을 직접 입력하시면, "
                     "AI 분석 없이도 보고서가 만들어집니다."
+
+                )
+
+                st.markdown(
+
+                    "**📊 엑셀로 한번에 채우기**"
+
+                )
+
+                st.download_button(
+
+                    "📄 효율진단 입력 양식 다운로드",
+
+                    data=build_eff_excel_template(),
+
+                    file_name="효율진단_입력양식.xlsx",
+
+                    key="eff_excel_template_download"
+
+                )
+
+                _eff_excel_file = st.file_uploader(
+
+                    "채운 엑셀 업로드",
+
+                    type=["xlsx"],
+
+                    key="eff_excel_uploader"
+
+                )
+
+                if _eff_excel_file and st.button(
+
+                    "엑셀 값 반영하기",
+
+                    key="eff_excel_apply_btn"
+
+                ):
+
+                    try:
+
+                        (
+                            _e_rated, _e_measured,
+                            _e_flow_rated, _e_flow_measured,
+                            _e_opinion
+                        ) = parse_eff_excel(
+
+                            _eff_excel_file.getvalue()
+
+                        )
+
+                        _e_summary = (
+
+                            f"정격효율 {_e_rated}%, "
+                            f"실측효율 {_e_measured}%\n"
+                            f"정격유량 {_e_flow_rated}m3/h, "
+                            f"실측유량 {_e_flow_measured}m3/h\n"
+                            f"{_e_opinion}"
+
+                        )
+
+                        st.session_state[
+                            "_eff_ai_result"
+                        ] = _e_summary
+
+                        st.session_state["_eff_image_bytes"] = (
+
+                            _eff_image.getvalue()
+
+                            if _eff_image
+
+                            else None
+
+                        )
+
+                        st.success(
+
+                            "엑셀 값이 반영됐습니다. 아래에서 "
+                            "보고서를 생성하세요."
+
+                        )
+
+                    except Exception as e:
+
+                        st.error(
+                            f"엑셀을 읽는 중 오류: {e}"
+                        )
+
+                st.markdown("---")
+
+                st.markdown(
+
+                    "**✏️ 또는 여기에 직접 입력**"
 
                 )
 

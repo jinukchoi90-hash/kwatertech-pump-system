@@ -11,3 +11,5 @@ requests
 gspread
 google-auth
 scikit-learn
+pytesseract
+Pillow
