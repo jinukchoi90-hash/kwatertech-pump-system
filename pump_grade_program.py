@@ -12660,7 +12660,7 @@ def call_claude_vision_analysis(images_with_labels, instruction):
             json={
 
                 "model": "claude-sonnet-5",
-                "max_tokens": 2000,
+                "max_tokens": 8000,
                 "messages": [
 
                     {
@@ -26887,7 +26887,9 @@ elif st.session_state.page == "보고서":
                             _align_err = (
 
                                 "AI 응답을 표 형식으로 해석하지 "
-                                "못했습니다. 다시 시도해주세요."
+                                "못했습니다. 다시 시도해주세요.\n\n"
+                                "AI가 실제로 보낸 답변(참고용):\n"
+                                + _align_raw[-800:]
 
                             )
 
@@ -27699,7 +27701,9 @@ elif st.session_state.page == "보고서":
                             _va_err = (
 
                                 "AI 응답을 표 형식으로 해석하지 "
-                                "못했습니다. 다시 시도해주세요."
+                                "못했습니다. 다시 시도해주세요.\n\n"
+                                "AI가 실제로 보낸 답변(참고용):\n"
+                                + _va_result[-800:]
 
                             )
 
