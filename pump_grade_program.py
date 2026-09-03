@@ -33,6 +33,10 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
+from openpyxl.drawing.xdr import XDRPositiveSize2D
+from openpyxl.utils.units import pixels_to_EMU
 
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
@@ -11343,6 +11347,281 @@ VIB_ANALYSIS_DB_PATH = "Pump_VibAnalysis_DB.xlsx"
 EFFICIENCY_REPORT_DB_PATH = "Pump_EfficiencyReport_DB.xlsx"
 
 
+GYEONGSANG_DB_PATH = "Pump_Gyeongsang_DB.xlsx"
+
+GYEONGSANG_TEMPLATE_PATH = "경상정비_템플릿.xlsx"
+
+
+def ensure_gyeongsang_db_exists():
+
+    ensure_excel_file(
+
+        GYEONGSANG_DB_PATH,
+
+        "경상정비이력",
+
+        [
+            "생성일시",
+            "정비일자",
+            "정비인원",
+            "대상시설",
+            "표준작업항목내역",
+            "키워드",
+            "상태및원인",
+            "조치및결과",
+            "작성자"
+        ]
+
+    )
+
+
+def find_gyeongsang_template():
+
+    # 앱 폴더에 실제 회사 양식(경상정비_템플릿.xlsx)을 같이
+    # 올려두면 그 서식 그대로 채워서 만든다. 없으면 조용히
+    # 기능을 숨긴다.
+
+    for pattern in (
+        "경상정비_템플릿.xlsx",
+        "*경상정비*템플릿*.xlsx",
+        "*경상정비*.xlsx"
+    ):
+
+        matches = [
+
+            m for m in glob.glob(pattern)
+
+            if "테스트" not in m and "이력" not in m
+
+        ]
+
+        if matches:
+
+            return matches[0]
+
+    return None
+
+
+def generate_gyeongsang_ai_text(keyword, equip_name, site_name, basic_info):
+
+    # 키워드 하나만 던지면, 실제 원본 보고서 문체(대상시설/
+    # 상태및원인/조치및결과/사진캡션 6개)에 맞춰 AI가 초안을
+    # 써준다.
+
+    try:
+
+        api_key = st.secrets.get(
+            "ANTHROPIC_API_KEY"
+        )
+
+    except Exception:
+
+        api_key = None
+
+    if not api_key:
+
+        return None, (
+
+            "ANTHROPIC_API_KEY가 설정되지 않았습니다. "
+            "Streamlit Secrets에 등록해주세요."
+
+        )
+
+    prompt = (
+
+        f"당신은 정수장 설비 정비 담당자입니다. 다음 키워드를 "
+        f"바탕으로 '경상정비 결과 보고서'의 세부 내용을 실제 "
+        f"공공기관 보고서 문체로 작성해주세요.\n\n"
+        f"설비명: {equip_name}\n"
+        f"사업장: {site_name}\n"
+        f"기타 정보: {basic_info}\n"
+        f"키워드: {keyword}\n\n"
+        "다음 JSON 형식으로만 답하세요. 다른 설명 문장은 붙이지 "
+        "마세요.\n\n"
+        "{\n"
+        '  "대상시설": "설비명과 사업장을 반영한 구체적인 대상 '
+        '시설 문구(예 oo정수장 여과지동 원심펌프 #2 형식)",\n'
+        '  "상태및원인": "발생한 현상과 추정 원인을 1~2문장으로. '
+        '예: 샘플링펌프 임펠라 고착에 따른 과부하로 EOCR 발생",\n'
+        '  "조치및결과": "번호를 매긴 조치 절차. 예: ① ... ② ... '
+        '③ ... 형식으로 2~4단계",\n'
+        '  "사진캡션": [\n'
+        '    "사진1에 어울리는 짧은 설명(예: OO 이상 발생 확인)",\n'
+        '    "사진2 설명", "사진3 설명", "사진4 설명", '
+        '"사진5 설명", "사진6 설명"\n'
+        "  ]\n"
+        "}\n\n"
+        "사진캡션은 시간 순서대로(이상발견→원인확인→분해점검→"
+        "조치→교체/완료) 자연스럽게 이어지도록 6개 다 채워주세요."
+
+    )
+
+    try:
+
+        resp = requests.post(
+
+            "https://api.anthropic.com/v1/messages",
+
+            headers={
+
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+
+            },
+
+            json={
+
+                "model": "claude-sonnet-5",
+                "max_tokens": 2000,
+                "messages": [
+
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+
+                ]
+
+            },
+
+            timeout=60
+
+        )
+
+        resp.raise_for_status()
+
+        data = resp.json()
+
+        text = "".join(
+
+            block.get("text", "")
+
+            for block in data.get("content", [])
+
+            if block.get("type") == "text"
+
+        )
+
+        return text, None
+
+    except Exception as e:
+
+        return None, f"AI 호출 중 오류가 발생했습니다: {e}"
+
+
+def build_gyeongsang_report_excel(
+
+    seq_no,
+    basic_info,
+    ai_data,
+    photo_bytes_list
+
+):
+
+    # basic_info: {"정비일자":..,"정비인원":..,"대상시설":..,
+    #              "표준작업항목내역":..}
+    # ai_data: {"상태및원인":..,"조치및결과":..,"사진캡션":[...]}
+    # photo_bytes_list: 최대 6개, 없는 자리는 None
+
+    template_path = find_gyeongsang_template()
+
+    if not template_path:
+
+        return None
+
+    wb = load_workbook(template_path)
+
+    ws = wb["결과보고서"]
+
+    ws["A2"] = f"경상정비 결과 보고서 - {seq_no}"
+
+    ws["C3"] = basic_info.get("정비일자", "")
+
+    ws["F3"] = basic_info.get("표준작업항목내역", "")
+
+    ws["C4"] = basic_info.get("정비인원", "")
+
+    ws["C5"] = basic_info.get("대상시설", "")
+
+    ws["C6"] = ai_data.get("상태및원인", "")
+
+    ws["C7"] = ai_data.get("조치및결과", "")
+
+    captions = ai_data.get("사진캡션", [])
+
+    caption_cells = ["A10", "D10", "A12", "D12", "A14", "D14"]
+
+    for i, cell in enumerate(caption_cells):
+
+        _num = f"{i+1:02d}"
+
+        _cap_text = captions[i] if i < len(captions) else ""
+
+        ws[cell] = (
+            f"【사진-{_num}】{_cap_text}" if _cap_text else ""
+        )
+
+    photo_positions = [
+
+        (0, 8), (3, 8),
+        (0, 10), (3, 10),
+        (0, 12), (3, 12)
+
+    ]
+
+    for i, (col, row) in enumerate(photo_positions):
+
+        if i >= len(photo_bytes_list) or not photo_bytes_list[i]:
+
+            continue
+
+        try:
+
+            img = XLImage(
+                io.BytesIO(photo_bytes_list[i])
+            )
+
+            img.width = 200
+
+            img.height = 120
+
+            marker = AnchorMarker(
+
+                col=col,
+                row=row,
+                colOff=100000,
+                rowOff=80000
+
+            )
+
+            size = XDRPositiveSize2D(
+
+                pixels_to_EMU(200),
+                pixels_to_EMU(120)
+
+            )
+
+            img.anchor = OneCellAnchor(
+
+                _from=marker,
+                ext=size
+
+            )
+
+            ws.add_image(img)
+
+        except Exception:
+
+            continue
+
+    buffer = io.BytesIO()
+
+    wb.save(buffer)
+
+    return buffer.getvalue()
+
+
 def ensure_specialized_report_dbs_exist():
 
     # 연간 축정렬(얼라인먼트) 보고서용 데이터.
@@ -12044,6 +12323,8 @@ def ensure_prediction_log_exists():
 ensure_prediction_log_exists()
 
 ensure_favorite_recent_dbs_exist()
+
+ensure_gyeongsang_db_exists()
 
 ensure_specialized_report_dbs_exist()
 
@@ -18574,6 +18855,7 @@ PAGE_GROUP_MAP = {
     "진단": "🔍 진단 · 판단",
     "CBM": "🔍 진단 · 판단",
     "오버홀": "🔍 진단 · 판단",
+    "경상정비": "🔍 진단 · 판단",
 
     "AI": "📊 분석 · 리포트",
     "전사트렌드": "📊 분석 · 리포트",
@@ -18744,7 +19026,9 @@ with st.sidebar:
 
         ("CBM", "🎯 CBM 정비판단"),
 
-        ("오버홀", "🛠️ 오버홀 관리")
+        ("오버홀", "🛠️ 오버홀 관리"),
+
+        ("경상정비", "🔧 경상정비 보고서")
 
     ]
 
@@ -23930,6 +24214,430 @@ elif st.session_state.page == "오버홀":
 
 
 # ============================================================
+# 20-1. 경상정비 보고서
+# ============================================================
+
+elif st.session_state.page == "경상정비":
+
+    render_back_to_home_button("gyeongsang")
+
+    st.markdown(
+        "### 🔧 경상정비 결과 보고서"
+    )
+
+    st.caption(
+
+        "설비를 고르고 상태 및 원인만 짧게 적으면, AI가 대상시설· "
+        "조치및결과·사진캡션까지 실제 회사 양식 그대로 자동으로 "
+        "써서 엑셀을 완성합니다."
+
+    )
+
+    _gs_template_path = find_gyeongsang_template()
+
+    if not _gs_template_path:
+
+        st.warning(
+
+            "⚠️ '경상정비_템플릿.xlsx' 파일을 앱 폴더에 같이 "
+            "올려주셔야 이 기능이 작동합니다. (코드 파일과 같은 "
+            "폴더에 넣어주세요)"
+
+        )
+
+    elif not ALL_PUMPS:
+
+        st.info(
+            "등록된 설비가 없습니다."
+        )
+
+    else:
+
+        _gs_pump_sel = st.selectbox(
+
+            "설비 선택",
+
+            [p["equip"] for p in ALL_PUMPS],
+
+            key="gs_pump_select"
+
+        )
+
+        _gs_pump = next(
+
+            p for p in ALL_PUMPS
+
+            if p["equip"] == _gs_pump_sel
+
+        )
+
+        gs1, gs2 = st.columns(2)
+
+        _gs_date = gs1.text_input(
+
+            "정비일자",
+
+            value=datetime.now().strftime("%Y년 %m월 %d일"),
+
+            key="gs_date"
+
+        )
+
+        _gs_worker = gs2.text_input(
+
+            "정비인원 (예: 홍길동 외 3인)",
+
+            key="gs_worker"
+
+        )
+
+        _gs_std_work = st.text_input(
+
+            "표준작업 항목내역 (선택)",
+
+            key="gs_std_work"
+
+        )
+
+        _gs_keyword = st.text_area(
+
+            "✏️ 상태 및 원인 (짧게 적어도 AI가 다듬어드립니다)",
+
+            placeholder=(
+
+                "예: 샘플링펌프 임펠라 고착 EOCR 발생, "
+                "임펠라 교체로 조치완료"
+
+            ),
+
+            key="gs_keyword"
+
+        )
+
+        if st.button(
+
+            "🤖 AI로 보고서 초안 작성",
+
+            key="gs_ai_btn",
+
+            type="primary",
+
+            disabled=(not _gs_keyword.strip())
+
+        ):
+
+            with st.spinner(
+                "키워드를 바탕으로 보고서를 작성하는 중..."
+            ):
+
+                _gs_basic_info_str = (
+
+                    f"정비일자:{_gs_date}, 정비인원:{_gs_worker}, "
+                    f"표준작업항목:{_gs_std_work}"
+
+                )
+
+                _gs_raw, _gs_err = generate_gyeongsang_ai_text(
+
+                    _gs_keyword,
+
+                    _gs_pump["equip"],
+
+                    _gs_pump["site"],
+
+                    _gs_basic_info_str
+
+                )
+
+            if _gs_err:
+
+                st.error(
+                    _gs_err
+                )
+
+            else:
+
+                _gs_data = extract_json_from_ai_response(
+                    _gs_raw
+                )
+
+                if not _gs_data:
+
+                    st.error(
+
+                        "AI 응답을 표 형식으로 해석하지 "
+                        "못했습니다. 다시 시도해주세요.\n\n"
+                        "AI가 실제로 보낸 답변(참고용):\n"
+                        + _gs_raw[-800:]
+
+                    )
+
+                else:
+
+                    st.session_state["_gs_ai_data"] = _gs_data
+
+                    st.success(
+
+                        "초안이 작성됐습니다. 아래에서 확인·수정 "
+                        "하신 뒤 사진을 올려 보고서를 만드세요."
+
+                    )
+
+        with st.expander(
+
+            "✏️ AI 대신 직접 입력하기 (API 키가 없을 때)"
+
+        ):
+
+            _m_gs_target = st.text_input(
+
+                "대상시설",
+
+                value=st.session_state.get(
+                    "_gs_ai_data", {}
+                ).get("대상시설", ""),
+
+                key="manual_gs_target"
+
+            )
+
+            _m_gs_status = st.text_area(
+
+                "상태 및 원인",
+
+                value=st.session_state.get(
+                    "_gs_ai_data", {}
+                ).get("상태및원인", ""),
+
+                key="manual_gs_status"
+
+            )
+
+            _m_gs_action = st.text_area(
+
+                "조치 및 결과",
+
+                value=st.session_state.get(
+                    "_gs_ai_data", {}
+                ).get("조치및결과", ""),
+
+                key="manual_gs_action"
+
+            )
+
+            st.caption(
+
+                "사진 캡션 6개 (한 줄에 하나씩, 순서대로)"
+
+            )
+
+            _existing_captions = st.session_state.get(
+                "_gs_ai_data", {}
+            ).get("사진캡션", [])
+
+            _m_gs_captions_text = st.text_area(
+
+                "사진 캡션",
+
+                value="\n".join(_existing_captions),
+
+                label_visibility="collapsed",
+
+                key="manual_gs_captions"
+
+            )
+
+            if st.button(
+
+                "이 값으로 확정하기",
+
+                key="gs_manual_apply_btn"
+
+            ):
+
+                st.session_state["_gs_ai_data"] = {
+
+                    "대상시설": _m_gs_target,
+                    "상태및원인": _m_gs_status,
+                    "조치및결과": _m_gs_action,
+                    "사진캡션": [
+
+                        _l.strip()
+
+                        for _l in
+                        _m_gs_captions_text.split("\n")
+
+                    ]
+
+                }
+
+                st.success(
+                    "직접 입력한 값으로 준비됐습니다."
+                )
+
+        if "_gs_ai_data" in st.session_state:
+
+            st.markdown(
+                "##### 📝 작성된 내용"
+            )
+
+            st.json(
+                st.session_state["_gs_ai_data"]
+            )
+
+            st.markdown(
+                "##### 📷 사진 업로드 (최대 6장, 순서대로)"
+            )
+
+            _gs_photo_cols = st.columns(3)
+
+            _gs_photos = []
+
+            for i in range(6):
+
+                with _gs_photo_cols[i % 3]:
+
+                    _gs_photo_file = st.file_uploader(
+
+                        f"사진 {i+1}",
+
+                        type=["png", "jpg", "jpeg"],
+
+                        key=f"gs_photo_{i}"
+
+                    )
+
+                    _gs_photos.append(
+
+                        _gs_photo_file.getvalue()
+
+                        if _gs_photo_file
+
+                        else None
+
+                    )
+
+            _gs_seq_no = st.number_input(
+
+                "보고서 번호 (경상정비 결과 보고서 - N)",
+
+                min_value=1,
+
+                value=1,
+
+                step=1,
+
+                key="gs_seq_no"
+
+            )
+
+            if st.button(
+
+                "📄 경상정비 보고서 생성",
+
+                key="gs_report_gen_btn",
+
+                type="primary"
+
+            ):
+
+                _gs_basic_info = {
+
+                    "정비일자": _gs_date,
+                    "정비인원": _gs_worker,
+                    "대상시설": st.session_state[
+                        "_gs_ai_data"
+                    ].get("대상시설", ""),
+                    "표준작업항목내역": _gs_std_work
+
+                }
+
+                _gs_excel_bytes = build_gyeongsang_report_excel(
+
+                    _gs_seq_no,
+
+                    _gs_basic_info,
+
+                    st.session_state["_gs_ai_data"],
+
+                    _gs_photos
+
+                )
+
+                if not _gs_excel_bytes:
+
+                    st.error(
+
+                        "템플릿 파일을 찾지 못해 생성에 "
+                        "실패했습니다."
+
+                    )
+
+                else:
+
+                    st.session_state[
+                        "_gs_excel_bytes"
+                    ] = _gs_excel_bytes
+
+                    safe_append_row(
+
+                        GYEONGSANG_DB_PATH,
+
+                        "경상정비이력",
+
+                        [
+                            datetime.now().strftime(
+                                "%Y-%m-%d %H:%M"
+                            ),
+                            _gs_date,
+                            _gs_worker,
+                            st.session_state[
+                                "_gs_ai_data"
+                            ].get("대상시설", ""),
+                            _gs_std_work,
+                            _gs_keyword,
+                            st.session_state[
+                                "_gs_ai_data"
+                            ].get("상태및원인", ""),
+                            st.session_state[
+                                "_gs_ai_data"
+                            ].get("조치및결과", ""),
+                            st.session_state.user_name
+                        ]
+
+                    )
+
+            if "_gs_excel_bytes" in st.session_state:
+
+                st.download_button(
+
+                    "⬇️ 경상정비 보고서 다운로드",
+
+                    data=st.session_state["_gs_excel_bytes"],
+
+                    file_name=(
+
+                        f"경상정비_결과보고서_{_gs_seq_no}_"
+                        f"{datetime.now().strftime('%Y%m%d')}"
+                        ".xlsx"
+
+                    ),
+
+                    mime=(
+
+                        "application/vnd.openxmlformats-"
+                        "officedocument.spreadsheetml.sheet"
+
+                    ),
+
+                    use_container_width=True,
+
+                    key="gs_report_download_btn"
+
+                )
+
+
+# ============================================================
 # 21. AI 이상징후
 # ============================================================
 
@@ -28392,7 +29100,6 @@ elif st.session_state.page == "보고서":
                             key="download_eff_report_pdf_btn"
 
                         )
-
 
 
 # ============================================================
