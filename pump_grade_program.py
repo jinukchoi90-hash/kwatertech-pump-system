@@ -16202,44 +16202,89 @@ def build_vib_analysis_report_docx(
 
     freq_table_data = ai_data.get("freq_table", {})
 
+    # 설비정보는 원본엔 번호 없는 참고자료라, 있으면 조용히
+    # 붙여둔다 (없어도 무방)
 
     for _comp in ["모터", "펌프"]:
 
-        doc.add_paragraph(
-            f"□ {_comp} 설비정보 · 주파수 분석"
-        ).runs[0].bold = True
+        if images_dict and f"{_comp} 설비정보" in images_dict:
 
-        if images_dict:
+            try:
 
-            for _suffix in ["설비정보", "주파수 분석"]:
+                doc.add_paragraph(
+                    f"<{_comp} 설비정보>"
+                )
 
-                _key = f"{_comp} {_suffix}"
+                _info_p = doc.add_paragraph()
 
-                if _key in images_dict:
+                _info_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-                    try:
+                _info_p.add_run().add_picture(
 
-                        doc.add_paragraph(f"<{_key}>")
+                    io.BytesIO(
+                        images_dict[f"{_comp} 설비정보"]
+                    ),
 
-                        img_p = doc.add_paragraph()
+                    width=Inches(3.0)
 
-                        img_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                )
 
-                        img_p.add_run().add_picture(
+            except Exception:
 
-                            io.BytesIO(images_dict[_key]),
+                pass
 
-                            width=Inches(3.5)
+    doc.add_paragraph("")
 
-                        )
+    doc.add_paragraph(
+        "2. 주파수 분석"
+    ).runs[0].bold = True
 
-                    except Exception:
+    for _comp, _label in [
 
-                        pass
+        ("모터", "모터 베어링 주파수"),
+        ("펌프", "펌프 베어링 주파수")
+
+    ]:
+
+        _key = f"{_comp} 주파수 분석"
+
+        if images_dict and _key in images_dict:
+
+            try:
+
+                doc.add_paragraph(f"<{_label}>")
+
+                img_p = doc.add_paragraph()
+
+                img_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+                img_p.add_run().add_picture(
+
+                    io.BytesIO(images_dict[_key]),
+
+                    width=Inches(3.5)
+
+                )
+
+            except Exception:
+
+                pass
+
+    doc.add_paragraph("")
+
+    doc.add_paragraph(
+        "2-1. 주파수 및 배수 확인"
+    ).runs[0].bold = True
+
+    for _comp in ["모터", "펌프"]:
 
         _freq_rows = freq_table_data.get(_comp, [])
 
         if _freq_rows:
+
+            doc.add_paragraph(
+                f"[{_comp}]"
+            )
 
             freq_table = doc.add_table(rows=1, cols=3)
 
@@ -16265,16 +16310,29 @@ def build_vib_analysis_report_docx(
 
                 )
 
-        doc.add_paragraph("")
+            doc.add_paragraph("")
 
     doc.add_page_break()
+
+    _GROUP_SECTION_TITLE = {
+
+        "펌프 반부하": "진동 측정",
+        "펌프 부하": "상태 확인",
+        "모터 부하": "상태 확인",
+        "모터 반부하": "상태 확인"
+
+    }
 
     for _gi, group_name in enumerate(VA_GROUP_ORDER, start=3):
 
         g = groups.get(group_name, {})
 
+        _section_word = _GROUP_SECTION_TITLE.get(
+            group_name, "상태 확인"
+        )
+
         doc.add_heading(
-            f"{_gi}. {group_name}측 진동 측정",
+            f"{_gi}. {group_name}측 {_section_word}",
             level=2
         )
 
@@ -30800,7 +30858,20 @@ elif st.session_state.page == "업데이트내역":
     CHANGELOG = [
 
         (
+            "v1.9",
+            "2026-09-01",
+            "보고서 자동화 (사진 → AI/OCR 분석 → 완성)",
+            [
+                "축정렬·진동분석·효율진단 3종 보고서, 실제 사업소 양식 그대로 재현",
+                "사진 업로드 → AI가 직접 읽고 판정문까지 작성(API 연동)",
+                "API 없이도 OCR 자동읽기·엑셀업로드·수동입력으로 동일 양식 완성",
+                "휴지통(30일 복원), 백업 알림 배너, 앱 내 매뉴얼 뷰어"
+            ]
+        ),
+
+        (
             "v1.8",
+            "2026-08-28",
             "메뉴 재구성 · 정비 캘린더 · 즐겨찾기 · 체크리스트",
             [
                 "사이드바 메뉴를 업무흐름 기준 5개 그룹으로 재정리",
@@ -30812,6 +30883,7 @@ elif st.session_state.page == "업데이트내역":
 
         (
             "v1.7",
+            "2026-08-23",
             "UI/UX 전면 개선",
             [
                 "회사 공식 마스코트 TEKI 적용 (5개 페이지)",
@@ -30822,6 +30894,7 @@ elif st.session_state.page == "업데이트내역":
 
         (
             "v1.6",
+            "2026-08-18",
             "데이터 안전망 강화",
             [
                 "구글시트 백업/복원 (행개수 자동 검증 포함)",
@@ -30832,6 +30905,7 @@ elif st.session_state.page == "업데이트내역":
 
         (
             "v1.5",
+            "2026-08-11",
             "통합검색 · 보안 강화",
             [
                 "전체 데이터 통합검색 + TF-IDF 의미기반 유사사례 추천",
@@ -30842,6 +30916,7 @@ elif st.session_state.page == "업데이트내역":
 
         (
             "v1.4",
+            "2026-08-04",
             "설계적산 모듈",
             [
                 "일위대가 라이브러리 (실제 산출내역서 기반)",
@@ -30852,6 +30927,7 @@ elif st.session_state.page == "업데이트내역":
 
         (
             "v1.3",
+            "2026-07-29",
             "AI 예측 · LLM 종합의견",
             [
                 "진동 추세 회귀분석 기반 고장예측 (계절성 반영)",
@@ -30862,6 +30938,7 @@ elif st.session_state.page == "업데이트내역":
 
         (
             "v1.2",
+            "2026-07-22",
             "정비효과 · 성과관리",
             [
                 "설비별 총소유비용(TCO) 추적",
@@ -30872,6 +30949,7 @@ elif st.session_state.page == "업데이트내역":
 
         (
             "v1.1",
+            "2026-07-16",
             "데이터 관리 체계화",
             [
                 "설비 마스터를 코드 고정 → 엑셀 DB 기반으로 전환",
@@ -30882,6 +30960,7 @@ elif st.session_state.page == "업데이트내역":
 
         (
             "v1.0",
+            "2026-07-10",
             "기본 CBM 플랫폼",
             [
                 "QR 기반 설비 포털",
@@ -30892,13 +30971,14 @@ elif st.session_state.page == "업데이트내역":
 
     ]
 
-    for version, title, items in CHANGELOG:
+    for version, ver_date, title, items in CHANGELOG:
 
         st.markdown(
 
             f"""
             <div class="platform-card">
-            <div style="display:flex; align-items:center; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px;
+            flex-wrap:wrap;">
                 <span style="background:#087ea4; color:white;
                 font-weight:800; font-size:0.78rem;
                 padding:3px 10px; border-radius:20px;">
@@ -30907,6 +30987,10 @@ elif st.session_state.page == "업데이트내역":
                 <span style="font-weight:800; font-size:1.02rem;
                 color:#0f3552;">
                 {title}
+                </span>
+                <span style="color:#94a3b8; font-size:0.78rem;
+                margin-left:auto;">
+                {ver_date}
                 </span>
             </div>
             <ul style="margin:10px 0 0 0; padding-left:20px;
